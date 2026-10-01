@@ -807,21 +807,110 @@ try {
     await np.screenshot({ path: join(SCREENS, 'notes-format-new.png'), animations: 'disabled' });
   });
 
-  await r.step('pasting brings the text and nothing else', async () => {
-    await bodyOf(np).focus();
-    await np.keyboard.press('Control+End');
-    await np.keyboard.press('Enter');
-    await np.evaluate(() => {
-      const ed = document.getElementById('gkb-board-host').shadowRoot.querySelector('[data-key="note-body"]');
-      const dt = new DataTransfer();
-      dt.setData('text/html', '<b style="color:red">loud</b><img src="x" onerror="window.__pwned = 1">');
-      dt.setData('text/plain', 'pasted one\npasted two');
-      ed.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  // A paste as an application puts it on the clipboard: raw HTML, which
+  // the browser's own clipboard API would tidy first.
+  const pasteData = (p, data) => p.evaluate(d => {
+    const ed = document.getElementById('gkb-board-host').shadowRoot.querySelector('[data-key="note-body"]');
+    const dt = new DataTransfer();
+    for (const [type, value] of Object.entries(d)) dt.setData(type, value);
+    ed.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, data);
+  // The real clipboard and the real keys.
+  const clipboardText = (p, text) => p.evaluate(t => navigator.clipboard.writeText(t), text);
+  await np.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+
+  await r.step('pasting HTML keeps bold, links and nested lists - and nothing else', async () => {
+    await np.locator('[data-key="note-new"]').click();
+    await np.locator('[data-key="note-title"]').fill('Paste test');
+    await np.locator('[data-key="note-title"]').press('Enter');
+    await pasteData(np, {
+      'text/html': '<meta charset="utf-8"><p style="margin: 0px 0px 16px; color: rgb(200, 0, 0); font-size: 30px;">Para with ' +
+        '<b style="color:red">loud</b> and <a href="https://example.com/x" style="color: blue">a link</a></p>' +
+        '<ul><li>one</li><li>two<ul><li>deep</li></ul></li></ul>' +
+        '<img src="x" onerror="window.__pwned = 1"><script>window.__pwned = 2</script><a href="javascript:window.__pwned = 3">no link</a>',
+      'text/plain': 'Para with loud and a link\n\none\ntwo\ndeep',
     });
-    assert.deepEqual((await blocks(np)).slice(-2).map(b => b[3]), ['pasted one', 'pasted two']);
-    assert.equal(await np.locator('.ne-body img').count(), 0);
+    assert.deepEqual(await blocks(np), [
+      ['p', 0, '', 'Para with loud and a link'], ['p', 0, '', ''],
+      ['ul', 0, '', 'one'], ['ul', 0, '', 'two'], ['ul', 1, '', 'deep'], ['p', 0, '', 'no link'],
+    ]);
+    assert.equal(await np.locator('.ne-body b', { hasText: 'loud' }).count(), 1);
+    assert.equal(await np.locator('.ne-body [style], .ne-body img, .ne-body script').count(), 0, 'no styles, images or scripts');
+    assert.equal(await np.locator('.ne-body a', { hasText: 'a link' }).getAttribute('href'), 'https://example.com/x');
+    assert.equal(await np.locator('.ne-body a').count(), 1, 'the javascript: link is text');
     assert.equal(await np.evaluate(() => window.__pwned), undefined);
-    assert.equal(await np.locator('.ne-body b', { hasText: 'loud' }).count(), 0);
+    await np.keyboard.type('!');
+    assert.equal((await blocks(np)).at(-1)[3], 'no link!', 'the caret ends after what was pasted');
+    await np.keyboard.press('Control+s');
+    await savedSoon();
+    const html = await gm('messageHtml', await gm('findMessageBySubject', 'Paste test'));
+    assert.match(html, /Para with <b>loud<\/b> and <a href="https:\/\/example\.com\/x">a link<\/a>/);
+    assert.match(html, /<li[^>]*>two<ul[^>]*><li[^>]*>deep<\/li><\/ul><\/li><\/ul>/);
+  });
+
+  await r.step('pasting in the middle of a line: the rest follows; Ctrl+Z takes the paste back', async () => {
+    await typeLines(np, ['before after']);
+    assert.ok(await selectText(np, 'after'));
+    await np.keyboard.press('ArrowLeft');
+    await pasteData(np, { 'text/html': '<ul><li>x</li><li><i>y</i></li></ul>', 'text/plain': 'x\ny' });
+    assert.deepEqual(await blocks(np), [['p', 0, '', 'before '], ['ul', 0, '', 'x'], ['ul', 0, '', 'y'], ['p', 0, '', 'after']]);
+    await pasteData(np, { 'text/html': '<b>bold</b> words', 'text/plain': 'bold words' });
+    assert.deepEqual((await blocks(np)).slice(2), [['ul', 0, '', 'ybold words'], ['p', 0, '', 'after']], 'one line joins the line it lands in');
+    await np.keyboard.press('Control+z');
+    assert.deepEqual((await blocks(np)).slice(2), [['ul', 0, '', 'y'], ['p', 0, '', 'after']]);
+    await np.keyboard.press('Control+z');
+    assert.deepEqual(await blocks(np), [['p', 0, '', 'before after']], 'and the one before it');
+    await np.keyboard.type('X');
+    assert.deepEqual(await blocks(np), [['p', 0, '', 'before Xafter']], 'with the caret back where it was');
+    // A pasted list lands at the level of the list item it is pasted into.
+    await typeLines(np, ['- item', '']);
+    await np.keyboard.press('Tab');
+    await pasteData(np, { 'text/html': '<ul><li>a<ul><li>b</li></ul></li></ul>', 'text/plain': 'a\nb' });
+    assert.deepEqual(await blocks(np), [['ul', 0, '', 'item'], ['ul', 1, '', 'a'], ['ul', 2, '', 'b']]);
+  });
+
+  await r.step('Markdown becomes formatting, a table its rows; Ctrl+Shift+V pastes the text as it is', async () => {
+    const md = '## Positions\n\nUse **top, bottom, above, front** and *never* ~~left~~.\n\n' +
+      '| Term | Meaning |\n|---|---|\n| **top** | above |\n| front | before |\n\n- [ ] check the PO\n- [x] proofread\n  1. twice';
+    await typeLines(np, ['']);
+    await clipboardText(np, md);
+    await np.keyboard.press('Control+v');
+    assert.deepEqual(await blocks(np), [
+      ['h2', 0, '', 'Positions'], ['p', 0, '', 'Use top, bottom, above, front and never left.'], ['p', 0, '', ''],
+      ['p', 0, '', 'Term | Meaning'], ['p', 0, '', 'top | above'], ['p', 0, '', 'front | before'], ['p', 0, '', ''],
+      ['check', 0, '0', 'check the PO'], ['check', 0, '1', 'proofread'], ['ol', 1, '', 'twice'],
+    ]);
+    assert.deepEqual(await np.locator('.ne-body b').allInnerTexts(), ['top, bottom, above, front', 'Term', 'Meaning', 'top']);
+    assert.equal(await np.locator('.ne-body i').innerText(), 'never');
+    assert.equal(await np.locator('.ne-body s').innerText(), 'left');
+    await np.mouse.move(0, 0);
+    await np.screenshot({ path: join(SCREENS, 'notes-paste-markdown.png'), animations: 'disabled' });
+
+    await typeLines(np, ['']);
+    await np.keyboard.press('Control+Shift+v');
+    const plain = await blocks(np);
+    assert.ok(plain.every(b => b[0] === 'p'), `nothing formatted: ${JSON.stringify(plain)}`);
+    assert.deepEqual(plain.slice(0, 3).map(b => b[3]), ['## Positions', '', 'Use **top, bottom, above, front** and *never* ~~left~~.']);
+    assert.equal(await np.locator('.ne-body b').count(), 0);
+  });
+
+  await r.step('a spreadsheet pastes as rows; a single plain line goes in as typed', async () => {
+    await typeLines(np, ['']);
+    await pasteData(np, {
+      'text/html': '<html><head><style>.xl65{font-weight:700}</style></head><body><table><!--StartFragment--><tr><td class=xl65>Term</td><td class=xl65>Rate</td></tr>' +
+        '<tr><td>Proofreading</td><td x:num>0.04</td></tr><!--EndFragment--></table></body></html>',
+      'text/plain': 'Term\tRate\r\nProofreading\t0.04\r\n',
+    });
+    assert.deepEqual((await blocks(np)).map(b => b[3]), ['Term | Rate', 'Proofreading | 0.04']);
+    await np.keyboard.press('Control+b');
+    await pasteData(np, { 'text/plain': ' bold like the typing' });
+    assert.equal(await np.locator('.ne-body b').textContent(), ' bold like the typing');
+    // One cell, copied: no line break after it, and its spaces as copied.
+    await pasteData(np, {
+      'text/html': '<table><tr><td> cell </td></tr></table>',
+      'text/plain': ' cell \r\n',
+    });
+    assert.equal((await blocks(np)).at(-1)[3], 'Proofreading | 0.04 bold like the typing cell ');
   });
 
   // ── Folders ──

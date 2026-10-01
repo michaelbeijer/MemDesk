@@ -13,7 +13,7 @@ the train and see it on the board later, or look up a note. The leading
 underscore sorts both labels to the top of Gmail's label list. The board and the
 notes editor themselves only exist in desktop Chrome.
 
-Version 0.6.0. Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.7.0. Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies.
 
 ## Install
@@ -172,9 +172,19 @@ your Chrome profile to other computers. All of it is kept per Gmail account.
   turns it into that list or heading. Enter on an empty list item ends the list;
   Backspace at the start of a list item or heading turns it back into text.
   Ctrl-click a link to open it.
-- **Pasting brings text only.** Whatever was copied - a web page, a Word
-  document - arrives as plain lines, so no outside styling, images or scripts
-  come with it.
+- **Pasting keeps the formatting a note can hold.** From Word, Google Docs, a
+  web page or an email: headings, bold, italic, strike-through, links, and
+  bulleted, numbered and check lists (nested, too) come across; fonts, colours,
+  sizes, images and scripts never do. Spreadsheets and tables arrive as one line
+  per row with ` | ` between the cells, heading cells in bold. Paragraphs that
+  had space between them keep an empty line between them. Text written in
+  Markdown - an answer copied from a chat assistant, say - becomes formatting:
+  `**bold**`, `*italic*`, `~~struck~~`, `[links](…)`, `#` headings, `- `,
+  `1. ` and `- [ ]` lists, and `| tables |`. A list pasted into a list item
+  goes in at that item's level, and pasting in the middle of a line carries
+  the rest of the line along after it. **Ctrl+Shift+V** pastes the text alone,
+  exactly as copied. **Ctrl+Z** straight after a paste takes it back (one paste
+  at a time). Dropping text onto a note does nothing.
 
 How it works: a note is a message placed straight into your mailbox with
 `messages.insert`, labelled `_Notes` (and its folder's label, if it is in one)
@@ -354,7 +364,8 @@ src/lib/                   pure logic, shared by content scripts, worker and tes
   auth.js                  auth URL, redirect parsing, API allow-list
   board-logic.js           columns, order merge, move label diffs, summaries, card edits
   notes-logic.js           building and reading note messages, what may be inserted
-  note-format.js           the formatting model: HTML out and back in, plain text
+  note-format.js           the formatting model: HTML out and back in, plain text,
+                           Markdown and pasted HTML in
   search-logic.js          the words in a query, where they occur, excerpts
 src/background/sw.js       OAuth (launchWebAuthFlow) and the Gmail API proxy
 src/content/               classic scripts, in manifest order
@@ -376,9 +387,7 @@ tools/make-icons.mjs       icon generator
 
 - **A to-do view.** One flat list across all columns, oldest first, for days when
   a board is too much.
-- **Pasting with formatting** (next): HTML from Word, web pages and mail through
-  the same reader as notes, and Markdown text turned into formatting.
-- **A panel in the Gmail phone app**, as a private Google Workspace add-on: a new
+- **A panel in the Gmail phone app** (next), as a private Google Workspace add-on: a new
   note, adding to a note, ticking checklist items, moving a note to a folder.
 - **A "Needs reply" column**, computed rather than labelled. It would reuse the
   triage and ranking logic in `supervertaler-stats/src/email.js`

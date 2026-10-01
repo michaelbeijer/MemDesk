@@ -143,7 +143,7 @@ test('Outlook-style spans, headings beyond h3, entities, and things that must no
     '<span style="text-decoration: line-through">gone</span> &rsquo;quote&rsquo; &amp;&nbsp;more</p>' +
     '<script>alert(1)</script><!-- a comment --><p>x<img src="y.png" alt="pic">z</p>' +
     '<p><a href="javascript:alert(1)">not a link</a></p></body></html>';
-  const doc = fmt.parseHtml(html);
+  const doc = fmt.parseHtml(html).filter(b => fmt.docText([b])); // without the space between paragraphs
   assert.equal(doc[0].type, 'h3');
   assert.deepEqual(doc[1].runs, [T('bold', { b: true }), T(' '), T('it', { i: true }), T(' '), T('gone', { s: true }), T(' ’quote’ & more')]);
   assert.equal(fmt.docText([doc[2]]), 'xz');
@@ -170,4 +170,197 @@ test('parts: HTML when there is some, otherwise plain text', () => {
   assert.equal(fmt.docFromParts({ plain: 'ignored', html: '<p><b>x</b></p>' })[0].runs[0].b, true);
   assert.equal(fmt.docText(fmt.docFromParts({ plain: 'line one\nline two', html: '  ' })), 'line one\nline two');
   assert.deepEqual(fmt.docFromParts({}), fmt.emptyDoc());
+});
+
+// ── Pasting ──────────────────────────────────────────────────────────
+
+// [type, level, checked, text with *bold* /italic/ ~struck~ marks]
+const shape = doc => doc.map(b => [b.type, b.level, b.checked, b.runs.map(r =>
+  `${r.b ? '*' : ''}${r.i ? '/' : ''}${r.s ? '~' : ''}${r.text}${r.s ? '~' : ''}${r.i ? '/' : ''}${r.b ? '*' : ''}${r.href ? `<${r.href}>` : ''}`).join('')]);
+
+test('paste from Google Docs: the bold wrapper is not bold, spans say what is, lists nest', () => {
+  const span = (style, text) => `<span style="font-size:11pt;font-family:Arial,sans-serif;color:#000000;background-color:transparent;${style}font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre-wrap;">${text}</span>`;
+  const p = inner => `<p dir="ltr" style="line-height:1.38;margin-top:0pt;margin-bottom:0pt;" role="presentation">${inner}</p>`;
+  const html = '<meta charset="utf-8"><b style="font-weight:normal;" id="docs-internal-guid-4f1c2a7e-7fff-1b2c-9d3e-123456789abc">' +
+    `<h2 dir="ltr" style="line-height:1.38;margin-top:18pt;margin-bottom:6pt;">${span('font-weight:400;font-style:normal;', 'Rates')}</h2>` +
+    p(span('font-weight:700;font-style:normal;', 'Bold') + span('font-weight:400;font-style:normal;', ', plain and ') + span('font-weight:400;font-style:italic;', 'italic')) +
+    '<br>' +
+    `<ul style="margin-top:0;margin-bottom:0;padding-inline-start:48px;"><li dir="ltr" style="list-style-type:disc;" aria-level="1">${p(span('font-weight:400;', 'first'))}</li>` +
+    `<ul style="margin-top:0;margin-bottom:0;"><li dir="ltr" style="list-style-type:circle;" aria-level="2">${p(span('font-weight:400;', 'nested'))}</li></ul></ul>` +
+    `<ol style="margin-top:0;margin-bottom:0;"><li dir="ltr" aria-level="1">${p(span('', 'step'))}</li></ol>` +
+    `<ul><li role="checkbox" aria-checked="true">${p(span('', 'ticked'))}</li><li role="checkbox" aria-checked="false">${p(span('', 'open'))}</li></ul>` +
+    '</b><br class="Apple-interchange-newline">';
+  assert.deepEqual(shape(fmt.pasteDoc({ html, text: 'ignored' })), [
+    ['h2', 0, false, 'Rates'],
+    ['p', 0, false, '*Bold*, plain and /italic/'],
+    ['p', 0, false, ''],
+    ['ul', 0, false, 'first'],
+    ['ul', 1, false, 'nested'],
+    ['ol', 0, false, 'step'],
+    ['check', 0, true, 'ticked'],
+    ['check', 0, false, 'open'],
+  ]);
+});
+
+test('paste from Word: paragraphs are lines, mso-list paragraphs are lists, bullets or numbers', () => {
+  const item = (level, list, marker, text) => `<p class=MsoListParagraphCxSpMiddle style='margin-left:${36 * level}.0pt;mso-add-space:auto;text-indent:-18.0pt;mso-list:${list} level${level} lfo1'>` +
+    `<![if !supportLists]><span style='font-family:Symbol;mso-fareast-font-family:Symbol'><span style='mso-list:Ignore'>${marker}<span style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span></span></span><![endif]>${text}<o:p></o:p></p>\n`;
+  const html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head>' +
+    '<meta name=Generator content="Microsoft Word 15"><style><!-- p.MsoNormal {margin:0cm; font-size:11.0pt;} --></style>' +
+    '<!--[if gte mso 9]><xml><o:OfficeDocumentSettings><o:AllowPNG/></o:OfficeDocumentSettings></xml><![endif]--></head>' +
+    '<body lang=EN-GB style=\'tab-interval:36.0pt\'><!--StartFragment-->' +
+    '<h1>Kestrel<o:p></o:p></h1>\n<p class=MsoNormal><b>Bold</b> and <i>italic</i> and <span style=\'color:red\'>red</span><o:p></o:p></p>\n' +
+    '<p class=MsoNormal><o:p>&nbsp;</o:p></p>\n' +
+    item(1, 'l0', '·', 'Apples') + item(2, 'l0', 'o', 'Green') + item(1, 'l1', '1.', 'First step') + item(1, 'l1', '2.', 'Second step') +
+    item(2, 'l1', 'a.', 'detail') +
+    '<p class=MsoNormal>After<o:p></o:p></p>\n<!--EndFragment--></body></html>';
+  assert.deepEqual(shape(fmt.pasteDoc({ html })), [
+    ['h1', 0, false, 'Kestrel'],
+    ['p', 0, false, '*Bold* and /italic/ and red'],
+    ['p', 0, false, ' '], // Word's empty line is an &nbsp;
+    ['ul', 0, false, 'Apples'],
+    ['ul', 1, false, 'Green'],
+    ['ol', 0, false, 'First step'],
+    ['ol', 0, false, 'Second step'],
+    ['ol', 1, false, 'detail'],
+    ['p', 0, false, 'After'],
+  ]);
+});
+
+test('paste from Excel, or any table: a line per row, " | " between cells, heading cells bold', () => {
+  const excel = '<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta name=ProgId content=Excel.Sheet>' +
+    '<style>.xl65{font-weight:700;}</style></head><body link="#0563C1"><table border=0 cellpadding=0 cellspacing=0 width=128>' +
+    '<!--StartFragment--><col width=64 span=2><tr height=20><td height=20 class=xl65 width=64>Term</td><td class=xl65 width=64>Rate</td></tr>\n' +
+    '<tr height=20><td height=20>Proofreading</td><td align=right x:num>0.04</td></tr>\n<tr><td>Empty</td><td></td><td>third</td></tr>' +
+    '<!--EndFragment--></table></body></html>';
+  const doc = fmt.pasteDoc({ html: excel, text: 'Term\tRate\r\nProofreading\t0.04\r\n' });
+  assert.deepEqual(fmt.docText(doc).split('\n'), ['Term | Rate', 'Proofreading | 0.04', 'Empty | | third']);
+  assert.equal(fmt.hasFormatting(doc), false, 'nothing to format: it goes in as text');
+  assert.deepEqual(shape(fmt.parseHtml('<table><thead><tr><th>Name</th><th>Note</th></tr></thead><tbody><tr><td><b>Sam</b></td><td>ok</td></tr></tbody></table>')), [
+    ['p', 0, false, '*Name* | *Note*'],
+    ['p', 0, false, '*Sam* | ok'],
+  ]);
+});
+
+test('paste from a web page: space under paragraphs, task-list boxes, preformatted lines', () => {
+  const html = '<meta charset="utf-8"><p style="box-sizing: border-box; margin: 0px 0px 16px; color: rgb(31, 35, 40);">Para <strong>one</strong></p>' +
+    '<p style="margin-top: 0px; margin-bottom: 16px;">Para two</p>' +
+    '<ul class="contains-task-list"><li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="" checked=""> shipped</li>' +
+    '<li class="task-list-item"><input type="checkbox" disabled> <em>waiting</em></li></ul>' +
+    '<pre style="padding: 16px;"><code>\nif (x) {\n  y = 2;\n}\n</code></pre><p style="margin: 0">tight</p><p style="margin: 0">lines</p><h2>Heading</h2><p>last</p>';
+  assert.deepEqual(shape(fmt.pasteDoc({ html })), [
+    ['p', 0, false, 'Para *one*'],
+    ['p', 0, false, ''],
+    ['p', 0, false, 'Para two'],
+    ['p', 0, false, ''],
+    ['check', 0, true, 'shipped'],
+    ['check', 0, false, '/waiting/'],
+    ['p', 0, false, 'if (x) {'],
+    ['p', 0, false, '  y = 2;'],
+    ['p', 0, false, '}'],
+    ['p', 0, false, 'tight'],
+    ['p', 0, false, 'lines'],
+    ['h2', 0, false, 'Heading'],
+    ['p', 0, false, 'last'],
+  ]);
+});
+
+test('a note of ours has no space between paragraphs, however its <p>s are styled', () => {
+  assert.deepEqual(fmt.docText(fmt.parseHtml('<div data-gkb-note="1"><p>one</p><p>two</p></div>')), 'one\ntwo');
+  assert.deepEqual(fmt.docText(fmt.parseHtml('<div><p>one</p><p>two</p></div>')), 'one\n\ntwo');
+});
+
+test('paste from a note: the blocks keep their kind, level and box', () => {
+  const html = '<div class="blk" data-type="check" data-level="0" data-checked="1" style="color: rgb(31, 31, 31);">☐ not a glyph</div>' +
+    '<div class="blk" data-type="ul" data-level="1"><b>sub</b></div><div class="blk" data-type="h3">Small</div><div class="blk" data-type="p"><br></div>' +
+    '<div class="blk" data-type="ol" data-level="0">n</div>';
+  assert.deepEqual(shape(fmt.pasteDoc({ html })), [
+    ['check', 0, true, '☐ not a glyph'],
+    ['ul', 1, false, '*sub*'],
+    ['h3', 0, false, 'Small'],
+    ['p', 0, false, ''],
+    ['ol', 0, false, 'n'],
+  ]);
+});
+
+test('Markdown: headings, marks, links, lists, checklists, quotes, code', () => {
+  const md = [
+    '# Title ##', '', 'Some **bold**, __also bold__, *it*, _it too_, ~~gone~~, `code *not italic*` and [a link](https://example.com/x "t").',
+    'An autolink <https://example.org> and \\*escaped\\* stars, snake_case_name, 2 * 3 * 4, file_name.txt.',
+    '', '', '', '## Two', '### Three', '#### Four', '#hashtag',
+    '- one', '', '- two', '  - nested', '    - deeper', '1. first', '   1. sub (three spaces)', '2) second',
+    '* [ ] todo', '- [x] done', '+ plus', '• bullet', '☑ ticked box', '☐ open box',
+    '> quoted', '> > twice', '---', '```js', '  const x = 1;  ', '```', '***', 'end  ', '', '',
+  ].join('\n');
+  assert.deepEqual(shape(fmt.fromMarkdown(md)), [
+    ['h1', 0, false, 'Title'],
+    ['p', 0, false, 'Some *bold*, *also bold*, /it/, /it too/, ~gone~, code *not italic* and a link<https://example.com/x>.'],
+    ['p', 0, false, 'An autolink https://example.org<https://example.org/> and *escaped* stars, snake_case_name, 2 * 3 * 4, file_name.txt.'],
+    ['h2', 0, false, 'Two'],
+    ['h3', 0, false, 'Three'],
+    ['h3', 0, false, 'Four'],
+    ['p', 0, false, '#hashtag'],
+    ['ul', 0, false, 'one'],
+    ['ul', 0, false, 'two'],
+    ['ul', 1, false, 'nested'],
+    ['ul', 2, false, 'deeper'],
+    ['ol', 0, false, 'first'],
+    ['ol', 1, false, 'sub (three spaces)'],
+    ['ol', 0, false, 'second'],
+    ['check', 0, false, 'todo'],
+    ['check', 0, true, 'done'],
+    ['ul', 0, false, 'plus'],
+    ['ul', 0, false, 'bullet'],
+    ['check', 0, true, 'ticked box'],
+    ['check', 0, false, 'open box'],
+    ['p', 0, false, 'quoted'],
+    ['p', 0, false, 'twice'],
+    ['p', 0, false, '  const x = 1;  '],
+    ['p', 0, false, 'end'],
+  ]);
+});
+
+test('Markdown: a table is a line per row, its heading row bold', () => {
+  const md = '| Term | Meaning |\n|:-----|-------:|\n| **top** | above |\n| a \\| b | [c](example.com) |';
+  assert.deepEqual(shape(fmt.fromMarkdown(md)), [
+    ['p', 0, false, '*Term* | *Meaning*'],
+    ['p', 0, false, '*top* | above'],
+    ['p', 0, false, 'a | b | c<https://example.com/>'],
+  ]);
+});
+
+test('Markdown: links only to the web or mail', () => {
+  const [b] = fmt.fromMarkdown('[x](javascript:alert(1)) [y](mailto:sam@example.com) [z](data:text/html,hi)');
+  assert.ok(b.runs.every(r => !r.href || /^(https?|mailto):/.test(r.href)));
+  assert.equal(b.runs.find(r => r.text === 'y').href, 'mailto:sam@example.com');
+  assert.ok(!b.runs.some(r => r.text === 'x' && r.href));
+});
+
+test('what counts as Markdown', () => {
+  for (const s of ['**bold** word', 'a\n- item', '# Title', '| a | b |\n|---|---|', '1. step\n2. step', 'see [this](https://x.com)',
+    'run `npm test`', '~~old~~ new', '> quote', '```\ncode\n```', '• one\n• two', '☐ box']) {
+    assert.equal(fmt.looksLikeMarkdown(s), true, s);
+  }
+  for (const s of ['Just a sentence.', 'Price: 5 * 3 = 15', 'snake_case_name', 'mail a_b@c.com', '2026. A year', 'C:\\Users\\me', '#hashtag', '']) {
+    assert.equal(fmt.looksLikeMarkdown(s), false, s);
+  }
+});
+
+test('what a paste becomes', () => {
+  // HTML with formatting wins.
+  assert.equal(fmt.pasteDoc({ html: '<b>x</b>', text: '**y**' })[0].runs[0].text, 'x');
+  // HTML that adds nothing (a code editor's coloured text) gives way to Markdown in the text.
+  const vscode = '<div style="color: #cccccc;background-color: #1f1f1f;"><div><span style="color: #569cd6;">**bold**</span><span> text</span></div></div>';
+  assert.deepEqual(shape(fmt.pasteDoc({ html: vscode, text: '**bold** text' })), [['p', 0, false, '*bold* text']]);
+  // …but stays when the text is not Markdown either.
+  assert.deepEqual(shape(fmt.pasteDoc({ html: '<p>a</p><p>b</p>', text: 'a\n\nb' })), [['p', 0, false, 'a'], ['p', 0, false, ''], ['p', 0, false, 'b']]);
+  // Plain text is left to the editor.
+  assert.equal(fmt.pasteDoc({ text: 'plain words\nsecond line' }), null);
+  assert.equal(fmt.pasteDoc({ html: '  ', text: '' }), null);
+  assert.equal(fmt.pasteDoc({}), null);
+  // Empty lines at either end go.
+  assert.deepEqual(shape(fmt.pasteDoc({ html: '<div><br></div><div><b>x</b></div><div><br></div><br>' })), [['p', 0, false, '*x*']]);
+  // Nothing dangerous survives.
+  const evil = fmt.pasteDoc({ html: '<b style="color:red">loud</b><img src=x onerror="alert(1)"><script>alert(2)</script><a href="javascript:alert(3)">click</a>' });
+  assert.deepEqual(shape(evil), [['p', 0, false, '*loud*click']]);
 });

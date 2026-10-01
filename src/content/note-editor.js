@@ -15,8 +15,11 @@
 // never this markup: it is read back into the note-format model, which
 // only knows what the toolbar can make.
 //
-// Pasted and dropped text arrives as plain text, so a page copied from
-// the web cannot bring its styles, images or scripts with it.
+// Pasted text keeps the formatting the model can hold - from Word, Google
+// Docs, a web page, an email, Excel, or Markdown from a chat assistant -
+// read by note-format's own reader, so a page copied from the web brings
+// its bold and lists but never its styles, images or scripts. Ctrl+Shift+V
+// pastes the text alone. Dropped text is not taken at all.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -161,6 +164,8 @@
     const els = {};
     let saved = null;     // the last selection inside the editor
     let editable = false;
+    let plainNext = false; // Ctrl+Shift+V: the next paste is text alone
+    let pasteUndo = [];    // how the text was before each formatted paste, latest last
 
     const selection = () => (root.getSelection ? root.getSelection() : document.getSelection());
 
@@ -316,6 +321,7 @@
     }
 
     function changed() {
+      pasteUndo = [];
       tidy();
       onChange();
       refreshToolbar();
@@ -550,6 +556,17 @@
       const r = range();
       const blk = r && blockOf(r.startContainer);
 
+      if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'z' && pasteUndo.length) {
+        e.preventDefault();
+        undoPaste();
+        return;
+      }
+      if (mod && !e.altKey && e.shiftKey && e.key.toLowerCase() === 'v') {
+        // The paste event follows straight away, in this same task.
+        plainNext = true;
+        setTimeout(() => { plainNext = false; }, 0);
+        return;
+      }
       if (mod && !e.altKey && e.shiftKey && /^Digit[789]$/.test(e.code)) {
         e.preventDefault();
         blockType({ Digit7: 'ol', Digit8: 'ul', Digit9: 'check' }[e.code]);
@@ -606,6 +623,10 @@
           if (/^h[123]$/.test(blk.dataset.type)) setBlock(blk, 'p');
         }
       }
+      if (/^delete/.test(e.inputType) && els.editor.children.length === 1 && !els.editor.textContent) {
+        // Everything deleted: the note starts again from normal text.
+        setBlock(els.editor.firstElementChild, 'p');
+      }
       changed();
     });
 
@@ -628,8 +649,20 @@
     els.editor.addEventListener('paste', e => {
       e.preventDefault();
       if (!editable) return;
-      const text = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
-      insertPlain(text);
+      const data = e.clipboardData;
+      const text = (data && data.getData('text/plain')) || '';
+      const plain = plainNext;
+      plainNext = false;
+      const doc = plain ? null : fmt.pasteDoc({ html: data && data.getData('text/html'), text });
+      // Text with nothing to format goes in the way typing does, so the
+      // browser's own undo takes it back: a single line as copied, spaces
+      // and all; more than that as the HTML reads (a table's " | ", not
+      // its tabs).
+      const line = text.replace(/[\r\n]+$/, '');
+      if (doc && fmt.hasFormatting(doc)) insertDoc(doc);
+      else if (doc && !(doc.length === 1 && line && !/[\r\n\t]/.test(line))) insertPlain(fmt.docText(doc));
+      else insertPlain(doc ? line : text);
+      revealCaret();
     });
     els.editor.addEventListener('drop', e => {
       // Dropped HTML would bring its own markup; dropped files have nowhere to go.
@@ -642,6 +675,165 @@
         if (i) document.execCommand('insertParagraph');
         if (line) document.execCommand('insertText', false, line);
       });
+    }
+
+    // ── Formatted paste ──────────────────────────────────────────────────
+    //
+    // The blocks go in directly - the browser's editing commands would
+    // nest and restyle them - with the text after the caret carried to
+    // the end of what was pasted. The browser's undo does not know about
+    // that, so Ctrl+Z straight afterwards puts back a copy taken first -
+    // one paste at a time, until anything else changes the text.
+
+    // Empty text and empty marks left behind by cutting a block in two;
+    // also the <br> that holds an empty block open, put back later if
+    // the block is still empty.
+    function prune(el) {
+      for (const n of [...el.childNodes]) {
+        if (n.nodeType === 3) { if (!n.data) n.remove(); continue; }
+        if (n.nodeType !== 1 || n.tagName === 'BR') { n.remove(); continue; }
+        prune(n);
+        if (!n.firstChild) n.remove();
+      }
+    }
+    const holdOpen = el => { if (!el.firstChild) el.appendChild(document.createElement('br')); };
+
+    function insertDoc(doc) {
+      if (!range()) restore();
+      if (!range()) return;
+      const undo = pasteUndo;
+      const before = snapshot();
+      if (!range().collapsed) document.execCommand('delete');
+      tidy();
+      const r = range();
+      if (!r) return;
+
+      let node = r.startContainer;
+      let offset = r.startOffset;
+      if (node === els.editor) {
+        const kids = els.editor.children;
+        const k = Math.min(offset, kids.length - 1);
+        node = kids[k];
+        offset = k < offset ? node.childNodes.length : 0;
+      }
+      const blk = blockOf(node);
+      if (!blk) return;
+
+      // Cut the block at the caret.
+      const cut = document.createRange();
+      cut.setStart(node, offset);
+      cut.setEnd(blk, blk.childNodes.length);
+      const after = cut.extractContents();
+      prune(after);
+      prune(blk);
+
+      const orig = { type: blk.dataset.type || 'p', level: Number(blk.dataset.level) || 0, checked: blk.dataset.checked === '1' };
+      // Lists pasted into a list go in at its level.
+      const base = fmt.LISTS.has(orig.type) ? orig.level : 0;
+      const levelOf = b => (fmt.LISTS.has(b.type) ? Math.min(fmt.MAX_LEVEL, b.level + base) : 0);
+
+      let last = blk;
+      let i = 0;
+      // The first line joins the text before the caret; on an empty line
+      // it also brings its kind (a heading, a list item) with it.
+      if (doc[0].type === 'p' || !blk.textContent) {
+        if (!blk.textContent && doc[0].type !== 'p') setBlock(blk, doc[0].type, levelOf(doc[0]), doc[0].checked);
+        blk.append(...inlineNodes(doc[0].runs));
+        i = 1;
+      }
+      for (; i < doc.length; i++) {
+        const el = blockEl({ ...doc[i], level: levelOf(doc[i]) });
+        last.after(el);
+        last = el;
+      }
+
+      // The text after the caret follows the pasted text - on a line of
+      // its own kind if the paste ended on a different kind of line.
+      const kind = el => `${el.dataset.type}:${el.dataset.level || 0}`;
+      let target = last;
+      if (after.textContent && last !== blk && kind(last) !== `${orig.type}:${base}`) {
+        target = blockEl(fmt.block(orig.type, [], orig));
+        target.replaceChildren();
+        last.after(target);
+      }
+      prune(last);
+      const at = target === last ? last.childNodes.length : 0;
+      target.append(after);
+      holdOpen(blk);
+      holdOpen(last);
+      holdOpen(target);
+      if (target === last) placeCaret(last, at);
+      else placeCaret(last, last.firstChild.nodeName === 'BR' ? 0 : last.childNodes.length);
+
+      changed();
+      pasteUndo = [...undo.slice(-19), before];
+    }
+
+    // The editor's blocks, and the selection as text offsets within them.
+    function snapshot() {
+      const r = range();
+      return {
+        nodes: [...els.editor.childNodes].map(n => n.cloneNode(true)),
+        start: r && where(r.startContainer, r.startOffset),
+        end: r && where(r.endContainer, r.endOffset),
+      };
+    }
+
+    function where(node, offset) {
+      const kids = [...els.editor.childNodes];
+      if (node === els.editor) {
+        const k = Math.min(offset, kids.length - 1);
+        return k < 0 ? null : { b: k, o: k < offset ? kids[k].textContent.length : 0 };
+      }
+      const blk = blockOf(node);
+      if (!blk) return null;
+      const pre = document.createRange();
+      pre.selectNodeContents(blk);
+      pre.setEnd(node, offset);
+      return { b: kids.indexOf(blk), o: pre.toString().length };
+    }
+
+    function pointAt(p) {
+      const blk = p && els.editor.childNodes[p.b];
+      if (!blk) return null;
+      const walker = document.createTreeWalker(blk, NodeFilter.SHOW_TEXT);
+      let left = p.o;
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (left <= n.data.length) return [n, left];
+        left -= n.data.length;
+      }
+      return [blk, 0];
+    }
+
+    function undoPaste() {
+      const rest = pasteUndo.slice(0, -1);
+      const snap = pasteUndo[pasteUndo.length - 1];
+      els.editor.replaceChildren(...snap.nodes);
+      const a = pointAt(snap.start);
+      const z = pointAt(snap.end);
+      if (a && z) {
+        const back = document.createRange();
+        back.setStart(...a);
+        back.setEnd(...z);
+        select(back);
+      }
+      changed();
+      pasteUndo = rest;
+      revealCaret();
+    }
+
+    // Scrolls the editor, if it has to, to show the caret.
+    function revealCaret() {
+      const r = range();
+      if (!r) return;
+      let at = r.getBoundingClientRect();
+      if (!at.height) {
+        const blk = blockOf(r.startContainer);
+        if (blk) at = blk.getBoundingClientRect();
+      }
+      const box = els.editor.getBoundingClientRect();
+      if (at.bottom > box.bottom - 8) els.editor.scrollTop += at.bottom - box.bottom + 24;
+      else if (at.top < box.top + 8) els.editor.scrollTop -= box.top - at.top + 24;
     }
 
     els.editor.addEventListener('click', e => {
@@ -735,6 +927,7 @@
     // ── API ──────────────────────────────────────────────────────────────
 
     function setDoc(doc) {
+      pasteUndo = [];
       els.editor.replaceChildren(...fmt.normaliseDoc(doc).map(blockEl));
       updateEmpty();
     }

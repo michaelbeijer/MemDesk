@@ -251,10 +251,15 @@
 
   const TOKEN_RE = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<![^>]*>|<\?[^>]*>|<(\/?)([a-zA-Z][a-zA-Z0-9:-]*)((?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*(\/?)>|[^<]+|</g;
   const ATTR_RE = /([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
-  const SKIP = new Set(['script', 'style', 'head', 'title', 'template', 'svg', 'math', 'noscript', 'iframe', 'object']);
+  const SKIP = new Set(['script', 'style', 'head', 'title', 'template', 'svg', 'math', 'noscript', 'iframe', 'object', 'xml']);
   const PARA = new Set(['p', 'div', 'blockquote', 'pre', 'section', 'article', 'header', 'footer', 'main', 'aside',
-    'nav', 'table', 'tbody', 'thead', 'tfoot', 'tr', 'td', 'th', 'center', 'dl', 'dt', 'dd', 'figure', 'figcaption',
-    'form', 'fieldset', 'address', 'hr', 'body', 'html']);
+    'nav', 'table', 'tbody', 'thead', 'tfoot', 'center', 'dl', 'dt', 'dd', 'figure', 'figcaption',
+    'form', 'fieldset', 'address', 'hr', 'body', 'html', 'caption']);
+  // Tags that mark text, and the marks they stand for. span and font
+  // carry theirs in a style attribute, if at all.
+  const INLINE = {
+    b: ['b'], strong: ['b'], i: ['i'], em: ['i'], cite: ['i'], s: ['s'], strike: ['s'], del: ['s'], span: [], font: [],
+  };
   const HEADINGS = { h1: 'h1', h2: 'h2', h3: 'h3', h4: 'h3', h5: 'h3', h6: 'h3' };
 
   function attrsOf(s) {
@@ -278,18 +283,48 @@
     return marks;
   }
 
+  // Whether a browser would show space below a <p>: it does unless its
+  // style says otherwise. Word and Outlook paragraphs (MsoNormal) are
+  // lines, and so are the editor's own and Google Docs'.
+  function paraGap(a) {
+    if (/\bMso/.test(a.class || '')) return false;
+    const style = String(a.style || '').toLowerCase();
+    const zero = v => /^-?0(\.0+)?([a-z]+|%)?$/.test(v || '');
+    const bottom = /(?:^|;)\s*margin-bottom\s*:\s*([^;!]+)/.exec(style);
+    if (bottom) return !zero(bottom[1].trim());
+    const all = /(?:^|;)\s*margin\s*:\s*([^;!]+)/.exec(style);
+    if (all) {
+      const v = all[1].trim().split(/\s+/);
+      return !zero(v.length >= 3 ? v[2] : v[0]);
+    }
+    return true;
+  }
+
   function parseHtml(html) {
     const blocks = [];
     const lists = [];         // open lists: { type, liOpen }
     const marks = { b: 0, i: 0, s: 0 };
     const hrefs = [];
-    const spans = [];         // per open span/font: marks it applied, or 'glyph'
+    const inline = [];        // open inline tags: { name, marks } or { name, glyph: true }
     let skip = 0;
     let glyph = 0;
     let cur = null;
+    let row = null;           // an open table row: { cells, th }
+    let pre = 0;              // inside <pre>: line breaks and spaces are text
+    let para = null;          // the open <p>: { gap }
+    let gap = false;          // a <p> just closed with space below it
+    let ours = false;         // inside a note's own HTML, where paragraphs are lines
 
     const level = () => Math.max(0, lists.length - 1);
     const open = (type, extra) => {
+      // The space a browser shows after a paragraph is an empty line in a
+      // note - which has no space between paragraphs - except before a
+      // heading, which has its own.
+      if (gap) {
+        gap = false;
+        const last = blocks[blocks.length - 1];
+        if (last && !HEADINGS[type] && last.runs.some(r => /\S/.test(r.text))) blocks.push(block('p'));
+      }
       cur = block(type, [], extra);
       blocks.push(cur);
       return cur;
@@ -310,7 +345,34 @@
       const [whole, closing, rawName, rawAttrs, selfClosing] = m;
       if (rawName === undefined) {
         if (whole[0] === '<' && whole.length > 1) continue; // comment, doctype, CDATA
-        if (skip || glyph) continue;
+        if (skip) continue;
+        if (glyph) {
+          // Word's list marker ("·", "1.", "a)"): not text, but it says
+          // whether the list is bulleted or numbered.
+          if (cur && cur.wordList) cur.marker += util.decodeEntities(whole);
+          continue;
+        }
+        if (pre) {
+          // Each line of preformatted text is a line of the note, its
+          // spaces kept (as &nbsp;, which the tidying below leaves alone).
+          let raw = util.decodeEntities(whole).replace(/\r\n?/g, '\n');
+          if (pre.fresh) raw = raw.replace(/^\n/, '');
+          pre.fresh = false;
+          raw.split('\n').forEach((line, k) => {
+            if (k) {
+              end();
+              open('p').preLine = true;
+            }
+            if (!line) return;
+            if (!cur) context();
+            cur.runs.push({
+              text: line.replace(/\t/g, '    ').replace(/ /g, '\u00a0'),
+              b: marks.b > 0, i: marks.i > 0, s: marks.s > 0,
+              href: hrefs.length ? hrefs[hrefs.length - 1] : '',
+            });
+          });
+          continue;
+        }
         const text = util.decodeEntities(whole === '<' ? '<' : whole).replace(/[ \t\r\n\f]+/g, ' ');
         if (!cur) {
           // Only HTML's own whitespace is nothing; an &nbsp; is a space someone typed.
@@ -360,36 +422,132 @@
           // One of ours: its box is in the attribute, and a ☐ at the start
           // of its text is text.
           if (a['data-checked'] !== undefined) cur.ours = true;
+          // A checklist item marked up for screen readers (Google Docs).
+          else if (a['aria-checked'] === 'true' || a['aria-checked'] === 'false') {
+            cur.type = 'check';
+            cur.checked = a['aria-checked'] === 'true';
+            cur.ours = true;
+          }
         }
         else if (top.implied) lists.pop();
         continue;
       }
+      // A table row is one line, its cells separated by " | ": there are
+      // no tables in a note, and this keeps a pasted row readable.
+      // A heading cell is bold, as a browser shows it.
+      const headCell = on => {
+        if (!row || row.th === on) return;
+        row.th = on;
+        marks.b += on ? 1 : -1;
+      };
+      if (name === 'tr') {
+        end();
+        headCell(false);
+        row = isClose ? null : { cells: 0, th: false };
+        continue;
+      }
+      if (name === 'td' || name === 'th') {
+        if (!row) { end(); continue; }
+        headCell(false);
+        if (!isClose && !selfClosing) {
+          if (row.cells > 0) {
+            if (!cur) context();
+            cur.runs.push({ text: ' | ', b: false, i: false, s: false, href: '' });
+          }
+          row.cells++;
+          headCell(name === 'th');
+        }
+        continue;
+      }
+      if (name === 'pre') {
+        end();
+        if (isClose) {
+          // The line break before </pre> ends the last line; it is not one more.
+          const last = blocks[blocks.length - 1];
+          if (last && last.preLine && !last.runs.length) blocks.pop();
+          pre = 0;
+        } else if (!selfClosing) {
+          pre = { fresh: true };
+        }
+        continue;
+      }
+      // A ticked or empty box at the start of a line - a task list on a
+      // web page (GitHub) - makes it a checklist item.
+      if (name === 'input' && String(a.type || '').toLowerCase() === 'checkbox') {
+        if (!cur) context();
+        if (!cur.runs.some(r => /\S/.test(r.text))) {
+          cur.type = 'check';
+          cur.checked = 'checked' in a;
+          cur.ours = true;
+        }
+        continue;
+      }
+      if (name === 'div' && a['data-gkb-note'] !== undefined) ours = true;
+      // A block copied out of a note's editor keeps its kind.
+      if (name === 'div' && !isClose && TYPES.has(a['data-type'])) {
+        end();
+        open(a['data-type'], { level: Number(a['data-level']) || 0, checked: a['data-checked'] === '1' });
+        cur.ours = true;
+        continue;
+      }
+      // Word writes a list as paragraphs styled "mso-list: l0 level1".
+      if (name === 'p' && !isClose) {
+        const wl = /mso-list\s*:\s*l\d+\s+level(\d)/i.exec(a.style || '');
+        if (wl) {
+          end();
+          open('ul', { level: Number(wl[1]) - 1 });
+          cur.wordList = true;
+          cur.marker = '';
+          continue;
+        }
+      }
+      if (name === 'p') {
+        if (para && para.gap) gap = true;
+        para = null;
+        if (!isClose) {
+          const top = lists[lists.length - 1];
+          para = { gap: !ours && !row && !(top && top.liOpen) && paraGap(a) };
+        }
+      }
       if (PARA.has(name)) {
+        // Inside a table cell, or straight inside a list item that has no
+        // text yet (Google Docs wraps every item in a <p>), the line goes on.
+        if (row) continue;
+        if (cur && !cur.runs.length && !isClose) continue;
         end();
         continue;
       }
-      if (name === 'b' || name === 'strong') { if (!selfClosing) marks.b += isClose ? -1 : 1; continue; }
-      if (name === 'i' || name === 'em' || name === 'cite') { if (!selfClosing) marks.i += isClose ? -1 : 1; continue; }
-      if (name === 's' || name === 'strike' || name === 'del') { if (!selfClosing) marks.s += isClose ? -1 : 1; continue; }
       if (name === 'a') {
         if (isClose) hrefs.pop();
         else if (!selfClosing) hrefs.push(safeHref(a.href));
         continue;
       }
-      if (name === 'span' || name === 'font') {
+      if (INLINE[name]) {
         if (selfClosing) continue;
         if (isClose) {
-          const got = spans.pop();
-          if (got === 'glyph') glyph = Math.max(0, glyph - 1);
-          else if (got) apply(got, -1);
-        } else if (a['data-glyph']) {
-          spans.push('glyph');
-          glyph++;
-        } else {
-          const got = styleMarks(a.style);
-          spans.push(got);
-          apply(got, 1);
+          // The innermost open tag of that name - mail is not always tidily nested.
+          for (let k = inline.length - 1; k >= 0; k--) {
+            if (inline[k].name !== name) continue;
+            const [got] = inline.splice(k, 1);
+            if (got.glyph) glyph = Math.max(0, glyph - 1);
+            else apply(got.marks, -1);
+            break;
+          }
+          continue;
         }
+        const style = String(a.style || '').toLowerCase();
+        if (a['data-glyph'] || /mso-list\s*:\s*ignore/.test(style)) {
+          inline.push({ name, glyph: true });
+          glyph++;
+          continue;
+        }
+        let got = [...INLINE[name], ...styleMarks(style)];
+        // Google Docs wraps a whole paste in <b style="font-weight:normal">.
+        if (/font-weight\s*:\s*(normal|lighter|[1-5]00)\b/.test(style)) got = got.filter(x => x !== 'b');
+        if (/font-style\s*:\s*normal/.test(style)) got = got.filter(x => x !== 'i');
+        got = [...new Set(got)];
+        inline.push({ name, marks: got });
+        apply(got, 1);
         continue;
       }
       // Anything else (img, u, sup, code, …): its text is kept, the tag is not.
@@ -408,6 +566,7 @@
         }
         for (const r of runs) r.text = r.text.replace(/ /g, ' ');
       }
+      if (b.wordList && /^\s*(\d+|[a-z]|[ivxlc]+)[.)]\s*$/i.test(b.marker || '')) b.type = 'ol';
       // A check box drawn as text (mail from elsewhere, or a list whose
       // markers were lost) still counts as a check box.
       if (LISTS.has(b.type) && runs.length && !b.ours) {
@@ -422,6 +581,167 @@
     return normaliseDoc(blocks);
   }
 
+  // ── Markdown in ──────────────────────────────────────────────────────
+  //
+  // Text copied from a chat assistant, a README or a Markdown editor
+  // arrives as plain text full of **stars** and "- " lines. The common
+  // part of Markdown becomes formatting; the rest stays as typed.
+
+  function mdInline(src, marks = {}) {
+    const out = [];
+    const s = String(src || '');
+    let buf = '';
+    const flush = () => {
+      if (buf) out.push({ text: buf, ...marks });
+      buf = '';
+    };
+    const nested = (inner, extra) => {
+      flush();
+      out.push(...mdInline(inner, { ...marks, ...extra }));
+    };
+    for (let i = 0; i < s.length;) {
+      const rest = s.slice(i);
+      const prev = i ? s[i - 1] : '';
+      let m;
+      if ((m = /^\\([\\`*_{}[\]()#+\-.!~|>])/.exec(rest))) { buf += m[1]; i += m[0].length; continue; }
+      if ((m = /^`([^`\n]+)`/.exec(rest))) { buf += m[1]; i += m[0].length; continue; }
+      if ((m = /^\[([^\]\n]+)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/.exec(rest))) {
+        const href = safeHref(m[2]);
+        nested(m[1], href ? { href } : {});
+        i += m[0].length;
+        continue;
+      }
+      if ((m = /^<((?:https?:\/\/|mailto:)[^>\s]+)>/.exec(rest))) {
+        flush();
+        const href = safeHref(m[1]);
+        out.push({ text: m[1].replace(/^mailto:/, ''), ...marks, ...(href ? { href } : {}) });
+        i += m[0].length;
+        continue;
+      }
+      if ((m = /^(\*\*|__)(?=\S)([\s\S]*?\S)\1/.exec(rest)) && !(m[1] === '__' && /[\p{L}\p{N}]/u.test(prev))) {
+        nested(m[2], { b: true });
+        i += m[0].length;
+        continue;
+      }
+      if ((m = /^~~(?=\S)([\s\S]*?\S)~~/.exec(rest))) { nested(m[1], { s: true }); i += m[0].length; continue; }
+      if ((m = /^\*(?=[^\s*])([\s\S]*?[^\s*])\*(?!\*)/.exec(rest))) { nested(m[1], { i: true }); i += m[0].length; continue; }
+      if (!/[\p{L}\p{N}_]/u.test(prev) && (m = /^_(?=[^\s_])([\s\S]*?[^\s_])_(?![\p{L}\p{N}_])/u.exec(rest))) {
+        nested(m[1], { i: true });
+        i += m[0].length;
+        continue;
+      }
+      buf += s[i];
+      i++;
+    }
+    flush();
+    return out;
+  }
+
+  // One line of Markdown: what kind of block it is, its indent and text.
+  function mdLine(line) {
+    const [, pad, s] = /^( *)(.*)$/.exec(line);
+    const indent = pad.length;
+    let x;
+    if ((x = /^(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/.exec(s))) return { type: ['h1', 'h2', 'h3'][Math.min(2, x[1].length - 1)], text: x[2] };
+    if ((x = /^[-*+•]\s+\[([ xX])\]\s+(.*)$/.exec(s))) return { type: 'check', checked: x[1] !== ' ', text: x[2], indent };
+    if ((x = /^([☐☑])\s+(.*)$/.exec(s))) return { type: 'check', checked: x[1] === TICKED, text: x[2], indent };
+    if ((x = /^[-*+•]\s+(.*)$/.exec(s))) return { type: 'ul', text: x[1], indent };
+    if ((x = /^\d{1,3}[.)]\s+(.*)$/.exec(s))) return { type: 'ol', text: x[1], indent };
+    if ((x = /^>\s?(.*)$/.exec(s))) return { type: 'p', text: x[1].replace(/^(>\s?)+/, '') };
+    if (/^\|.*\|\s*$/.test(s)) return { type: 'p', cells: s.trim().slice(1, -1).split(/(?<!\\)\|/).map(c => c.trim()) };
+    return { type: 'p', text: s };
+  }
+
+  const MD_RULE = /^\s*([-*_])(\s*\1){2,}\s*$/;
+  const MD_TABLE_RULE = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/;
+
+  function fromMarkdown(text) {
+    const lines = String(text || '').replace(/\r\n?/g, '\n').replace(/\t/g, '    ').split('\n');
+    const out = [];
+    const indents = [];   // the indent of each open list level
+    let fence = false;
+    const last = () => out[out.length - 1];
+    for (const line of lines) {
+      if (/^\s*(```|~~~)/.test(line)) { fence = !fence; continue; }
+      if (fence) { out.push(block('p', [{ text: line }])); continue; }
+      // The |---|---| line under a table's heading row makes that row bold.
+      if (MD_TABLE_RULE.test(line)) {
+        const head = last();
+        if (head && head.table) for (const r of head.runs) if (!r.sep) r.b = true;
+        continue;
+      }
+      if (MD_RULE.test(line)) continue;
+      // One empty line is a gap; more are not, and nor is one beside a
+      // heading, which has space of its own.
+      if (!line.trim()) {
+        if (!out.length || !(fmtBlank(last()) || HEADINGS[last().type])) out.push(block('p'));
+        continue;
+      }
+      const l = mdLine(line.replace(/\s+$/, ''));
+      if (HEADINGS[l.type] && out.length && fmtBlank(last())) out.pop();
+      if (LISTS.has(l.type)) {
+        // A blank line between two items of a list is not a gap in it.
+        if (out.length > 1 && fmtBlank(last()) && LISTS.has(out[out.length - 2].type)) out.pop();
+        while (indents.length && l.indent < indents[indents.length - 1]) indents.pop();
+        if (!indents.length || l.indent > indents[indents.length - 1]) indents.push(l.indent);
+        out.push(block(l.type, mdInline(l.text), { level: indents.length - 1, checked: l.checked }));
+        continue;
+      }
+      indents.length = 0;
+      if (l.cells) {
+        const runs = [];
+        l.cells.forEach((c, k) => {
+          if (k) runs.push({ text: ' | ', sep: true });
+          runs.push(...mdInline(c.replace(/\\\|/g, '|')));
+        });
+        const b = block('p', runs);
+        b.table = true;
+        out.push(b);
+        continue;
+      }
+      out.push(block(l.type, mdInline(l.text.trim())));
+    }
+    while (out.length > 1 && fmtBlank(last())) out.pop();
+    while (out.length > 1 && fmtBlank(out[0])) out.shift();
+    return normaliseDoc(out);
+  }
+
+  const fmtBlank = b => b.type === 'p' && !b.runs.some(r => r.text.trim());
+
+  // Whether plain text is worth reading as Markdown: a heading, list,
+  // quote, table or code line, or bold, struck, linked or code text.
+  function looksLikeMarkdown(text) {
+    const s = String(text || '');
+    return /^ {0,3}(#{1,6}\s+\S|[-*+•]\s+\S|[☐☑]\s+\S|\d{1,3}[.)]\s+\S|>\s|```)/m.test(s) ||
+      /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/m.test(s) ||
+      /\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|\[[^\]\n]+\]\([^)\s]+\)|`[^`\n]+`/.test(s);
+  }
+
+  // ── Pasting ──────────────────────────────────────────────────────────
+
+  // Whether a document has anything plain text would not: a heading, a
+  // list, a mark or a link.
+  function hasFormatting(doc) {
+    return doc.some(b => b.type !== 'p' || b.runs.some(r => r.b || r.i || r.s || r.href));
+  }
+
+  // What a paste becomes: the clipboard's HTML, read like mail; or, when
+  // that brings no formatting and the text is Markdown (from a chat
+  // assistant, say), the Markdown read as formatting. Empty lines at
+  // either end go. null means there is nothing to format: the text is
+  // pasted as it is.
+  function pasteDoc({ html, text } = {}) {
+    let doc = html && /\S/.test(html) ? parseHtml(html) : null;
+    if (doc && isEmpty(doc)) doc = null;
+    if ((!doc || !hasFormatting(doc)) && looksLikeMarkdown(text)) doc = fromMarkdown(text);
+    if (!doc) return null;
+    let i = 0;
+    let j = doc.length;
+    while (i < j && fmtBlank(doc[i])) i++;
+    while (j > i && fmtBlank(doc[j - 1])) j--;
+    return i < j ? doc.slice(i, j) : null;
+  }
+
   // The note's content from its message parts: HTML when there is any,
   // the plain text otherwise.
   function docFromParts({ plain, html } = {}) {
@@ -432,7 +752,7 @@
   const api = {
     TYPES, LISTS, MAX_LEVEL,
     block, emptyDoc, normaliseRuns, normaliseDoc, docText, isEmpty, safeHref,
-    toHtml, toPlain, fromPlain, parseHtml, docFromParts,
+    toHtml, toPlain, fromPlain, parseHtml, docFromParts, fromMarkdown, looksLikeMarkdown, hasFormatting, pasteDoc,
   };
 
   ns.noteFormat = api;
