@@ -1,0 +1,267 @@
+# Supermail
+
+A Kanban board inside Gmail, for one person, backed entirely by Gmail labels.
+
+Every card is a Gmail thread and every column is a Gmail label (`Board/To do`,
+`Board/Doing`, `Board/Waiting` and `Board/Done` to start with). Moving a card
+moves the label. There is no separate database and no server: the board is a
+view of your mailbox. Because the columns are ordinary labels, they show up in
+the Gmail app on your phone too, so you can file a thread from the train and see
+it on the board later. The board itself only exists in desktop Chrome.
+
+Version 0.1.0. Plain JavaScript, Manifest V3, no build step and no runtime
+dependencies.
+
+## Install
+
+1. Open `chrome://extensions` and switch on **Developer mode**.
+2. Click **Load unpacked** and choose this folder.
+3. The setup page opens. Do the one-time Google setup below.
+4. Reload any Gmail tabs that were already open.
+
+The manifest carries a public `key`, so the extension ID is the same on every
+install of this folder:
+
+| | |
+|---|---|
+| Extension ID | `lfeogecmdohgofbifobhkolapmjikdih` |
+| Redirect URI | `https://lfeogecmdohgofbifobhkolapmjikdih.chromiumapp.org/` |
+
+The matching private key is not in the repository and is not needed to load the
+extension. It only matters if you ever pack a `.crx`.
+
+## One-time Google setup
+
+The extension calls the Gmail API directly from your browser with a short-lived
+token. It needs one OAuth client to do that.
+
+### Reusing the dashboard's Cloud project (recommended)
+
+The Google Cloud project you set up for the dashboard (see `EMAIL-SETUP.md` in
+supervertaler-stats) already has the Gmail API enabled and an **Internal**
+consent screen. You only need one new OAuth client:
+
+1. Open [APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials)
+   in that project and choose **Create credentials → OAuth client ID**, with
+   application type **Web application**. The dashboard's client is a *Desktop
+   app*, which cannot use a `chromiumapp.org` redirect, hence a second one.
+2. Under **Authorised redirect URIs**, add
+   `https://lfeogecmdohgofbifobhkolapmjikdih.chromiumapp.org/`
+3. Create it, open the extension's setup page, paste the **Client ID** and press
+   **Save**. No client secret is needed: the browser flow does not use one.
+4. Optional: under **Google Auth Platform → Data access**, add the
+   `https://www.googleapis.com/auth/gmail.modify` scope. With an Internal app this
+   is documentation rather than a requirement, but it keeps the consent screen's
+   list honest.
+
+Then press **Test connection** on the setup page. Google asks you to choose an
+account, and the page should say "Connected as …".
+
+The token request asks for `gmail.modify` alone, with
+`include_granted_scopes=false`. Google treats every client in a project as one
+app, so incremental auth would also fold the dashboard's `gmail.metadata` grant
+into this token. Gmail then applies metadata-scope rules to the whole token, and
+search (`q=`) stops working.
+
+### Starting from a fresh project instead
+
+1. Create a project at [console.cloud.google.com](https://console.cloud.google.com/).
+2. **APIs & Services → Library → Gmail API → Enable**.
+3. Configure the OAuth consent screen with user type **Internal**. This is only
+   available on Google Workspace accounts. It avoids Google's verification review
+   for a restricted scope and the seven-day token limit of "Testing" mode.
+4. Follow steps 1 to 4 above.
+
+## Usage
+
+- **Open the board** with the **Board** button at the bottom left of Gmail, the
+  toolbar icon, or **Alt+Shift+K**. Change the shortcut at
+  `chrome://extensions/shortcuts`. Press **Esc** to close it.
+- The first time you open it, the board creates any column labels that are
+  missing, plus their parent (`Board`) so Gmail nests them in the sidebar.
+- **Drag** a card to another column, or within a column to reorder it. A
+  placeholder shows where it will land.
+- Each card's **⋯** menu offers the same actions without a mouse: Open in Gmail,
+  Move to another column, and Remove from board.
+- **Click** a card to open the thread in Gmail. Ctrl-click or middle-click opens
+  it in a new tab.
+- The **+** on a column opens a search box that takes Gmail search syntax
+  (`from:anna is:unread`). Leave it empty to list your Inbox. Click a result to
+  add it to that column.
+- **Done** archives on drop: moving a thread there also takes it out of the
+  Inbox. You can switch this on or off for any column.
+- The **columns button** in the header adds, renames, reorders and removes
+  columns. Renaming a label there renames the Gmail label itself, so the mail
+  filed under it stays put. Removing a column only takes it off the board. The
+  Gmail label and its mail are left untouched.
+- While you are reading a thread, a second button appears next to **Board**:
+  **Add to board ▾**, or **On board: Doing ▾** if the thread is already on the
+  board. Its menu files the thread without opening the board.
+- Cards show the subject, the latest sender ("me" if it was you), how long ago
+  the latest message arrived, two lines of the snippet, a message count, a star
+  for starred threads, and bold text with a dot for unread ones.
+- The board refreshes when you open it if what it shows is more than a minute
+  old, and whenever you press the refresh button. Each column loads up to 100
+  threads and says so when there are more.
+- The setup page can move the buttons to the bottom right or hide them.
+
+Card order within each column is stored in this browser (`storage.local`). The
+column layout is stored in `storage.sync`, so it follows your Chrome profile to
+other computers. Both are kept per Gmail account.
+
+## Privacy
+
+- **There is no server.** The extension talks only to `gmail.googleapis.com`,
+  from your browser.
+- **The access token lives only in this browser's session storage**
+  (`chrome.storage.session`). It is held in memory, is not readable by the Gmail
+  page or by the content scripts, and is gone when Chrome closes. The implicit
+  grant issues no refresh token, so nothing long-lived exists anywhere. Tokens
+  last an hour and are renewed silently while you are signed in to Google.
+- **What the scope allows.** `gmail.modify` is broad. It permits reading mail
+  (including message bodies), changing labels, archiving, moving to Trash, and
+  technically sending mail. It does **not** permit permanent deletion; that
+  needs the full `https://mail.google.com/` scope.
+- **What this code does.** It reads thread metadata (subject, sender, date,
+  label ids and Gmail's snippet), creates and renames labels, and adds or
+  removes labels on threads, including `INBOX` when archiving. It **never sends
+  and never deletes**, and never moves anything to Trash or Spam. The background
+  worker enforces this with an allow-list: any other Gmail API call, any
+  `DELETE`, and any attempt to add `TRASH` or `SPAM` is refused before a token
+  is even fetched.
+- Every token is checked against Gmail's own profile before use. If Google
+  signs in a different account from the one in the Gmail tab, the token is
+  discarded and the board says so, rather than acting on the wrong mailbox.
+
+## Known fragile points
+
+These depend on Gmail's page rather than on a documented interface. All of them
+live in `src/content/gmail-hooks.js`, and each fails quietly.
+
+- **Account detection** reads the address out of `document.title`
+  ("Inbox (3) - you@example.com - Gmail"), falling back to the aria-label of the
+  `Google Account` avatar link. If Gmail changes both, the board says it cannot
+  tell which account the tab belongs to.
+- **The open thread** is read from the `data-legacy-thread-id` attribute on the
+  conversation's subject heading, polled once a second while the tab is visible.
+  If Gmail drops the attribute, the "Add to board" button simply stops
+  appearing. Everything else keeps working.
+- **Opening a thread** sets `location.hash` to `#all/<threadId>`, using the
+  legacy hex id the API returns. Gmail currently accepts these and redirects to
+  its newer ids.
+- **Gmail's keyboard shortcuts** are kept out of the board's text boxes by
+  stopping key events at the shadow host. If Gmail ever listens for keys in the
+  capture phase, typing in the search box could trigger them.
+- The **implicit grant** (`response_type=token`) still works for Web
+  application clients, but Google discourages it. If it is ever retired, the
+  fix is authorisation code with PKCE in the same `launchWebAuthFlow` call.
+
+None of these, nor real OAuth, can be exercised outside real Gmail. The tests
+below cover everything else.
+
+## Renaming
+
+The display name appears in exactly these places:
+
+1. `manifest.json`: `"name"`
+2. `manifest.json`: `"action"."default_title"`
+3. `src/shared/ns.js`: `APP_NAME`
+4. `README.md`: the title
+5. The setup page title. It is set from `APP_NAME` at runtime, so no edit is needed.
+
+Nothing internal carries the name: not the `gkb` namespace, the storage keys
+(`clientId`, `columns:<email>`, `order:<email>`), the CSS classes or the element
+ids. A rename therefore leaves stored data, the extension ID (derived from the
+`key`) and the redirect URI unchanged. `tests/static.test.js` fails if the name
+turns up anywhere else. The app name on the Cloud consent screen is set
+separately in the Cloud console.
+
+## Running the tests
+
+Unit tests (Node 18 or later, no installs):
+
+```bash
+npm test                      # same as: node --test tests/*.test.js
+```
+
+These cover auth URL building and redirect parsing, the proxy's allow-list,
+order merging, the label arithmetic for moves, entity decoding, address parsing,
+account-from-title detection, relative dates, and static checks on the source:
+no HTML-string sinks, the name only in the rename spots, and the preview's
+script list matching the manifest. Node 22's runner does not accept a bare
+directory (`node --test tests/`), so the glob form is used. Node expands it
+itself, so it works on Windows too.
+
+Browser checks use `playwright-core`, which is deliberately not a dependency.
+Either install it without saving it (`node_modules/` is gitignored), or point
+`PLAYWRIGHT_CORE` at an existing copy:
+
+```bash
+npm i --no-save playwright-core
+npm run test:preview          # (a) content scripts against a fake Gmail
+npm run test:extension        # (b) the real unpacked extension
+```
+
+- `CHROMIUM_PATH` chooses the browser. It must be full Chromium, because
+  `chrome-headless-shell` cannot load extensions. Otherwise
+  `/opt/pw-browsers/chromium-*` is used if present, and then Playwright's own
+  download.
+- `SCREENS_DIR` is where screenshots go. The default is a folder in the system
+  temp directory.
+- (a) loads `dev/preview.html` under Trusted Types and drives it: drag between
+  and within columns, the ⋯ menu, search-add, column settings, Esc, the dock
+  button, dark mode, the connect and setup states, a failing move, and label
+  creation. It checks the fake mailbox's labels after each step.
+- (b) starts Chromium with `--load-extension`. It tries new headless first and
+  falls back to `xvfb-run` if the service worker does not appear. It checks the
+  worker, the extension ID, the setup page, the allow-list, and that the content
+  scripts inject into a stand-in `mail.google.com` page and reach the worker.
+
+### Dev preview
+
+Open `dev/preview.html` straight from disk in Chrome. It runs the real content
+scripts against a fake `chrome.*` and an in-memory mailbox of about 25 invented
+threads. A strip at the top toggles an open thread, sends the shortcut, and
+switches between states: `?state=auth_required`, `?state=not_configured`,
+`?fail=modify`, `?fresh` (no labels yet), `?page=3` (truncated columns) and
+`?latency=600`.
+
+### Icons
+
+`node tools/make-icons.mjs` redraws `icons/icon-*.png` from code, with a tiny
+PNG encoder and no image library.
+
+## Layout
+
+```
+manifest.json
+src/shared/ns.js           namespace, APP_NAME, storage keys
+src/lib/                   pure logic, shared by content scripts, worker and tests
+  util.js                  entities, addresses, account detection, dates, pool
+  auth.js                  auth URL, redirect parsing, API allow-list
+  board-logic.js           columns, order merge, move label diffs, summaries
+src/background/sw.js       OAuth (launchWebAuthFlow) and the Gmail API proxy
+src/content/               classic scripts, in manifest order
+  gmail-hooks.js           every assumption about Gmail's page
+  api.js, store.js         messaging and the shared data layer
+  ui.js, styles.js         DOM builder, icons, menus, toasts, shadow hosts
+  board.js, dock.js        the board overlay and the corner buttons
+  main.js                  wiring
+src/options/               setup page
+dev/                       preview page and fake Gmail
+tests/                     unit tests; tests/e2e/ browser checks
+tools/make-icons.mjs       icon generator
+```
+
+## Roadmap
+
+- **A to-do view.** One flat list across all columns, oldest first, for days when
+  a board is too much.
+- **Notes on cards**, stored as messages inserted into your own mailbox with
+  `messages.insert` under a `Notes` label and linked to the thread. They stay in
+  Gmail, sync everywhere, and still need no server. This needs `messages.insert`
+  added to the worker's allow-list.
+- **A "Needs reply" column**, computed rather than labelled. It would reuse the
+  triage and ranking logic in `supervertaler-stats/src/email.js`
+  (`classifyBulk`, `scoreThread`): threads whose newest message is inbound and
+  not bulk mail, ranked by who is waiting and for how long.
