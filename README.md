@@ -13,7 +13,7 @@ the train and see it on the board later, or look up a note. The leading
 underscore sorts both labels to the top of Gmail's label list. The board and the
 notes editor themselves only exist in desktop Chrome.
 
-Version 0.5.0. Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.6.0. Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies.
 
 ## Install
@@ -141,6 +141,16 @@ your Chrome profile to other computers. All of it is kept per Gmail account.
   `_Notes/Work/Clients` - so the same tree shows in Gmail's label list on the
   phone.
 - The list in the middle shows your notes, newest first, with their first lines.
+- **Search** shows where the words are. While a search is on, each result shows
+  short excerpts around its matches with the words highlighted, and how many
+  matches it has; words in titles are highlighted too. Case and accents do not
+  matter ("cafe" finds "Café"), a word matches at the start of a word ("gloss"
+  finds "glossary"), and "a phrase in quotes" matches as a phrase. Gmail still
+  does the finding - operators like `from:` or `before:` work, they are just
+  not highlighted. Open a result and every match in the note is highlighted,
+  without touching its text: a bar above the title says "2 of 5", and its
+  arrows, F3 and Shift+F3 step through them. The ✕ on that bar clears the
+  search.
   The **search box** above it runs Gmail's own search inside your notes, so it
   finds words anywhere in a note and takes Gmail syntax (`before:2026/09/01`).
   **New** starts a note.
@@ -345,6 +355,7 @@ src/lib/                   pure logic, shared by content scripts, worker and tes
   board-logic.js           columns, order merge, move label diffs, summaries, card edits
   notes-logic.js           building and reading note messages, what may be inserted
   note-format.js           the formatting model: HTML out and back in, plain text
+  search-logic.js          the words in a query, where they occur, excerpts
 src/background/sw.js       OAuth (launchWebAuthFlow) and the Gmail API proxy
 src/content/               classic scripts, in manifest order
   gmail-hooks.js           every assumption about Gmail's page
@@ -365,9 +376,8 @@ tools/make-icons.mjs       icon generator
 
 - **A to-do view.** One flat list across all columns, oldest first, for days when
   a board is too much.
-- **Search results with highlighting** (next): while searching, excerpts around
-  every match with the words highlighted, and inside an opened note every match
-  highlighted with "2 of 5" stepping between them.
+- **Pasting with formatting** (next): HTML from Word, web pages and mail through
+  the same reader as notes, and Markdown text turned into formatting.
 - **A panel in the Gmail phone app**, as a private Google Workspace add-on: a new
   note, adding to a note, ticking checklist items, moving a note to a folder.
 - **A "Needs reply" column**, computed rather than labelled. It would reuse the

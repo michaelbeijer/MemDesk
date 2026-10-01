@@ -60,6 +60,9 @@
   --c-blue: #1a73e8;
   --c-purple: #9334e6;
   --c-grey: #80868b;
+  --mark: #fde293;
+  --mark-current: #f9ab00;
+  --on-mark-current: #1f1f1f;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -97,6 +100,9 @@
     --c-blue: #8ab4f8;
     --c-purple: #c58af9;
     --c-grey: #9aa0a6;
+    --mark: #6b5800;
+    --mark-current: #fdd663;
+    --on-mark-current: #1f1f1f;
   }
 }
 
@@ -752,6 +758,36 @@ button:disabled { cursor: default; }
 }
 .ne-folder span { overflow: hidden; text-overflow: ellipsis; }
 .ne-folder:hover { background: var(--hover); color: var(--fg); }
+/* Search: the words marked in results, and in the open note. */
+mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1px; }
+.ni-excerpts { display: block; margin-top: 3px; }
+.ni-excerpt {
+  display: block;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--fg-3);
+  overflow-wrap: anywhere;
+}
+.ni-excerpt + .ni-excerpt { margin-top: 3px; }
+.ni-excerpt mark, .ni-snippet mark, .ni-title mark { color: var(--fg); }
+.ni-hits { font-size: 11px; color: var(--accent); font-weight: 500; }
+::highlight(gkb-match) { background-color: var(--mark); }
+::highlight(gkb-match-current) { background-color: var(--mark-current); color: var(--on-mark-current); }
+.ne-find {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 20px 0;
+  padding: 2px 4px 2px 12px;
+  border-radius: 12px;
+  background: var(--col);
+  color: var(--fg-2);
+  font-size: 13px;
+  flex: none;
+}
+.ne-find .find-words { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+.ne-find .find-pos { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ne-find .icon-btn { width: 32px; height: 32px; }
 .notes-empty { padding: 24px 12px; text-align: center; font-size: 13px; color: var(--fg-3); }
 .notes-empty p { margin: 0 0 8px; }
 .notes-foot { flex: none; padding: 8px 16px 12px; font-size: 12px; color: var(--fg-3); }

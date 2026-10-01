@@ -580,6 +580,65 @@ try {
     await p.context().close();
   });
 
+  await r.step('search results mark the words, with excerpts and a count per note', async () => {
+    const search = np.locator('[data-key="notes-search"]');
+    await search.fill('coating');
+    await until(async () => JSON.stringify(await noteTitles()) === JSON.stringify(['Kestrel glossary decisions']), 'one hit');
+    await until(async () => (await np.locator('.note-item .ni-hits').count()) === 1, 'excerpts in');
+    assert.equal(await np.locator('.note-item .ni-hits').innerText(), '3 matches');
+    assert.deepEqual(await np.locator('.note-item .ni-excerpt mark').allInnerTexts(), ['coating', 'coating', 'coating']);
+
+    await search.fill('kestrel');
+    await until(async () => (await noteTitles()).length === 2, 'two hits');
+    await until(async () => (await np.locator('.note-item .ni-hits').count()) === 2, 'excerpts in');
+    assert.equal(await np.locator('.note-item', { hasText: 'Kestrel glossary' }).locator('.ni-title mark').innerText(), 'Kestrel',
+      'matches in titles are marked too');
+    assert.ok((await np.locator('.note-item', { hasText: 'Launch checklist' }).locator('.ni-excerpt').innerText()).includes('Deliver to Kestrel'));
+
+    await search.fill('cafe');
+    await until(async () => (await np.locator('.note-item .ni-title mark').allInnerTexts()).includes('Café'), 'accents ignored');
+  });
+
+  await r.step('the open note highlights every match; F3 and the arrows step through them', async () => {
+    const search = np.locator('[data-key="notes-search"]');
+    await search.fill('coating');
+    await until(async () => JSON.stringify(await noteTitles()) === JSON.stringify(['Kestrel glossary decisions']), 'one hit');
+    await np.locator('.note-item', { hasText: 'Kestrel glossary' }).click();
+    await bodyReady(np, /decimal commas/, 'loaded');
+    const pos = () => np.locator('.ne-find .find-pos').innerText();
+    const highlights = () => np.evaluate(() => ({
+      all: CSS.highlights.has('gkb-match') ? CSS.highlights.get('gkb-match').size : 0,
+      current: CSS.highlights.has('gkb-match-current') ? [...CSS.highlights.get('gkb-match-current')][0].toString() : '',
+    }));
+    await until(async () => (await pos()) === '1 of 3', 'first of three');
+    assert.deepEqual(await highlights(), { all: 3, current: 'coating' });
+    assert.equal(await np.locator('.ne-body mark').count(), 0, 'nothing added to the text itself');
+    await np.mouse.move(0, 0);
+    await np.screenshot({ path: join(SCREENS, 'notes-search.png'), animations: 'disabled' });
+
+    await np.locator('[data-key="find-next"]').click();
+    assert.equal(await pos(), '2 of 3');
+    await np.keyboard.press('F3');
+    assert.equal(await pos(), '3 of 3');
+    await np.keyboard.press('F3');
+    assert.equal(await pos(), '1 of 3', 'wraps round');
+    await np.keyboard.press('Shift+F3');
+    assert.equal(await pos(), '3 of 3');
+
+    // Typing keeps the highlights up to date.
+    await bodyOf(np).click();
+    await np.keyboard.press('Control+End');
+    await np.keyboard.type(' and more coating');
+    await until(async () => (await highlights()).all === 4, 'the new match is highlighted');
+
+    await np.locator('[data-key="find-clear"]').click();
+    await until(async () => (await noteTitles()).length > 1, 'search cleared');
+    assert.equal(await search.inputValue(), '');
+    assert.equal(await np.locator('.ne-find').count(), 0);
+    assert.deepEqual(await highlights(), { all: 0, current: '' });
+    await savedSoon();
+  });
+
   await r.step('an emailed note keeps its list, and editing it makes it a note of ours', async () => {
     const origId = await gm('findMessageBySubject', 'Shopping list');
     await np.locator(`.note-item[data-note="m:${origId}"]`).click();

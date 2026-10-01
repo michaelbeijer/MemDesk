@@ -20,6 +20,11 @@
   const { h, icon, toast, openMenu } = ns.ui;
   const { util, notesLogic, notesStore, hooks, api } = ns;
   const fmt = ns.noteFormat;
+  const searchLogic = ns.searchLogic;
+
+  // How many search results get excerpts at once. Each needs the note's
+  // full text, which is one more request the first time.
+  const EXCERPT_LIMIT = 30;
 
   // Long enough not to save mid-sentence (each save is a new message and
   // a trashed old one), short enough that little is at risk.
@@ -41,10 +46,14 @@
     folder: '',         // the folder shown; '' for all notes
     folderEdit: null,   // { mode: 'new' | 'rename', parentId, folderId, value, error, busy }
     dragKey: '',        // the note being dragged onto a folder
+    terms: [],          // searchLogic.queryTerms() of the search that is showing
+    hits: new Map(),    // `${messageId}|${terms}` → { count, excerpts }
+    findIndex: 0,       // which match in the open note is the current one
   };
 
   let saveTimer = 0;
   let searchTimer = 0;
+  let findTimer = 0;
   const els = {};
 
   // ── Setup ────────────────────────────────────────────────────────────
@@ -130,6 +139,9 @@
         N.notes = r.notes;
         N.truncated = r.truncated;
         N.folders = r.folders || [];
+        const terms = searchLogic.queryTerms(query);
+        if (JSON.stringify(terms) !== JSON.stringify(N.terms)) N.findIndex = 0;
+        N.terms = terms;
         // The folder shown was deleted or renamed away in Gmail.
         if (N.folder && !N.folders.some(f => f.id === N.folder)) N.folder = '';
         N.status = 'ready';
@@ -152,6 +164,8 @@
         drawList();
         drawFoot();
         if (N.current) drawBar();
+        applyHighlights();
+        fetchHits();
         N.ctx.barChanged();
       }
     })();
@@ -225,10 +239,11 @@
         onclick: () => openNote(n),
       },
         h('span', { class: 'ni-top' },
-          h('span', { class: 'ni-title', text: n.title }),
+          h('span', { class: 'ni-title' }, marked(n.title)),
           h('span', { class: 'date', text: util.relativeDate(n.updated), title: util.fullDate(n.updated) })),
-        n.snippet ? h('span', { class: 'ni-snippet', text: n.snippet }) : null,
+        itemPreview(n),
         h('span', { class: 'ni-meta' },
+          hitCount(n),
           !N.folder && n.folderId ? h('span', { class: 'ni-folder' }, icon('folder', 14), folderLabel(n.folderId)) : null,
           n.own ? null : h('span', { class: 'ni-mail', text: 'From an email' })));
       item.addEventListener('dragstart', e => {
@@ -246,6 +261,136 @@
     }));
   }
 
+  // ── Search results ───────────────────────────────────────────────────
+  //
+  // Gmail finds the notes; these show where the words are. Each result
+  // gets excerpts around its matches once its text is in, with the words
+  // marked. Until then - or if Gmail matched something the words do not
+  // show, such as a stemmed form - it shows Gmail's own snippet.
+
+  const termsKey = () => JSON.stringify(N.terms);
+
+  // Text with the search words wrapped in <mark>, built from text nodes.
+  function marked(text, marks) {
+    const s = String(text || '');
+    const m = marks || (N.terms.length ? searchLogic.findMatches(s, N.terms) : []);
+    if (!m.length) return s;
+    const out = [];
+    let at = 0;
+    for (const { start, end } of m) {
+      if (start > at) out.push(s.slice(at, start));
+      out.push(h('mark', { text: s.slice(start, end) }));
+      at = end;
+    }
+    if (at < s.length) out.push(s.slice(at));
+    return out;
+  }
+
+  function itemPreview(n) {
+    const hit = N.terms.length ? N.hits.get(`${n.messageId}|${termsKey()}`) : null;
+    if (hit && hit.excerpts.length) {
+      return h('span', { class: 'ni-excerpts' }, hit.excerpts.map(ex => h('span', { class: 'ni-excerpt' },
+        ex.cutBefore ? '\u2026' : '', marked(ex.text, ex.marks), ex.cutAfter ? '\u2026' : '')));
+    }
+    return n.snippet ? h('span', { class: 'ni-snippet' }, marked(n.snippet)) : null;
+  }
+
+  function hitCount(n) {
+    if (!N.terms.length) return null;
+    const hit = N.hits.get(`${n.messageId}|${termsKey()}`);
+    if (!hit) return null;
+    return h('span', { class: 'ni-hits', text: `${hit.count} ${hit.count === 1 ? 'match' : 'matches'}` });
+  }
+
+  // Fetches the text of the results on show that have no excerpts yet,
+  // a few at a time, redrawing the list as they come in.
+  let hitsRun = 0;
+  async function fetchHits() {
+    if (!N.terms.length) return;
+    const run = ++hitsRun;
+    const key = termsKey();
+    const terms = N.terms;
+    const todo = visibleNotes().slice(0, EXCERPT_LIMIT).filter(n => !N.hits.has(`${n.messageId}|${key}`));
+    let redraw = 0;
+    await util.mapPool(todo, 4, async n => {
+      if (run !== hitsRun) return;
+      try {
+        const doc = await notesStore.body(n);
+        const text = fmt.docText(doc);
+        const body = searchLogic.findMatches(text, terms);
+        const title = searchLogic.findMatches(n.title, terms);
+        N.hits.set(`${n.messageId}|${key}`, {
+          count: body.length + title.length,
+          excerpts: searchLogic.excerpts(text, body, { context: 45, max: 3 }),
+        });
+      } catch { /* the snippet stands in */ }
+      if (run === hitsRun && !redraw) redraw = setTimeout(() => { redraw = 0; drawList(); }, 60);
+    });
+    if (run === hitsRun) drawList();
+  }
+
+  // ── Find in the open note ────────────────────────────────────────────
+
+  function applyHighlights() {
+    const c = N.current;
+    if (!els.ed || !c || c.bodyState !== 'ready') { drawFind(); return; }
+    const count = els.ed.highlight(N.terms);
+    if (N.findIndex >= count) N.findIndex = 0;
+    if (count) els.ed.showMatch(N.findIndex);
+    drawFind();
+  }
+
+  function stepMatch(delta) {
+    const count = els.ed ? els.ed.matchCount() : 0;
+    if (!count) return;
+    N.findIndex = (N.findIndex + delta + count) % count;
+    els.ed.showMatch(N.findIndex);
+    drawFind();
+  }
+
+  function clearSearch() {
+    if (!els.search) return;
+    els.search.value = '';
+    N.query = '';
+    clearTimeout(searchTimer);
+    load({ force: true });
+  }
+
+  function drawFind() {
+    if (!els.findSlot) return;
+    const c = N.current;
+    if (!N.terms.length || !c || !els.ed || c.bodyState !== 'ready') {
+      els.findSlot.replaceChildren();
+      return;
+    }
+    const count = els.ed.matchCount();
+    const words = N.terms.map(t => t.words.join(' ')).join(', ');
+    // A redraw replaces the arrow just pressed; focus goes to its successor
+    // rather than falling out of the board, where F3 would not reach it.
+    const active = N.ctx.root.activeElement;
+    const refocus = active && els.findSlot.contains(active) ? active.dataset.key : '';
+    els.findSlot.replaceChildren(h('div', { class: 'ne-find', role: 'search', 'aria-label': 'Matches in this note' },
+      icon('search', 18),
+      h('span', { class: 'find-words', text: words, title: words }),
+      h('span', { class: 'find-pos', 'aria-live': 'polite', text: count ? `${N.findIndex + 1} of ${count}` : 'Not in the text' }),
+      h('button', {
+        class: 'icon-btn', type: 'button', 'aria-label': 'Previous match (Shift+F3)', title: 'Previous match (Shift+F3)',
+        disabled: count < 2, dataset: { key: 'find-prev' }, onclick: () => stepMatch(-1),
+      }, icon('up', 18)),
+      h('button', {
+        class: 'icon-btn', type: 'button', 'aria-label': 'Next match (F3)', title: 'Next match (F3)',
+        disabled: count < 2, dataset: { key: 'find-next' }, onclick: () => stepMatch(1),
+      }, icon('down', 18)),
+      h('button', {
+        class: 'icon-btn', type: 'button', 'aria-label': 'Clear the search', title: 'Clear the search',
+        dataset: { key: 'find-clear' }, onclick: clearSearch,
+      }, icon('close', 18))));
+    if (refocus) {
+      const again = els.findSlot.querySelector(`[data-key="${refocus}"]`);
+      if (again && !again.disabled) again.focus();
+    }
+  }
+
   // ── Folders ──────────────────────────────────────────────────────────
 
   function counts() {
@@ -259,6 +404,7 @@
     N.folder = id;
     drawFolders();
     drawList();
+    fetchHits();
   }
 
   function drawFolders() {
@@ -511,6 +657,7 @@
     flush();
     const c = newCurrent(note);
     N.current = c;
+    N.findIndex = 0;
     drawList();
     drawEditor();
     notesStore.body(note).then(doc => {
@@ -518,6 +665,7 @@
       c.doc = doc;
       c.bodyState = 'ready';
       drawEditor();
+      applyHighlights();
     }, err => {
       if (N.current !== c) return;
       c.bodyState = 'error';
@@ -569,8 +717,10 @@
     ed.setEditable(c.bodyState === 'ready',
       c.bodyState === 'loading' ? 'Loading…' : c.bodyState === 'error' ? 'Couldn’t load this note.' : 'Write here…');
 
-    els.editor.replaceChildren(els.bar, els.bannerSlot, title, ed.toolbar, ed.linkbar, ed.element);
+    els.findSlot = h('div', { class: 'ne-find-slot' });
+    els.editor.replaceChildren(els.bar, els.bannerSlot, els.findSlot, title, ed.toolbar, ed.linkbar, ed.element);
     drawBar();
+    drawFind();
   }
 
   // The strip above the text: status, buttons, and the banner for an
@@ -629,6 +779,10 @@
     c.dirty = true;
     c.error = '';
     drawStatus();
+    if (change.doc && N.terms.length) {
+      clearTimeout(findTimer);
+      findTimer = setTimeout(applyHighlights, 300);
+    }
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => save(c), AUTOSAVE_MS);
   }
@@ -729,6 +883,11 @@
     if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') {
       e.preventDefault();
       flush();
+      return true;
+    }
+    if (e.key === 'F3' && N.terms.length && els.ed) {
+      e.preventDefault();
+      stepMatch(e.shiftKey ? -1 : 1);
       return true;
     }
     return false;

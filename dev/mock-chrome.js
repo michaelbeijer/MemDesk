@@ -532,7 +532,8 @@
       if (query.q) {
         const words = String(query.q).match(/\S+/g) || [];
         list = list.filter(x => {
-          const hay = fold(`${header(x, 'Subject')} ${x.snippet} ${messageText(x)}`);
+          // Like Gmail: every part counts, the HTML one included.
+          const hay = fold(`${header(x, 'Subject')} ${x.snippet} ${messagePart(x, '').replace(/<[^>]+>/g, ' ')}`);
           return words.every(w => hay.includes(fold(w)));
         });
       }

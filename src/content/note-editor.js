@@ -668,6 +668,70 @@
     };
     document.addEventListener('selectionchange', onSelection);
 
+    // ── Search highlights ────────────────────────────────────────────────
+    //
+    // Painted with the CSS Custom Highlight API: ranges over the text,
+    // coloured by the stylesheet, with nothing added to the markup - so a
+    // highlight can never end up saved into the note.
+
+    let matchRanges = [];
+    const canHighlight = () => typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight === 'function';
+
+    // The editor's text with a line break between blocks, and where each
+    // text node sits in it.
+    function textIndex() {
+      const parts = [];
+      let text = '';
+      els.editor.childNodes.forEach((blk, b) => {
+        if (b) text += '\n';
+        const walker = document.createTreeWalker(blk, NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+          parts.push({ node: n, start: text.length, end: text.length + n.data.length });
+          text += n.data;
+        }
+      });
+      return { text, parts };
+    }
+
+    function rangeFor(idx, start, end) {
+      const a = idx.parts.find(p => start >= p.start && start < p.end);
+      const b = idx.parts.find(p => end > p.start && end <= p.end);
+      if (!a || !b) return null;
+      const r = document.createRange();
+      r.setStart(a.node, start - a.start);
+      r.setEnd(b.node, end - b.start);
+      return r;
+    }
+
+    function highlight(terms) {
+      clearHighlights();
+      if (!terms || !terms.length || !canHighlight()) return 0;
+      const idx = textIndex();
+      matchRanges = ns.searchLogic.findMatches(idx.text, terms).map(m => rangeFor(idx, m.start, m.end)).filter(Boolean);
+      if (matchRanges.length) CSS.highlights.set('gkb-match', new Highlight(...matchRanges));
+      return matchRanges.length;
+    }
+
+    // Marks one match as the current one and scrolls it into the middle
+    // third of the editor if it is out of view.
+    function showMatch(i) {
+      const r = matchRanges[i];
+      if (!r || !canHighlight()) return;
+      CSS.highlights.set('gkb-match-current', new Highlight(r));
+      const box = els.editor.getBoundingClientRect();
+      const at = r.getBoundingClientRect();
+      if (at.top < box.top + 24 || at.bottom > box.bottom - 24) {
+        els.editor.scrollTop += at.top - box.top - box.height / 3;
+      }
+    }
+
+    function clearHighlights() {
+      matchRanges = [];
+      if (!canHighlight()) return;
+      CSS.highlights.delete('gkb-match');
+      CSS.highlights.delete('gkb-match-current');
+    }
+
     // ── API ──────────────────────────────────────────────────────────────
 
     function setDoc(doc) {
@@ -691,6 +755,7 @@
 
     function destroy() {
       document.removeEventListener('selectionchange', onSelection);
+      clearHighlights();
       closeMenu(root);
     }
 
@@ -703,6 +768,10 @@
       setEditable,
       focus,
       destroy,
+      highlight,
+      showMatch,
+      clearHighlights,
+      matchCount: () => matchRanges.length,
     };
   }
 

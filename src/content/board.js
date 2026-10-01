@@ -269,6 +269,11 @@
   // If focus has escaped to Gmail's page (a click on its edge, say), Esc
   // should still close the board rather than reach Gmail.
   function onDocumentKey(e) {
+    // F3 steps through search matches wherever the focus has wandered.
+    if (e.key === 'F3' && S.open && S.view === 'notes' && !e.composedPath().includes(els.overlay)) {
+      ns.notes.handleKey(e);
+      return;
+    }
     if (e.key !== 'Escape' || !S.open) return;
     if (e.composedPath().includes(els.overlay)) return;
     if (isMenuOpen(root)) return;
