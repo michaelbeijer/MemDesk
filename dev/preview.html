@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Same rule Gmail enforces: any innerHTML-style sink in the content
+     scripts throws here exactly as it would on mail.google.com. -->
+<meta http-equiv="Content-Security-Policy" content="require-trusted-types-for 'script'">
+<title>Inbox (12) - test@example.com - Gmail</title>
+<style>
+  :root {
+    --bg: #f6f8fc; --panel: #fff; --fg: #1f1f1f; --fg2: #444746; --fg3: #5e6062;
+    --line: #eceff1; --chip: #e8eaed; --nav-active: #d3e3fd; --accent: #0b57d0;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #131314; --panel: #1e1f20; --fg: #e3e3e3; --fg2: #c4c7c5; --fg3: #a2a5a3;
+            --line: #2c2d2f; --chip: #333537; --nav-active: #004a77; --accent: #a8c7fa; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--fg); font: 14px/1.4 "Google Sans", Roboto, Arial, sans-serif;
+         display: flex; flex-direction: column; overflow: hidden; }
+  button { font: inherit; }
+
+  .devbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 16px;
+            background: repeating-linear-gradient(135deg, #fff8e1, #fff8e1 10px, #fff3cd 10px, #fff3cd 20px);
+            color: #5d4300; font: 12px/1.3 ui-monospace, Consolas, monospace; border-bottom: 1px solid #f0d27a; }
+  @media (prefers-color-scheme: dark) { .devbar { background: #3a3000; color: #ffe08a; border-color: #6b5a10; } }
+  .devbar b { margin-right: 4px; }
+  .devbar button { font: inherit; padding: 2px 8px; border: 1px solid currentColor; border-radius: 4px;
+                   background: transparent; color: inherit; cursor: pointer; }
+  .devbar a { color: inherit; }
+  .devbar .sep { opacity: .5; }
+
+  .top { display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 16px; flex: none; }
+  .logo { display: flex; align-items: center; gap: 8px; width: 220px; font-size: 22px; color: var(--fg2); }
+  .logo .env { width: 32px; height: 24px; border-radius: 4px; background: linear-gradient(135deg,#ea4335 0 33%,#fbbc04 33% 66%,#34a853 66%); opacity: .85; }
+  .searchbar { flex: 1; max-width: 720px; height: 48px; border-radius: 24px; background: var(--chip);
+               display: flex; align-items: center; padding: 0 20px; color: var(--fg3); }
+  .spacer { flex: 1; }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; background: #7b5cd6; color: #fff; display: grid;
+            place-items: center; text-decoration: none; font-weight: 500; }
+
+  .wrap { flex: 1; display: flex; min-height: 0; }
+  nav { width: 256px; padding: 8px 16px 8px 0; flex: none; overflow-y: auto; }
+  .compose { margin: 0 0 16px 8px; height: 56px; padding: 0 24px 0 20px; border-radius: 16px; border: 0;
+             background: #c2e7ff; color: #001d35; font-weight: 500; font-size: 14px; display: inline-flex;
+             align-items: center; gap: 12px; }
+  @media (prefers-color-scheme: dark) { .compose { background: #004a77; color: #c2e7ff; } }
+  .nav-item { display: flex; align-items: center; height: 32px; padding: 0 12px 0 26px; border-radius: 0 16px 16px 0;
+              color: var(--fg2); }
+  .nav-item.active { background: var(--nav-active); font-weight: 700; color: var(--fg); }
+  .nav-item .n { margin-left: auto; font-size: 12px; }
+  .nav-head { padding: 16px 12px 4px 26px; font-size: 16px; color: var(--fg); }
+
+  main { flex: 1; min-width: 0; margin: 0 16px 16px 0; background: var(--panel); border-radius: 16px;
+         overflow-y: auto; }
+  .toolbar { height: 48px; display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid var(--line);
+             color: var(--fg3); gap: 12px; }
+  .row { display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 16px; border-bottom: 1px solid var(--line);
+         cursor: pointer; color: var(--fg2); }
+  .row:hover { box-shadow: inset 1px 0 0 #dadce0, inset -1px 0 0 #dadce0, 0 1px 2px rgba(60,64,67,.3); position: relative; }
+  .row.unread { font-weight: 700; color: var(--fg); background: var(--panel); }
+  .row .who { width: 200px; flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .what .snip { color: var(--fg3); font-weight: 400; }
+  .row .when { flex: none; font-size: 12px; }
+
+  .thread { padding: 8px 24px 32px; }
+  .thread .back { border: 0; background: none; color: var(--fg2); cursor: pointer; padding: 8px 0; }
+  .thread h2 { font-size: 22px; font-weight: 400; margin: 8px 0 8px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+  .chip { font-size: 12px; padding: 1px 8px; border-radius: 4px; background: var(--chip); color: var(--fg2); }
+  .msg { border-top: 1px solid var(--line); padding: 14px 0; }
+  .msg .meta { display: flex; gap: 8px; color: var(--fg2); font-size: 13px; }
+  .msg .meta b { color: var(--fg); }
+  .msg .meta .when { margin-left: auto; font-size: 12px; color: var(--fg3); }
+  .msg p { margin: 8px 0 0; color: var(--fg); }
+  .options-note { position: fixed; top: 48px; right: 16px; padding: 10px 14px; border-radius: 8px; background: #303030;
+                  color: #f2f2f2; font-size: 13px; }
+</style>
+</head>
+<body>
+  <!-- An old conversation Gmail kept in the DOM, hidden. Thread detection
+       must ignore it. -->
+  <div hidden><h2 data-legacy-thread-id="ffffffffffffffff">An old, hidden conversation</h2></div>
+
+  <script src="mock-chrome.js"></script>
+  <script>
+  // ── Gmail-ish backdrop ─────────────────────────────────────────────
+  // Built with DOM calls only, because this page enforces Trusted Types.
+  (function () {
+    'use strict';
+    const box = window.__fakeGmail;
+    document.title = 'Inbox (12) - test@example.com - Gmail';
+
+    function el(tag, attrs, ...kids) {
+      const n = document.createElement(tag);
+      for (const [k, v] of Object.entries(attrs || {})) {
+        if (v == null || v === false) continue;
+        if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+        else if (k === 'class') n.className = v;
+        else n.setAttribute(k, v === true ? '' : v);
+      }
+      for (const kid of kids.flat()) if (kid != null && kid !== false) n.append(kid);
+      return n;
+    }
+
+    const decode = s => window.gkb && window.gkb.util ? window.gkb.util.decodeEntities(s) : s;
+    const nameOf = raw => { const m = String(raw).match(/^\s*"?([^"<]*?)"?\s*</); return m ? m[1] : raw; };
+    const when = ms => new Date(Number(ms)).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+
+    const link = (label, q) => el('a', { href: q ? `?${q}` : '?' }, label);
+    const sep = () => el('span', { class: 'sep' }, '·');
+
+    const DEFAULT_THREAD = box.findThread('Termbase export');
+    const devbar = el('div', { class: 'devbar', role: 'region', 'aria-label': 'Dev preview controls' },
+      el('b', {}, 'Dev preview'), 'fake Gmail, no network', sep(),
+      el('button', { type: 'button', id: 'dev-toggle-thread', onclick: () => {
+        location.hash = currentThread() ? '#inbox' : `#inbox/${DEFAULT_THREAD}`;
+      } }, 'Toggle open thread'),
+      el('button', { type: 'button', id: 'dev-shortcut', onclick: () => window.__mockChrome.dispatchToTab({ type: 'toggle-board' }) }, 'Alt+Shift+K'),
+      sep(), 'states:', link('normal', ''), link('auth_required', 'state=auth_required'),
+      link('not_configured', 'state=not_configured'), link('fresh labels', 'fresh'),
+      link('modify fails', 'fail=modify'), link('truncated', 'page=3'));
+
+    const top = el('header', { class: 'top' },
+      el('div', { class: 'logo' }, el('span', { class: 'env' }), 'Mail'),
+      el('div', { class: 'searchbar' }, 'Search mail'),
+      el('div', { class: 'spacer' }),
+      el('a', { class: 'avatar', href: '#', 'aria-label': 'Google Account: Sam Test  \n(test@example.com)' }, 'S'));
+
+    const nav = el('nav', {});
+    const main = el('main', { role: 'main' });
+    document.body.prepend(devbar, top, el('div', { class: 'wrap' }, nav, main));
+
+    function renderNav() {
+      const inbox = box.threadsInInbox();
+      const unread = inbox.filter(t => t.messages.some(m => m.labelIds.includes('UNREAD'))).length;
+      nav.replaceChildren(
+        el('button', { class: 'compose', type: 'button' }, '✎  Compose'),
+        el('div', { class: 'nav-item active' }, 'Inbox', el('span', { class: 'n' }, String(unread))),
+        el('div', { class: 'nav-item' }, 'Starred'),
+        el('div', { class: 'nav-item' }, 'Snoozed'),
+        el('div', { class: 'nav-item' }, 'Sent'),
+        el('div', { class: 'nav-item' }, 'Drafts'),
+        el('div', { class: 'nav-head' }, 'Labels'),
+        ...box.labelNames().map(n => el('div', { class: 'nav-item' }, n)));
+    }
+
+    function currentThread() {
+      const m = location.hash.match(/^#(?:inbox|all)\/([0-9a-f]+)$/);
+      return m && box.thread(m[1]) ? m[1] : '';
+    }
+
+    function renderList() {
+      const rows = box.threadsInInbox().map(t => {
+        const last = t.messages[t.messages.length - 1];
+        const unread = t.messages.some(m => m.labelIds.includes('UNREAD'));
+        const subject = box.header(t.messages[0], 'Subject') || '(no subject)';
+        return el('div', { class: `row${unread ? ' unread' : ''}`, onclick: () => { location.hash = `#inbox/${t.id}`; } },
+          el('span', { class: 'who' }, nameOf(box.header(last, 'From'))),
+          el('span', { class: 'what' }, subject, el('span', { class: 'snip' }, ` – ${decode(last.snippet)}`)),
+          el('span', { class: 'when' }, when(last.internalDate)));
+      });
+      main.replaceChildren(el('div', { class: 'toolbar' }, '☐  ⟳  ⋮'), ...rows);
+    }
+
+    function renderThread(id) {
+      const t = box.thread(id);
+      const subject = box.header(t.messages[0], 'Subject') || '(no subject)';
+      main.replaceChildren(el('div', { class: 'thread' },
+        el('button', { class: 'back', type: 'button', onclick: () => { location.hash = '#inbox'; } }, '← Back to Inbox'),
+        el('h2', { 'data-legacy-thread-id': id }, subject),
+        el('div', { class: 'chips' }, ...box.threadLabelNames(id).filter(n => !/^[A-Z_]+$/.test(n)).map(n => el('span', { class: 'chip' }, n))),
+        ...t.messages.map(m => el('div', { class: 'msg' },
+          el('div', { class: 'meta' }, el('b', {}, nameOf(box.header(m, 'From'))), el('span', { class: 'when' }, when(m.internalDate))),
+          el('p', {}, decode(m.snippet))))));
+    }
+
+    function render() {
+      renderNav();
+      const id = currentThread();
+      if (id) renderThread(id); else renderList();
+    }
+
+    window.addEventListener('hashchange', render);
+    window.addEventListener('fakegmail:change', render);
+    window.addEventListener('mock:open-options', () => {
+      const note = el('div', { class: 'options-note', role: 'status' }, 'The setup page would open in a new tab here.');
+      document.body.append(note);
+      setTimeout(() => note.remove(), 3000);
+    });
+
+    // Chrome delivers the extension shortcut through the worker; here it
+    // is a plain key listener.
+    document.addEventListener('keydown', e => {
+      if (e.altKey && e.shiftKey && e.code === 'KeyK') window.__mockChrome.dispatchToTab({ type: 'toggle-board' });
+    });
+
+    render();
+    // Snippets are decoded with the extension's own helper, which loads
+    // after this script; draw once more when it has.
+    window.addEventListener('load', render);
+  })();
+  </script>
+
+  <!-- The real content scripts, in manifest order. tests/static.test.js
+       fails if this list drifts from manifest.json. -->
+  <script src="../src/shared/ns.js"></script>
+  <script src="../src/lib/util.js"></script>
+  <script src="../src/lib/board-logic.js"></script>
+  <script src="../src/content/gmail-hooks.js"></script>
+  <script src="../src/content/api.js"></script>
+  <script src="../src/content/store.js"></script>
+  <script src="../src/content/ui.js"></script>
+  <script src="../src/content/styles.js"></script>
+  <script src="../src/content/board.js"></script>
+  <script src="../src/content/dock.js"></script>
+  <script src="../src/content/main.js"></script>
+</body>
+</html>
