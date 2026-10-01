@@ -157,6 +157,7 @@
   async function moveOpenThread(col) {
     const id = S.threadId;
     const was = S.column;
+    S.seq++; // a lookup still in flight predates this and must not win
     S.column = col;
     renderPill();
     try {
@@ -174,6 +175,7 @@
   async function removeOpenThread() {
     const id = S.threadId;
     const was = S.column;
+    S.seq++;
     S.column = null;
     renderPill();
     try {

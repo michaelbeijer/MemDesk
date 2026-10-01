@@ -360,6 +360,26 @@ try {
     await p.context().close();
   });
 
+  await r.step('a move made while a refresh is in flight is not undone by it', async () => {
+    const p = await openPage('latency=400');
+    await openBoard(p);
+    const id = await findThread(p, 'Deadline moved');
+    await p.locator('button[aria-label="Refresh"]').click();
+    await p.waitForTimeout(450); // labels.list done, threads.list calls in flight
+    await drag(p, id, p.locator('section[data-col="waiting"] .list'));
+    // The first refresh returns pre-move lists; the card must stay put
+    // through that and the refresh that replaces it.
+    const end = Date.now() + 3000;
+    while (Date.now() < end) {
+      assert.ok((await ids(p, 'waiting')).includes(id), 'card snapped back during refresh');
+      await p.waitForTimeout(100);
+    }
+    await waitForLabels(p, id, { has: ['Board/Waiting'], lacks: ['Board/To do'] }, 'labels after racing move');
+    await until(async () => !(await p.locator('.spinning').count()), 'refresh settled', 8000);
+    assert.ok((await ids(p, 'waiting')).includes(id));
+    await p.context().close();
+  });
+
   await r.step('a fresh mailbox gets its labels created, parents first', async () => {
     const p = await openPage('fresh');
     await p.locator('[data-action="toggle-board"]').click();

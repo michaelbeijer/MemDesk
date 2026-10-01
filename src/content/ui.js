@@ -184,9 +184,7 @@
         'aria-checked': it.checked === undefined ? null : String(!!it.checked),
         disabled: !!it.disabled,
         dataset: it.key ? { key: it.key } : undefined,
-        // Focus goes back to the anchor before the action runs, so an
-        // action that re-renders can find it again by its data-key.
-        onclick: () => { close(); anchor.focus({ preventScroll: true }); it.onSelect(); },
+        onclick: () => { close(); it.onSelect(); },
       },
         h('span', { class: 'menu-icon' }, it.checked ? icon('check', 18) : (it.icon ? icon(it.icon, 18) : null)),
         h('span', { class: 'menu-label', text: it.label })
@@ -214,7 +212,7 @@
     const onKey = e => {
       const list = buttons();
       const i = list.indexOf(root.activeElement);
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); anchor.focus(); }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
       else if (e.key === 'ArrowDown') { e.preventDefault(); (list[i + 1] || list[0]).focus(); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); (list[i - 1] || list[list.length - 1]).focus(); }
       else if (e.key === 'Home') { e.preventDefault(); list[0] && list[0].focus(); }
@@ -226,10 +224,16 @@
       if (!e.composedPath().includes(menu) && !e.composedPath().includes(anchor)) close();
     };
 
+    // If the menu held focus, it goes back to the anchor - on Esc, on
+    // choosing an item (before the action runs, so an action that
+    // re-renders can find the anchor again by its data-key), and when a
+    // re-render closes the menu from underneath.
     function close() {
       if (openMenus.get(root) !== close) return;
+      const hadFocus = menu.contains(root.activeElement);
       openMenus.delete(root);
       menu.remove();
+      if (hadFocus && anchor.isConnected) anchor.focus({ preventScroll: true });
       anchor.setAttribute('aria-expanded', 'false');
       menu.removeEventListener('keydown', onKey);
       document.removeEventListener('pointerdown', onPointer, true);

@@ -38,6 +38,7 @@
     search: null,     // { colId, query, ids, loading, error, seq }
     drawer: null,     // { draft, error, saving }
     drag: null,       // { id, fromCol, card, placeholder }
+    mutations: 0,     // local moves made; a refresh that spans one is stale
     renderDeferred: false,
     returnFocus: null,
     ticker: 0,
@@ -217,6 +218,9 @@
       return Promise.resolve();
     }
 
+    const startedAt = S.mutations;
+    let overtaken = false;
+
     S.loading = (async () => {
       updateBar();
       try {
@@ -225,6 +229,13 @@
           store.loadBoard(S.account, S.columns),
           store.loadOrder(S.account),
         ]);
+        // A card moved while the lists were in flight: what came back may
+        // predate that move and would snap the card back. Throw it away and
+        // ask again; loadBoard waits for the move to land first.
+        if (S.mutations !== startedAt) {
+          overtaken = true;
+          return;
+        }
         const lists = {};
         for (const col of S.columns) {
           const threads = (board.lists[col.id] || []).map(id => ({ id, ts: (store.thread(id) || {}).ts }));
@@ -235,16 +246,21 @@
         S.loadedAt = Date.now();
         S.status = 'ready';
         S.statusMessage = '';
-        persistOrder();
+        // Saved directly, not via persistOrder: this prunes vanished ids
+        // and is not a local move.
+        store.saveOrder(S.account, S.lists, S.columns).catch(() => {});
       } catch (err) {
         handleError(err, 'Couldn’t load the board');
       } finally {
         S.loading = null;
-        render();
-        if (S.search && S.search.ids === null) runSearch();
+        if (!overtaken) {
+          render();
+          if (S.search && S.search.ids === null) runSearch();
+        }
       }
     })();
-    return S.loading;
+    const p = S.loading;
+    return p.then(() => (overtaken ? refresh() : undefined));
   }
 
   // The three account states get a panel of their own; anything else is
@@ -264,7 +280,10 @@
     toast(root, `${prefix}: ${err.message}`, { kind: 'error' });
   }
 
+  // Every local change to the lists goes through here, which is also what
+  // marks an in-flight refresh as overtaken.
   function persistOrder() {
+    S.mutations++;
     store.saveOrder(S.account, S.lists, S.columns).catch(() => {});
   }
 
