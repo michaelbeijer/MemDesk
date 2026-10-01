@@ -24,6 +24,9 @@
 
   const NOTE_HEADER = 'X-Gkb-Note';
   const DEFAULT_LABEL = '_Notes';
+  // .invalid is reserved and can never be delivered to, so nothing can
+  // ever arrive from or go to this address.
+  const NOTE_SENDER = '"Notes" <notes@notes.invalid>';
 
   // Generous for typed notes, and keeps one save comfortably inside what
   // the non-upload insert endpoint and a runtime message will carry.
@@ -151,8 +154,11 @@
     const me = oneLine(account);
     const text = String(body || '').replace(/\r\n?/g, '\n').slice(0, MAX_BODY);
     const head = [
-      `From: ${me}`,
+      // Not from the account's own address: Gmail files anything from you
+      // under Sent, whatever labels it was given. Replies still reach you.
+      `From: ${NOTE_SENDER}`,
       `To: ${me}`,
+      `Reply-To: ${me}`,
       `Subject: ${encodeHeaderText(titleFor(title, text) || 'Untitled note')}`,
       `Date: ${date.toUTCString()}`,
       `Message-ID: <${noteId}.${date.getTime()}@notes.invalid>`,
@@ -314,8 +320,91 @@
     return { live, stale };
   }
 
+  // ── Folders ──────────────────────────────────────────────────────────
+  //
+  // A folder is a Gmail label under the notes label: "_Notes/Work",
+  // "_Notes/Work/Clients". Every note carries the notes label itself, plus
+  // the label of at most one folder - so "All notes" is one label, and the
+  // folders show up nested under _Notes in Gmail's own label list.
+
+  const FOLDER_NAME_MAX = 60;
+
+  // The folders under `root`, in tree order: each parent followed by its
+  // children, alphabetically, with its depth. A label whose parent label
+  // is missing (made by hand in Gmail) still appears, at its own depth.
+  function folderTree(labels, root) {
+    const prefix = `${root}/`;
+    const list = (labels || [])
+      .filter(l => l && typeof l.name === 'string' && l.name.startsWith(prefix) && l.name.length > prefix.length)
+      .map(l => {
+        const path = l.name.slice(prefix.length);
+        const parts = path.split('/');
+        return { id: l.id, name: l.name, path, title: parts[parts.length - 1], depth: parts.length - 1, parentPath: parts.slice(0, -1).join('/') };
+      });
+    // Sorting by path segment by segment keeps every child under its parent.
+    const key = f => f.path.split('/').map(p => p.toLowerCase());
+    list.sort((a, b) => {
+      const x = key(a);
+      const y = key(b);
+      for (let i = 0; i < Math.min(x.length, y.length); i++) {
+        if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+      }
+      return x.length - y.length;
+    });
+    return list;
+  }
+
+  // The folder a note is in, from its labels; '' for none. Two folder
+  // labels (applied by hand) resolve to the first in tree order.
+  function folderOf(labelIds, folders) {
+    const have = new Set(labelIds || []);
+    const f = (folders || []).find(x => have.has(x.id));
+    return f ? f.id : '';
+  }
+
+  // Moving a note: keep (or restore) the notes label, add the target's,
+  // drop every other folder's.
+  function moveFolderDiff(rootId, folders, targetId) {
+    const add = [rootId];
+    if (targetId) add.push(targetId);
+    const remove = (folders || []).map(f => f.id).filter(id => id !== targetId);
+    return { addLabelIds: add, removeLabelIds: remove };
+  }
+
+  function validateFolderTitle(title, siblings = []) {
+    const t = String(title || '').trim();
+    if (!t) return 'Give the folder a name.';
+    if (t.includes('/')) return 'A folder name cannot contain “/”. Make a subfolder instead.';
+    if (t.length > FOLDER_NAME_MAX) return `Keep folder names under ${FOLDER_NAME_MAX} characters.`;
+    if (siblings.some(s => s.toLowerCase() === t.toLowerCase())) return `There is already a folder called “${t}” here.`;
+    return '';
+  }
+
+  // Renaming a folder renames its label and every label below it, since
+  // Gmail's API renames only the one label it is given.
+  function renamePlan(folder, newTitle, folders) {
+    const parent = folder.name.slice(0, folder.name.length - folder.title.length);
+    const newName = `${parent}${String(newTitle).trim()}`;
+    return (folders || [])
+      .filter(f => f.name === folder.name || f.name.startsWith(`${folder.name}/`))
+      .map(f => ({ id: f.id, name: newName + f.name.slice(folder.name.length) }));
+  }
+
+  // Whether the worker may delete a label: a folder under the notes label
+  // with no notes in it and no folders under it. `liveMessages` is what a
+  // messages.list on the label found - not the label's own count, which
+  // also counts old versions waiting in Trash and would keep an emptied
+  // folder undeletable for a month.
+  function isDeletableFolder(label, root, allLabels, liveMessages) {
+    if (!label || typeof label.name !== 'string' || !root) return false;
+    if (!label.name.startsWith(`${root}/`) || label.name.length <= root.length + 1) return false;
+    if (liveMessages !== 0) return false;
+    return !(allLabels || []).some(l => l && typeof l.name === 'string' && l.name.startsWith(`${label.name}/`));
+  }
+
   const api = {
-    NOTE_HEADER, DEFAULT_LABEL, MAX_BODY, MAX_TITLE, FORBIDDEN_INSERT_LABELS,
+    NOTE_HEADER, NOTE_SENDER, DEFAULT_LABEL, MAX_BODY, MAX_TITLE, FORBIDDEN_INSERT_LABELS, FOLDER_NAME_MAX,
+    folderTree, folderOf, moveFolderDiff, validateFolderTitle, renamePlan, isDeletableFolder,
     newNoteId, encodeHeaderText, decodeHeaderText, base64UrlEncode, base64UrlDecode,
     titleFor, buildNoteRaw, noteIdOfRaw, isNoteInsert,
     htmlToText, extractText, messageParts, noteFromMessage, dedupeNotes,

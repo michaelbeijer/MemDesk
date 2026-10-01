@@ -71,6 +71,8 @@
     note: 'M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z',
     delete: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
     edit: 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z',
+    folder: 'M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z',
+    notes: 'M3 18h12v-2H3v2zM3 6v2h18V6H3zm0 7h18v-2H3v2z',
     // Formatting toolbar.
     bold: 'M15.6 10.79c.97-.67 1.65-1.77 1.65-2.79 0-2.26-1.75-4-4-4H7v14h7.04c2.09 0 3.71-1.7 3.71-3.79 0-1.52-.86-2.82-2.15-3.42zM10 6.5h3c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-3v-3zm3.5 9H10v-3h3.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5z',
     italic: 'M10 4v3h2.21l-3.42 8H6v3h8v-3h-2.21l3.42-8H18V4z',
@@ -151,6 +153,14 @@
 
   function toast(root, message, { kind = 'info', action = null, timeout } = {}) {
     const layer = toastLayer(root);
+    // A new confirmation replaces the last one rather than stacking up;
+    // errors stay until read or timed out. One still offering an action
+    // (Undo) is kept too, since its button may be about to be clicked.
+    if (kind !== 'error') {
+      for (const old of layer.querySelectorAll('.toast:not(.toast-error)')) {
+        if (!old.querySelector('.toast-action')) old.remove();
+      }
+    }
     const close = () => el.remove();
     const el = h('div', { class: ['toast', kind === 'error' && 'toast-error'] },
       h('span', { class: 'toast-text', text: message }),

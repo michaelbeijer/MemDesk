@@ -92,7 +92,9 @@
     ['GET', /^profile$/],
     ['GET', /^labels$/],
     ['POST', /^labels$/],
+    ['GET', /^labels\/[A-Za-z0-9_-]+$/],
     ['PATCH', /^labels\/[A-Za-z0-9_-]+$/],
+    ['DELETE', /^labels\/[A-Za-z0-9_-]+$/],          // an empty notes folder only - see folderDeleteId
     ['GET', /^threads$/],
     ['GET', /^threads\/[A-Za-z0-9]+$/],
     ['POST', /^threads\/[A-Za-z0-9]+\/modify$/],
@@ -131,6 +133,14 @@
     return m ? m[1] : '';
   }
 
+  // Deleting a label is allowed for an empty notes folder and nothing
+  // else; like trash, that is checked against the label itself.
+  function folderDeleteId(method, path) {
+    if (String(method || '').toUpperCase() !== 'DELETE') return '';
+    const m = /^labels\/([A-Za-z0-9_-]+)$/.exec(String(path || ''));
+    return m ? m[1] : '';
+  }
+
   // Query values may be arrays (metadataHeaders=Subject&metadataHeaders=From).
   function buildApiUrl(path, query) {
     const qs = new URLSearchParams();
@@ -145,7 +155,7 @@
 
   const api = {
     AUTH_ENDPOINT, SCOPE, API_BASE, EXPIRY_MARGIN_MS,
-    buildAuthUrl, parseAuthResponse, tokenExpiry, isAllowedRequest, noteCheckId, buildApiUrl,
+    buildAuthUrl, parseAuthResponse, tokenExpiry, isAllowedRequest, noteCheckId, folderDeleteId, buildApiUrl,
   };
 
   ns.auth = api;

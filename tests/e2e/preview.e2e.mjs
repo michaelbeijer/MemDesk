@@ -529,7 +529,7 @@ try {
     assert.equal(current.length, 1, 'one live version');
     assert.equal(current[0].text, 'Tips on termbase hygiene\nA short piece on patent claim punctuation\nNEW LINE ✓');
     assert.match(await gm('messageHtml', current[0].id), /<p[^>]*>NEW LINE ✓<\/p>/, 'with its HTML part');
-    assert.deepEqual(current[0].labels, ['_Notes'], 'not in the Inbox, not unread');
+    assert.deepEqual(current[0].labels, ['_Notes', '_Notes/Work'], 'not in the Inbox, not unread, still in its folder');
     assert.ok(versions.some(n => n.labels.includes('TRASH')), 'the old version is in Trash');
     assert.equal((await noteTitles())[0], 'Ideas for the October newsletter');
   });
@@ -763,6 +763,120 @@ try {
     assert.equal(await np.locator('.ne-body img').count(), 0);
     assert.equal(await np.evaluate(() => window.__pwned), undefined);
     assert.equal(await np.locator('.ne-body b', { hasText: 'loud' }).count(), 0);
+  });
+
+  // ── Folders ──
+
+  const folderId = name => np.locator('.folder-row', { has: np.locator('.folder-title', { hasText: new RegExp(`^${name}$`) }) })
+    .first().getAttribute('data-folder');
+  const folderTitles = () => np.locator('.folder-row .folder-title').allInnerTexts();
+  const folderCount = async name => Number(await np.locator('.folder-row', { has: np.locator('.folder-title', { hasText: new RegExp(`^${name}$`) }) })
+    .first().locator('.folder-count').textContent()); // textContent: hovering a row hides its count
+  const openFolderMenu = async name => {
+    const row = np.locator('.folder-row', { has: np.locator('.folder-title', { hasText: new RegExp(`^${name}$`) }) }).first();
+    await row.hover();
+    await row.locator('.folder-menu').click();
+    await np.locator('.menu').waitFor();
+  };
+
+  await r.step('folders: a tree with counts; choosing one shows just its notes', async () => {
+    assert.deepEqual(await folderTitles(), ['All notes', 'Empty', 'Personal', 'Work', 'Clients']);
+    assert.equal(await folderCount('Work'), 1);
+    assert.equal(await folderCount('Clients'), 1);
+    assert.equal(await folderCount('Empty'), 0);
+    assert.equal(await np.locator('.folder-row[data-folder]').evaluateAll(rows =>
+      rows.map(r => getComputedStyle(r).getPropertyValue('--depth').trim()).join()), '0,0,0,0,1', 'Clients sits under Work');
+    await np.locator('.folder-btn', { hasText: /^Work/ }).click();
+    assert.deepEqual(await noteTitles(), ['Ideas for the October newsletter']);
+    assert.equal(await np.locator('.notes-scope').innerText(), 'Work · 1 note');
+    assert.equal(await np.locator('[data-key="notes-search"]').getAttribute('placeholder'), 'Search in Work');
+    await np.locator('.folder-btn', { hasText: /^Clients/ }).click();
+    assert.deepEqual(await noteTitles(), ['Kestrel glossary decisions']);
+    assert.equal(await np.locator('.notes-scope').innerText(), 'Work › Clients · 1 note');
+    await np.mouse.move(0, 0);
+    await np.screenshot({ path: join(SCREENS, 'notes-folders.png'), animations: 'disabled' });
+    await np.locator('[data-key="folder:all"]').click();
+    assert.equal(await np.locator('.note-item', { hasText: 'Kestrel glossary' }).locator('.ni-folder').innerText(), 'Work › Clients',
+      'in All notes, each note says where it lives');
+  });
+
+  await r.step('folders: drag a note onto one, or move it from the folder button above the text', async () => {
+    const cafe = await gm('findMessageBySubject', 'Café meeting – naïve ✓');
+    await np.locator('.note-item', { hasText: 'Café meeting' }).dragTo(np.locator('.folder-row', { hasText: 'Personal' }));
+    await until(async () => JSON.stringify(await gm('messageFolders', cafe)) === '["_Notes/Personal"]', 'dragged into Personal');
+    assert.ok((await gm('messageLabelNames', cafe)).includes('_Notes'), 'still a note');
+    assert.equal(await folderCount('Personal'), 1);
+
+    await np.locator('.note-item[data-note="n:rateschedule00000003"]').click();
+    await bodyReady(np, /rush surcharge/, 'loaded');
+    assert.equal(await np.locator('[data-key="note-folder"]').innerText(), 'No folder');
+    await np.locator('[data-key="note-folder"]').click();
+    await np.locator(`.menu [data-key="move-folder:${await folderId('Work')}"]`).click();
+    await until(async () => (await np.locator('[data-key="note-folder"]').innerText()) === 'Work', 'button shows the folder');
+    const [rate] = await live('rateschedule00000003');
+    await until(async () => JSON.stringify(await gm('messageFolders', rate.id)) === '["_Notes/Work"]', 'moved to Work');
+    await np.locator('[data-key="note-folder"]').click();
+    await np.locator('.menu [data-key="move-folder:none"]').click();
+    await until(async () => (await gm('messageFolders', rate.id)).length === 0, 'out of its folder again');
+  });
+
+  await r.step('folders: a new note starts in the folder being looked at', async () => {
+    await np.locator('.folder-btn', { hasText: /^Personal/ }).click();
+    await np.locator('[data-key="note-new"]').click();
+    assert.equal(await np.locator('[data-key="note-folder"]').innerText(), 'Personal');
+    await np.locator('[data-key="note-title"]').fill('Personal note');
+    await np.locator('[data-key="note-title"]').press('Enter');
+    await np.keyboard.type('Only for me');
+    await np.keyboard.press('Control+s');
+    await savedSoon();
+    const id = await gm('findMessageBySubject', 'Personal note');
+    assert.deepEqual(await gm('messageLabelNames', id), ['_Notes', '_Notes/Personal']);
+    assert.deepEqual(await noteTitles(), ['Personal note', 'Café meeting – naïve ✓']);
+  });
+
+  await r.step('folders: create, nest, rename with the branch, and delete only when empty', async () => {
+    await np.locator('[data-key="folder-new"]').click();
+    const input = np.locator('[data-key="folder-input"]');
+    await input.fill('a/b');
+    await input.press('Enter');
+    assert.match(await np.locator('.folder-error').innerText(), /subfolder/);
+    await input.fill('Recipes');
+    await input.press('Enter');
+    await until(async () => (await folderTitles()).includes('Recipes'), 'created');
+    assert.ok(await np.evaluate(() => !!window.__fakeGmail.labelByName('_Notes/Recipes')));
+    assert.equal(await np.locator('.folder-btn[aria-current="true"] .folder-title').innerText(), 'Recipes', 'and opened');
+
+    await openFolderMenu('Recipes');
+    await np.locator('.menu [data-key="folder-sub"]').click();
+    await np.locator('[data-key="folder-input"]').fill('Desserts');
+    await np.locator('[data-key="folder-input"]').press('Enter');
+    await until(async () => np.evaluate(() => !!window.__fakeGmail.labelByName('_Notes/Recipes/Desserts')), 'subfolder created');
+
+    await openFolderMenu('Recipes');
+    await np.locator('.menu [data-key="folder-rename"]').click();
+    assert.equal(await np.locator('[data-key="folder-input"]').inputValue(), 'Recipes');
+    await np.mouse.move(0, 0);
+    await np.screenshot({ path: join(SCREENS, 'notes-folder-edit.png'), animations: 'disabled' });
+    await np.locator('[data-key="folder-input"]').fill('Cooking');
+    await np.locator('[data-key="folder-input"]').press('Enter');
+    await until(async () => (await folderTitles()).includes('Cooking'), 'renamed');
+    const names = await np.evaluate(() => window.__fakeGmail.labelNames());
+    assert.ok(names.includes('_Notes/Cooking') && names.includes('_Notes/Cooking/Desserts'), 'its subfolder came along');
+    assert.ok(!names.some(n => n.startsWith('_Notes/Recipes')), 'nothing left under the old name');
+
+    await openFolderMenu('Work');
+    assert.ok(await np.locator('.menu [data-key="folder-delete"]').isDisabled(), 'a folder with notes cannot be deleted');
+    await np.keyboard.press('Escape');
+    // Even asked directly, the worker refuses a folder that still has notes.
+    const refused = await np.evaluate(id => chrome.runtime.sendMessage({ type: 'gmail', account: 'test@example.com', method: 'DELETE', path: `labels/${id}` }),
+      await folderId('Personal'));
+    assert.equal(refused.error.code, 'not_allowed');
+
+    await openFolderMenu('Empty');
+    await np.locator('.menu [data-key="folder-delete"]').click();
+    await until(async () => !(await folderTitles()).includes('Empty'), 'deleted');
+    assert.equal(await np.evaluate(() => !!window.__fakeGmail.labelByName('_Notes/Empty')), false);
+    await np.locator('[data-key="folder:all"]').click();
   });
 
   await r.step('a plain note from before formatting opens with its lists; closing saves it, formatted', async () => {

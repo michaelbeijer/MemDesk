@@ -233,6 +233,24 @@ async function handleGmail(msg) {
     }
   }
 
+  // Label deletion is for empty notes folders. The label's own counts and
+  // the full label list are read here, and the notes label's name comes
+  // from this extension's storage - none of it from the request.
+  const labelId = auth.folderDeleteId(method, path);
+  if (labelId) {
+    const [label, all, inside, stored] = await Promise.all([
+      callGmail(account, { method: 'GET', path: `labels/${labelId}` }),
+      callGmail(account, { method: 'GET', path: 'labels' }),
+      callGmail(account, { method: 'GET', path: 'messages', query: { labelIds: labelId, maxResults: 1 } }),
+      chrome.storage.sync.get(KEYS.notes(account)),
+    ]);
+    const root = (stored[KEYS.notes(account)] || {}).label || notesLogic.DEFAULT_LABEL;
+    const live = ((inside && inside.messages) || []).length;
+    if (!notesLogic.isDeletableFolder(label, root, (all && all.labels) || [], live)) {
+      throw new ProxyError('not_allowed', 'Only an empty notes folder can be deleted from here.');
+    }
+  }
+
   return callGmail(account, { method, path, query: msg.query, body: msg.body });
 }
 

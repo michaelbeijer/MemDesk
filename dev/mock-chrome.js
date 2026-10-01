@@ -258,10 +258,10 @@
     return msg;
   }
 
-  function seedNote(noteId, title, body, hoursAgo, notesLabel) {
+  function seedNote(noteId, title, body, hoursAgo, notesLabel, folder) {
     return addMessageThread({
       hoursAgo,
-      labelIds: [notesLabel],
+      labelIds: folder ? [notesLabel, folder] : [notesLabel],
       headers: [{ name: 'Subject', value: title }, { name: NOTE_HEADER, value: noteId }],
       payload: { mimeType: 'text/plain', body: { data: b64url(toBinary(body.replace(/\n/g, '\r\n'))) } },
       snippet: body.replace(/\s+/g, ' ').slice(0, 140),
@@ -270,12 +270,16 @@
 
   if (!FRESH) {
     const notesLabel = addUserLabel('_Notes').id;
+    const work = addUserLabel('_Notes/Work').id;
+    const clients = addUserLabel('_Notes/Work/Clients').id;
+    addUserLabel('_Notes/Personal');
+    addUserLabel('_Notes/Empty');
     seedNote('kestrelglossary0001', 'Kestrel glossary decisions',
-      'Stent coating project\n\n- "coating" stays "coating", not "layer"\n- IFU = instructions for use, spelled out once\n- Use NL decimal commas in tables', 50, notesLabel);
+      'Stent coating project\n\n- "coating" stays "coating", not "layer"\n- IFU = instructions for use, spelled out once\n- Use NL decimal commas in tables', 50, notesLabel, clients);
     seedNote('kestrelglossary0001', 'Kestrel glossary decisions',
-      'Stent coating project (older draft)', 60, notesLabel);
+      'Stent coating project (older draft)', 60, notesLabel, clients);
     seedNote('newsletterideas0002', 'Ideas for the October newsletter',
-      'Tips on termbase hygiene\nA short piece on patent claim punctuation\nReader question: CAT tools and Markdown', 5, notesLabel);
+      'Tips on termbase hygiene\nA short piece on patent claim punctuation\nReader question: CAT tools and Markdown', 5, notesLabel, work);
     seedNote('rateschedule00000003', 'Rate schedule 2027 – draft',
       'Per-word rates, minimum charge, rush surcharge.\nRevisit in December. ✓', 200, notesLabel);
     // One written with formatting: the HTML part is the record.
@@ -396,6 +400,32 @@
 
     listLabels() {
       return { labels };
+    },
+
+    // One label with its counts, which labels.list leaves out.
+    getLabel(id) {
+      const l = labels.find(x => x.id === id);
+      if (!l) throw new HttpError(404, 'Requested entity was not found.');
+      const msgs = box.allMessages().filter(m => m.labelIds.includes(id));
+      return { ...l, messagesTotal: msgs.length, threadsTotal: new Set(msgs.map(m => m.threadId)).size };
+    },
+
+    // Mirrors the worker: an empty notes folder with nothing under it.
+    deleteLabel(id) {
+      const l = labels.find(x => x.id === id);
+      if (!l) throw new HttpError(404, 'Requested entity was not found.');
+      const stored = window.chrome.storage.sync.dump()[`notes:${ACCOUNT}`] || {};
+      const root = stored.label || '_Notes';
+      const live = box.allMessages().filter(m => m.labelIds.includes(id) && !m.labelIds.includes('TRASH')).length;
+      if (!window.gkb.notesLogic.isDeletableFolder(l, root, labels, live)) {
+        const err = new Error('Only an empty notes folder can be deleted from here.');
+        err.code = 'not_allowed';
+        throw err;
+      }
+      labels.splice(labels.indexOf(l), 1);
+      for (const m of box.allMessages()) m.labelIds = m.labelIds.filter(x => x !== id);
+      changed();
+      return null;
     },
 
     createLabel(body) {
@@ -611,6 +641,9 @@
     },
     messageText(id) { return messageText(box.findMessage(id)); },
     messageHtml(id) { return messagePart(box.findMessage(id), 'text/html'); },
+    messageFolders(id) {
+      return box.messageLabelNames(id).filter(n => n.startsWith('_Notes/'));
+    },
     messageHeader(id, name) { return header(box.findMessage(id), name); },
 
     threadsInInbox() {
@@ -642,6 +675,8 @@
     if (method === 'GET' && path === 'labels') return box.listLabels();
     if (method === 'POST' && path === 'labels') return box.createLabel(body);
     if (method === 'PATCH' && (mm = path.match(/^labels\/([A-Za-z0-9_-]+)$/))) return box.patchLabel(mm[1], body || {});
+    if (method === 'GET' && (mm = path.match(/^labels\/([A-Za-z0-9_-]+)$/))) return box.getLabel(mm[1]);
+    if (method === 'DELETE' && (mm = path.match(/^labels\/([A-Za-z0-9_-]+)$/))) return box.deleteLabel(mm[1]);
     if (method === 'GET' && path === 'threads') return box.listThreads(query || {});
     if (method === 'GET' && (mm = path.match(/^threads\/([A-Za-z0-9]+)$/))) return box.getThread(mm[1], query || {});
     if (method === 'POST' && (mm = path.match(/^threads\/([A-Za-z0-9]+)\/modify$/))) return box.modify(mm[1], body || {});

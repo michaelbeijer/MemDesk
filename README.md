@@ -13,7 +13,7 @@ the train and see it on the board later, or look up a note. The leading
 underscore sorts both labels to the top of Gmail's label list. The board and the
 notes editor themselves only exist in desktop Chrome.
 
-Version 0.4.0. Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.5.0. Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies.
 
 ## Install
@@ -130,7 +130,17 @@ your Chrome profile to other computers. All of it is kept per Gmail account.
 - **Open the notes** with the **Notes** tab next to **Board** at the top of the
   board, or the **Notes** button beside **Board** at the bottom left of Gmail.
   The board reopens on whichever tab you used last.
-- The list on the left shows your notes, newest first, with their first lines.
+- **Folders** are in the column on the left: **All notes**, then your folders
+  as a tree, each with how many notes it holds. Choose one to see only its
+  notes (and to search only inside it). The **+** at the top makes a folder;
+  a folder's **⋯** menu renames it (its subfolders come along), makes a
+  subfolder, or deletes it - only once it is empty. Move a note by dragging it
+  onto a folder (onto **All notes** to take it out of its folder), or with the
+  folder button above the note. A new note starts in the folder you are
+  looking at. Each folder is a Gmail label under `_Notes` - `_Notes/Work`,
+  `_Notes/Work/Clients` - so the same tree shows in Gmail's label list on the
+  phone.
+- The list in the middle shows your notes, newest first, with their first lines.
   The **search box** above it runs Gmail's own search inside your notes, so it
   finds words anywhere in a note and takes Gmail syntax (`before:2026/09/01`).
   **New** starts a note.
@@ -157,9 +167,11 @@ your Chrome profile to other computers. All of it is kept per Gmail account.
   come with it.
 
 How it works: a note is a message placed straight into your mailbox with
-`messages.insert`, from and to yourself, labelled `_Notes` and nothing else -
-not Inbox, not unread. (Gmail itself adds its Sent label to anything from your
-own address, so notes also show under Sent.) A note is two renderings of the same
+`messages.insert`, labelled `_Notes` (and its folder's label, if it is in one)
+and nothing else - not Inbox, not unread. It is addressed to you, with you as
+Reply-To, but it is from "Notes" at a reserved address that can never send or
+receive mail (`notes@notes.invalid`): Gmail files anything from your own address
+under Sent, whatever labels it was given. A note is two renderings of the same
 content: an HTML part, which is the record - Gmail shows it, formatting and all,
 and the editor reads it back - and a plain-text part with bullets, numbers and
 ☐ / ☑ for Gmail's previews and plain-text mail clients. The editor reads the HTML
@@ -205,8 +217,10 @@ silently.
 - **What this code does.** For the board, it reads thread metadata (subject,
   sender, date, label ids and Gmail's snippet), creates and renames labels, and
   adds or removes labels on threads, including `INBOX` when archiving. For the
-  notes, it reads the messages under `_Notes` (bodies included), inserts new
-  notes, and moves its own old versions and deleted notes to Trash. It **never
+  notes, it reads the messages under `_Notes` and its folders (bodies
+  included), inserts new notes, moves notes between folders, moves its own old
+  versions and deleted notes to Trash, and creates, renames and deletes empty
+  folders under `_Notes`. It **never
   sends and never permanently deletes**, never touches Spam, and moves nothing
   to Trash but its own notes. The background worker enforces this with an
   allow-list: any other Gmail API call, any `DELETE`, any attempt to add `TRASH`
@@ -214,7 +228,10 @@ silently.
   the `X-Gkb-Note` header, filed under user labels only - never Inbox, Sent,
   Drafts, Spam, Trash or unread) is refused before a token is even fetched.
   Before trashing a message, the worker reads that message's headers itself and
-  refuses unless it is a note.
+  refuses unless it is a note. The only label it will delete is an empty notes
+  folder: before a `DELETE`, it reads the label, the full label list, and
+  whether any message is still filed under it, and refuses anything that is not
+  a folder under the notes label with no notes and no subfolders.
 - Every token is checked against Gmail's own profile before use. If Google
   signs in a different account from the one in the Gmail tab, the token is
   discarded and the board says so, rather than acting on the wrong mailbox.
@@ -348,9 +365,11 @@ tools/make-icons.mjs       icon generator
 
 - **A to-do view.** One flat list across all columns, oldest first, for days when
   a board is too much.
-- **Search results with highlighting**: while searching, excerpts around every
-  match with the words highlighted, and inside an opened note every match
+- **Search results with highlighting** (next): while searching, excerpts around
+  every match with the words highlighted, and inside an opened note every match
   highlighted with "2 of 5" stepping between them.
+- **A panel in the Gmail phone app**, as a private Google Workspace add-on: a new
+  note, adding to a note, ticking checklist items, moving a note to a folder.
 - **A "Needs reply" column**, computed rather than labelled. It would reuse the
   triage and ranking logic in `supervertaler-stats/src/email.js`
   (`classifyBulk`, `scoreThread`): threads whose newest message is inbound and

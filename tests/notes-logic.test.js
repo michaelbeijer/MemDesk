@@ -20,12 +20,14 @@ function bodyOf(bin) {
 
 // ── Building ─────────────────────────────────────────────────────────
 
-test('a note is a plain-text message to and from the account, marked as a note', () => {
+test('a note is a plain-text message to the account, from a sender Gmail will not file under Sent', () => {
   const raw = notes.buildNoteRaw({ noteId: ID, title: 'Kestrel glossary', body: 'line one\nline two', account: 'me@example.com', date: at });
   assert.match(raw, /^[A-Za-z0-9_-]+$/, 'base64url, no padding');
   const head = headersOf(decode(raw));
-  assert.match(head, /^From: me@example\.com$/m);
+  assert.match(head, /^From: "Notes" <notes@notes\.invalid>$/m);
+  assert.doesNotMatch(head, /^From:.*me@example\.com/m, 'not from the account itself');
   assert.match(head, /^To: me@example\.com$/m);
+  assert.match(head, /^Reply-To: me@example\.com$/m, 'a reply still reaches the account');
   assert.match(head, /^Subject: Kestrel glossary$/m);
   assert.match(head, /^Date: Thu, 01 Oct 2026 21:30:00 GMT$/m);
   assert.match(head, new RegExp(`^X-Gkb-Note: ${ID}$`, 'm'));
@@ -194,4 +196,74 @@ test('messageParts gives both renderings, decoded', () => {
   });
   assert.deepEqual(p, { plain: '• bread', html: '<ul><li>bread ✓</li></ul>' });
   assert.deepEqual(notes.messageParts({ mimeType: 'text/plain', body: { data: b64u('only text') } }), { plain: 'only text', html: '' });
+});
+
+// ── Folders ──────────────────────────────────────────────────────────
+
+const LABELS = [
+  { id: 'L1', name: '_Notes' },
+  { id: 'L2', name: '_Notes/work' },
+  { id: 'L3', name: '_Notes/Personal' },
+  { id: 'L4', name: '_Notes/Work/Clients' },
+  { id: 'L5', name: '_Notes/Personal/Recipes' },
+  { id: 'L6', name: '_Notes/Orphan/Child' },
+  { id: 'L7', name: '_Board/To do' },
+  { id: 'L8', name: '_NotesExtra' },
+  { id: 'L9', name: '_Notes/' },
+];
+
+test('folders: the labels under the notes label, in tree order', () => {
+  const tree = notes.folderTree(LABELS, '_Notes');
+  assert.deepEqual(tree.map(f => [f.path, f.title, f.depth]), [
+    ['Orphan/Child', 'Child', 1],
+    ['Personal', 'Personal', 0],
+    ['Personal/Recipes', 'Recipes', 1],
+    ['work', 'work', 0],
+    ['Work/Clients', 'Clients', 1],
+  ]);
+  assert.equal(tree.find(f => f.title === 'Clients').parentPath, 'Work');
+  assert.deepEqual(notes.folderTree([], '_Notes'), []);
+});
+
+test('folders: a note is in at most one, and a move keeps the notes label', () => {
+  const tree = notes.folderTree(LABELS, '_Notes');
+  assert.equal(notes.folderOf(['L1', 'L5'], tree), 'L5');
+  assert.equal(notes.folderOf(['L1'], tree), '');
+  assert.equal(notes.folderOf(['L1', 'L4', 'L3'], tree), 'L3', 'two by hand: the first in tree order');
+  const diff = notes.moveFolderDiff('L1', tree, 'L2');
+  assert.deepEqual(diff.addLabelIds, ['L1', 'L2']);
+  assert.deepEqual(diff.removeLabelIds.sort(), ['L3', 'L4', 'L5', 'L6']);
+  assert.deepEqual(notes.moveFolderDiff('L1', tree, ''), { addLabelIds: ['L1'], removeLabelIds: tree.map(f => f.id) });
+});
+
+test('folders: names are checked before Gmail sees them', () => {
+  assert.equal(notes.validateFolderTitle('Recipes', ['Work']), '');
+  assert.match(notes.validateFolderTitle('  ', []), /name/);
+  assert.match(notes.validateFolderTitle('a/b', []), /subfolder/);
+  assert.match(notes.validateFolderTitle('work', ['Work']), /already/);
+  assert.match(notes.validateFolderTitle('x'.repeat(61), []), /under 60/);
+});
+
+test('folders: renaming takes the whole branch with it', () => {
+  const tree = notes.folderTree(LABELS, '_Notes');
+  const personal = tree.find(f => f.path === 'Personal');
+  assert.deepEqual(notes.renamePlan(personal, ' Home ', tree), [
+    { id: 'L3', name: '_Notes/Home' },
+    { id: 'L5', name: '_Notes/Home/Recipes' },
+  ]);
+  const recipes = tree.find(f => f.path === 'Personal/Recipes');
+  assert.deepEqual(notes.renamePlan(recipes, 'Cooking', tree), [{ id: 'L5', name: '_Notes/Personal/Cooking' }]);
+});
+
+test('folders: only an empty folder under the notes label, with nothing under it, may be deleted', () => {
+  const recipes = { id: 'L5', name: '_Notes/Personal/Recipes' };
+  assert.equal(notes.isDeletableFolder(recipes, '_Notes', LABELS, 0), true);
+  assert.equal(notes.isDeletableFolder(recipes, '_Notes', LABELS, 1), false, 'a note still in it');
+  assert.equal(notes.isDeletableFolder(recipes, '_Notes', LABELS, undefined), false, 'not checked: no');
+  assert.equal(notes.isDeletableFolder({ id: 'L3', name: '_Notes/Personal' }, '_Notes', LABELS, 0), false, 'has a subfolder');
+  assert.equal(notes.isDeletableFolder({ id: 'L1', name: '_Notes' }, '_Notes', LABELS, 0), false, 'not the notes label itself');
+  assert.equal(notes.isDeletableFolder({ id: 'L9', name: '_Notes/' }, '_Notes', LABELS, 0), false);
+  assert.equal(notes.isDeletableFolder({ id: 'L7', name: '_Board/To do' }, '_Notes', LABELS, 0), false, 'not a board column');
+  assert.equal(notes.isDeletableFolder({ id: 'L8', name: '_NotesExtra' }, '_Notes', LABELS, 0), false);
+  assert.equal(notes.isDeletableFolder(recipes, '', LABELS, 0), false, 'no root known: nothing');
 });

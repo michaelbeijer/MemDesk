@@ -109,7 +109,6 @@ test('sending, deleting and anything else is refused', () => {
     ['POST', 'drafts/send'],
     ['POST', 'drafts'],
     ['DELETE', 'threads/18c2f7a0b1d2e3f4'],
-    ['DELETE', 'labels/Label_1'],
     ['POST', 'threads/18c2f7a0b1d2e3f4/trash'],
     ['POST', 'messages/batchDelete'],
     ['POST', 'messages/batchModify'],
@@ -177,4 +176,15 @@ test('API URLs repeat array parameters and skip empty ones', () => {
   assert.deepEqual(u.searchParams.getAll('metadataHeaders'), ['Subject', 'From', 'Date']);
   assert.equal(u.searchParams.has('q'), false);
   assert.equal(auth.buildApiUrl('labels'), 'https://gmail.googleapis.com/gmail/v1/users/me/labels');
+});
+
+test('deleting a label passes the request check only to meet the worker’s folder check', () => {
+  assert.equal(auth.isAllowedRequest('DELETE', 'labels/Label_12'), true);
+  assert.equal(auth.folderDeleteId('DELETE', 'labels/Label_12'), 'Label_12');
+  assert.equal(auth.folderDeleteId('delete', 'labels/Label_12'), 'Label_12');
+  assert.equal(auth.folderDeleteId('PATCH', 'labels/Label_12'), '');
+  assert.equal(auth.folderDeleteId('DELETE', 'messages/abc'), '');
+  assert.equal(auth.isAllowedRequest('DELETE', 'labels'), false);
+  assert.equal(auth.isAllowedRequest('DELETE', 'labels/../threads/x'), false);
+  assert.equal(auth.isAllowedRequest('GET', 'labels/Label_12'), true, 'reading one label, for its counts');
 });

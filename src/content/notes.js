@@ -1,9 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────
 // The notes view
 //
-// The board's second tab: a list of notes on the left, the open note on
-// the right. Typing saves by itself a moment after you stop, and again on
-// switching notes, switching tabs or closing; Ctrl+S saves at once.
+// The board's second tab: folders on the left, then the notes in the
+// chosen folder, then the open note. Typing saves by itself a moment after
+// you stop, and again on switching notes, switching tabs or closing;
+// Ctrl+S saves at once. A note moves to another folder by dragging it onto
+// one, or from the folder button above the text.
 //
 // The board owns the overlay, the header and the account panels (setup,
 // connect); this file owns everything inside the body while the Notes tab
@@ -15,7 +17,7 @@
   'use strict';
 
   const ns = (globalThis.gkb = globalThis.gkb || {});
-  const { h, icon, toast } = ns.ui;
+  const { h, icon, toast, openMenu } = ns.ui;
   const { util, notesLogic, notesStore, hooks, api } = ns;
   const fmt = ns.noteFormat;
 
@@ -34,7 +36,11 @@
     loadedAt: 0,
     loading: null,
     current: null,      // the note being edited - see newCurrent()
-    chain: Promise.resolve(), // saves run one after another
+    chain: Promise.resolve(), // saves and moves run one after another
+    folders: [],        // notesLogic.folderTree(), from the last listing
+    folder: '',         // the folder shown; '' for all notes
+    folderEdit: null,   // { mode: 'new' | 'rename', parentId, folderId, value, error, busy }
+    dragKey: '',        // the note being dragged onto a folder
   };
 
   let saveTimer = 0;
@@ -73,19 +79,32 @@
     });
     els.items = h('div', { class: 'notes-items', role: 'list', 'aria-label': 'Notes' });
     els.foot = h('div', { class: 'notes-foot' });
+    els.scope = h('div', { class: 'notes-scope' });
 
-    els.list = h('section', { class: 'notes-list', 'aria-label': 'All notes' },
+    els.list = h('section', { class: 'notes-list', 'aria-label': 'Notes' },
       h('div', { class: 'notes-tools' },
         h('div', { class: 'search-box' }, icon('search', 18), els.search),
         h('button', {
           class: 'btn btn-tonal', type: 'button', dataset: { key: 'note-new' },
           title: 'New note', onclick: () => newNote(),
         }, icon('add', 18), 'New')),
+      els.scope,
       els.items,
       els.foot);
 
+    els.folderItems = h('div', { class: 'folder-items', role: 'list', 'aria-label': 'Folders' });
+    els.foldersPane = h('section', { class: 'notes-folders', 'aria-label': 'Folders' },
+      h('div', { class: 'folders-head' },
+        h('h2', { text: 'Folders' }),
+        h('button', {
+          class: 'icon-btn', type: 'button', title: 'New folder', 'aria-label': 'New folder',
+          dataset: { key: 'folder-new' }, onclick: () => startFolderEdit({ mode: 'new', parentId: '' }),
+        }, icon('add', 20))),
+      els.folderItems);
+
     els.editor = h('section', { class: 'note-editor', 'aria-label': 'Note' });
-    els.wrap = h('div', { class: 'notes' }, els.list, els.editor);
+    els.wrap = h('div', { class: 'notes' }, els.foldersPane, els.list, els.editor);
+    drawFolders();
     drawList();
     drawEditor();
     return els.wrap;
@@ -110,6 +129,9 @@
         if (query !== N.query) return; // a newer search has started
         N.notes = r.notes;
         N.truncated = r.truncated;
+        N.folders = r.folders || [];
+        // The folder shown was deleted or renamed away in Gmail.
+        if (N.folder && !N.folders.some(f => f.id === N.folder)) N.folder = '';
         N.status = 'ready';
         N.error = '';
         N.loadedAt = Date.now();
@@ -126,8 +148,10 @@
         if (N.notes.length) toast(N.ctx.root, `Couldn’t load notes: ${err.message}`, { kind: 'error' });
       } finally {
         N.loading = null;
+        drawFolders();
         drawList();
         drawFoot();
+        if (N.current) drawBar();
         N.ctx.barChanged();
       }
     })();
@@ -148,9 +172,32 @@
 
   // ── The list ─────────────────────────────────────────────────────────
 
+  function folderById(id) {
+    return N.folders.find(f => f.id === id) || null;
+  }
+
+  // "Work › Clients"
+  function folderLabel(id) {
+    const f = folderById(id);
+    return f ? f.path.split('/').join(' \u203a ') : '';
+  }
+
+  function visibleNotes() {
+    return N.folder ? N.notes.filter(n => n.folderId === N.folder) : N.notes;
+  }
+
   function drawList() {
     if (!els.items) return;
     const curKey = N.current && N.current.key;
+    const shown = visibleNotes();
+    const searching = !!N.query.trim();
+    if (els.scope) {
+      const where = N.folder ? folderLabel(N.folder) : 'All notes';
+      els.scope.textContent = N.status === 'ready'
+        ? `${where} \u00b7 ${shown.length} ${searching ? (shown.length === 1 ? 'match' : 'matches') : (shown.length === 1 ? 'note' : 'notes')}`
+        : where;
+    }
+    if (els.search) els.search.placeholder = N.folder ? `Search in ${folderById(N.folder) ? folderById(N.folder).title : 'this folder'}` : 'Search notes';
 
     if (N.status === 'loading' && !N.notes.length) {
       els.items.replaceChildren(h('div', { class: 'notes-empty', text: 'Loading…' }));
@@ -163,24 +210,267 @@
           h('button', { class: 'btn btn-text', type: 'button', text: 'Try again', onclick: () => load({ force: true }) })));
       return;
     }
-    if (!N.notes.length) {
-      els.items.replaceChildren(h('div', {
-        class: 'notes-empty', text: N.query.trim() ? 'No notes match.' : 'No notes yet.',
-      }));
+    if (!shown.length) {
+      let text = searching ? 'No notes match.' : 'No notes yet.';
+      if (N.folder) text = searching ? 'No notes in this folder match.' : 'No notes in this folder yet.';
+      els.items.replaceChildren(h('div', { class: 'notes-empty', text }));
       return;
     }
 
-    els.items.replaceChildren(...N.notes.map(n => h('button', {
-      class: 'note-item', type: 'button', role: 'listitem',
-      'aria-current': n.key === curKey ? 'true' : null,
-      dataset: { key: `note:${n.key}`, note: n.key },
-      onclick: () => openNote(n),
+    els.items.replaceChildren(...shown.map(n => {
+      const item = h('button', {
+        class: 'note-item', type: 'button', role: 'listitem', draggable: 'true',
+        'aria-current': n.key === curKey ? 'true' : null,
+        dataset: { key: `note:${n.key}`, note: n.key },
+        onclick: () => openNote(n),
+      },
+        h('span', { class: 'ni-top' },
+          h('span', { class: 'ni-title', text: n.title }),
+          h('span', { class: 'date', text: util.relativeDate(n.updated), title: util.fullDate(n.updated) })),
+        n.snippet ? h('span', { class: 'ni-snippet', text: n.snippet }) : null,
+        h('span', { class: 'ni-meta' },
+          !N.folder && n.folderId ? h('span', { class: 'ni-folder' }, icon('folder', 14), folderLabel(n.folderId)) : null,
+          n.own ? null : h('span', { class: 'ni-mail', text: 'From an email' })));
+      item.addEventListener('dragstart', e => {
+        N.dragKey = n.key;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('application/x-gkb-note', n.key);
+        els.wrap.classList.add('dragging-note');
+      });
+      item.addEventListener('dragend', () => {
+        N.dragKey = '';
+        els.wrap.classList.remove('dragging-note');
+        for (const r of els.folderItems.querySelectorAll('.drop')) r.classList.remove('drop');
+      });
+      return item;
+    }));
+  }
+
+  // ── Folders ──────────────────────────────────────────────────────────
+
+  function counts() {
+    const out = new Map();
+    for (const n of N.notes) out.set(n.folderId || '', (out.get(n.folderId || '') || 0) + 1);
+    return out;
+  }
+
+  function selectFolder(id) {
+    if (N.folder === id) return;
+    N.folder = id;
+    drawFolders();
+    drawList();
+  }
+
+  function drawFolders() {
+    if (!els.folderItems) return;
+    const tally = counts();
+    const rows = [folderRow(null, N.notes.length)];
+    const edit = N.folderEdit;
+    if (edit && edit.mode === 'new' && !edit.parentId) rows.push(editRow(0));
+    N.folders.forEach((f, i) => {
+      rows.push(edit && edit.mode === 'rename' && edit.folderId === f.id ? editRow(f.depth, f) : folderRow(f, tally.get(f.id) || 0));
+      // A new subfolder's field goes after the whole branch it joins.
+      const next = N.folders[i + 1];
+      const branchEnds = !next || !next.name.startsWith(`${f.name}/`);
+      if (edit && edit.mode === 'new' && edit.parentId) {
+        const parent = folderById(edit.parentId);
+        if (parent && (f.id === parent.id || f.name.startsWith(`${parent.name}/`)) && branchEnds) rows.push(editRow(parent.depth + 1));
+      }
+    });
+    els.folderItems.replaceChildren(...rows);
+  }
+
+  function folderRow(f, count) {
+    const id = f ? f.id : '';
+    const children = f ? N.folders.some(x => x.name.startsWith(`${f.name}/`)) : false;
+    const row = h('div', {
+      class: 'folder-row', role: 'listitem', dataset: { folder: id || 'all' },
     },
-      h('span', { class: 'ni-top' },
-        h('span', { class: 'ni-title', text: n.title }),
-        h('span', { class: 'date', text: util.relativeDate(n.updated), title: util.fullDate(n.updated) })),
-      n.snippet ? h('span', { class: 'ni-snippet', text: n.snippet }) : null,
-      n.own ? null : h('span', { class: 'ni-mail', text: 'From an email' }))));
+      h('button', {
+        class: 'folder-btn', type: 'button', 'aria-current': N.folder === id ? 'true' : null,
+        dataset: { key: `folder:${id || 'all'}` }, title: f ? f.name : 'Every note, in any folder',
+        onclick: () => selectFolder(id),
+      },
+        icon(f ? 'folder' : 'notes', 18),
+        h('span', { class: 'folder-title', text: f ? f.title : 'All notes' }),
+        h('span', { class: 'folder-count', text: N.status === 'ready' ? String(count) : '' })),
+      f ? h('button', {
+        class: 'icon-btn folder-menu', type: 'button', 'aria-label': `More actions: ${f.title}`, title: 'More actions',
+        'aria-haspopup': 'menu', 'aria-expanded': 'false', dataset: { key: `folder-menu:${id}` },
+        onclick: e => openMenu(N.ctx.root, e.currentTarget, [
+          { label: 'Rename', icon: 'edit', key: 'folder-rename', onSelect: () => startFolderEdit({ mode: 'rename', folderId: id }) },
+          { label: 'New subfolder', icon: 'add', key: 'folder-sub', onSelect: () => startFolderEdit({ mode: 'new', parentId: id }) },
+          { separator: true },
+          {
+            label: count || children ? 'Delete (empty it first)' : 'Delete', icon: 'delete', danger: true, key: 'folder-delete',
+            disabled: !!(count || children), onSelect: () => removeFolder(f),
+          },
+        ], { label: `Actions for ${f.title}` }),
+      }, icon('more', 18)) : null);
+    // Through the style API, not a style attribute: a page's security
+    // policy may refuse inline style attributes, never this.
+    row.style.setProperty('--depth', String(f ? f.depth : 0));
+
+    // Dropping a note here files it here; on "All notes", takes it out of
+    // its folder.
+    row.addEventListener('dragover', e => {
+      if (!N.dragKey) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      row.classList.add('drop');
+    });
+    row.addEventListener('dragleave', () => row.classList.remove('drop'));
+    row.addEventListener('drop', e => {
+      if (!N.dragKey) return;
+      e.preventDefault();
+      row.classList.remove('drop');
+      const note = N.notes.find(n => n.key === N.dragKey);
+      N.dragKey = '';
+      if (note) moveNote(note, id);
+    });
+    return row;
+  }
+
+  function editRow(depth, folder) {
+    const edit = N.folderEdit;
+    const input = h('input', {
+      class: 'text-input folder-input', type: 'text', value: edit.value, maxlength: String(notesLogic.FOLDER_NAME_MAX),
+      placeholder: edit.mode === 'new' ? 'Folder name, then Enter' : '', 'aria-label': edit.mode === 'new' ? 'New folder name' : `Rename ${folder.title}`,
+      disabled: !!edit.busy, dataset: { key: 'folder-input' },
+      oninput: e => { edit.value = e.target.value; },
+      onkeydown: e => {
+        if (e.key === 'Enter') { e.preventDefault(); commitFolderEdit(); }
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelFolderEdit(); }
+      },
+      onblur: () => { if (!edit.busy && N.folderEdit === edit) setTimeout(() => { if (N.folderEdit === edit && !edit.busy) cancelFolderEdit(); }, 150); },
+    });
+    const row = h('div', { class: 'folder-row editing' },
+      h('div', { class: 'folder-edit' }, icon('folder', 18), input),
+      edit.error ? h('div', { class: 'folder-error', role: 'alert', text: edit.error }) : null);
+    row.style.setProperty('--depth', String(depth));
+    return row;
+  }
+
+  function startFolderEdit({ mode, parentId = '', folderId = '' }) {
+    const f = folderById(folderId);
+    N.folderEdit = { mode, parentId, folderId, value: mode === 'rename' && f ? f.title : '', error: '', busy: false };
+    drawFolders();
+    const input = els.folderItems.querySelector('[data-key="folder-input"]');
+    if (input) { input.focus(); input.select(); }
+  }
+
+  function cancelFolderEdit() {
+    if (!N.folderEdit) return;
+    N.folderEdit = null;
+    drawFolders();
+  }
+
+  async function commitFolderEdit() {
+    const edit = N.folderEdit;
+    if (!edit || edit.busy) return;
+    const target = edit.mode === 'rename' ? folderById(edit.folderId) : null;
+    const parent = edit.mode === 'new' ? folderById(edit.parentId) : null;
+    const parentPath = target ? target.parentPath : parent ? parent.path : '';
+    const siblings = N.folders.filter(f => f.parentPath === parentPath && f !== target).map(f => f.title);
+    const problem = notesLogic.validateFolderTitle(edit.value, siblings);
+    if (edit.mode === 'rename' && target && edit.value.trim() === target.title) { cancelFolderEdit(); return; }
+    if (problem) {
+      edit.error = problem;
+      drawFolders();
+      const input = els.folderItems.querySelector('[data-key="folder-input"]');
+      if (input) input.focus();
+      return;
+    }
+    edit.busy = true;
+    drawFolders();
+    try {
+      if (edit.mode === 'new') {
+        const made = await notesStore.createFolder(parent, edit.value);
+        N.folders = notesStore.folders();
+        if (made) N.folder = made.id;
+        toast(N.ctx.root, `Folder “${edit.value.trim()}” created.`);
+      } else {
+        await notesStore.renameFolder(target, edit.value);
+        N.folders = notesStore.folders();
+      }
+      N.folderEdit = null;
+    } catch (err) {
+      edit.busy = false;
+      edit.error = `Couldn’t save: ${err.message}`;
+      if (api.STATE_CODES.has(err.code)) N.ctx.onStateError(err);
+    }
+    drawFolders();
+    drawList();
+    if (N.current) drawBar();
+  }
+
+  async function removeFolder(f) {
+    try {
+      await notesStore.deleteFolder(f);
+      N.folders = notesStore.folders();
+      if (N.folder === f.id) N.folder = '';
+      toast(N.ctx.root, `Folder “${f.title}” deleted.`);
+    } catch (err) {
+      const msg = err.code === 'not_allowed' ? 'Only an empty folder can be deleted. Move its notes out first.' : err.message;
+      toast(N.ctx.root, `Couldn’t delete “${f.title}”: ${msg}`, { kind: 'error' });
+    }
+    drawFolders();
+    drawList();
+  }
+
+  // Runs after any save in progress, so the move lands on the newest
+  // version rather than one about to be replaced.
+  function moveNote(note, folderId) {
+    const c = N.current && N.current.note === note ? N.current : null;
+    if ((note.folderId || '') === (folderId || '')) return N.chain;
+    N.chain = N.chain.then(async () => {
+      const latest = c ? c.note : note;
+      const was = latest.folderId || '';
+      latest.folderId = folderId;
+      if (c) c.folderId = folderId;
+      drawFolders();
+      drawList();
+      if (c) drawBar();
+      try {
+        await notesStore.move(latest, folderId);
+        toast(N.ctx.root, folderId ? `Moved to ${folderLabel(folderId)}.` : 'Taken out of its folder.');
+      } catch (err) {
+        latest.folderId = was;
+        if (c) c.folderId = was;
+        toast(N.ctx.root, `Couldn’t move “${latest.title}”: ${err.message}`, { kind: 'error' });
+        if (api.STATE_CODES.has(err.code)) N.ctx.onStateError(err);
+      }
+      drawFolders();
+      drawList();
+      if (N.current === c && c) drawBar();
+    });
+    return N.chain;
+  }
+
+  // The folder button above the note: where it is, and where it can go.
+  function chooseFolder(anchor) {
+    const c = N.current;
+    if (!c) return;
+    openMenu(N.ctx.root, anchor, [
+      { heading: 'Move to' },
+      { label: 'No folder', key: 'move-folder:none', checked: !c.folderId, onSelect: () => setCurrentFolder('') },
+      ...N.folders.map(f => ({
+        label: `${'\u2003'.repeat(f.depth)}${f.title}`, key: `move-folder:${f.id}`, checked: c.folderId === f.id,
+        onSelect: () => setCurrentFolder(f.id),
+      })),
+    ], { label: 'Folder' });
+  }
+
+  function setCurrentFolder(id) {
+    const c = N.current;
+    if (!c) return;
+    // Not saved yet: the folder is simply where the first save puts it.
+    if (!c.note) {
+      c.folderId = id;
+      drawBar();
+      return;
+    }
+    moveNote(c.note, id);
   }
 
   function drawFoot() {
@@ -203,6 +493,8 @@
       saving: false,
       error: '',
       savedAt: 0,
+      // A new note starts in the folder being looked at.
+      folderId: note ? note.folderId || '' : N.folder,
     };
   }
 
@@ -293,6 +585,11 @@
     els.bar.replaceChildren(
       els.status,
       h('div', { class: 'spacer' }),
+      h('button', {
+        class: 'ne-folder', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false',
+        title: 'Move to another folder', dataset: { key: 'note-folder' },
+        onclick: e => chooseFolder(e.currentTarget),
+      }, icon('folder', 18), h('span', { text: c.folderId ? folderLabel(c.folderId) || 'No folder' : 'No folder' }), icon('caret', 18)),
       c.note ? h('button', {
         class: 'icon-btn', type: 'button', 'aria-label': 'Open in Gmail', title: 'Open in Gmail',
         dataset: { key: 'note-open' }, onclick: () => openInGmail(c),
@@ -343,7 +640,7 @@
       if (!c.dirty) return;
       // An untouched new note is not worth a message.
       if (!c.note && !c.title.trim() && fmt.isEmpty(c.doc)) { c.dirty = false; return; }
-      const snap = { title: c.title, doc: c.doc };
+      const snap = { title: c.title, doc: c.doc, folderId: c.folderId };
       const before = c.note;
       c.dirty = false;
       c.saving = true;
