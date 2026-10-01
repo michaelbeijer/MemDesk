@@ -17,6 +17,7 @@
   const ns = (globalThis.gkb = globalThis.gkb || {});
   const { h, icon, toast } = ns.ui;
   const { util, notesLogic, notesStore, hooks, api } = ns;
+  const fmt = ns.noteFormat;
 
   // Long enough not to save mid-sentence (each save is a new message and
   // a trashed old one), short enough that little is at risk.
@@ -196,7 +197,7 @@
       key: note ? note.key : `new:${Date.now()}`,
       note,                          // null until first saved
       title: note && note.title !== 'Untitled note' ? note.title : '',
-      body: '',
+      doc: note ? null : fmt.emptyDoc(),   // formatted content, once loaded
       bodyState: note ? 'loading' : 'ready', // loading | ready | error
       dirty: false,
       saving: false,
@@ -220,9 +221,9 @@
     N.current = c;
     drawList();
     drawEditor();
-    notesStore.body(note).then(text => {
+    notesStore.body(note).then(doc => {
       if (N.current !== c) return;
-      c.body = text;
+      c.doc = doc;
       c.bodyState = 'ready';
       drawEditor();
     }, err => {
@@ -235,6 +236,7 @@
   }
 
   function focusField(key) {
+    if (key === 'note-body' && els.ed) { els.ed.focus(); return; }
     const el = els.editor && els.editor.querySelector(`[data-key="${key}"]`);
     if (el) el.focus();
   }
@@ -243,6 +245,7 @@
     if (!els.editor) return;
     const c = N.current;
     if (!c) {
+      if (els.ed) { els.ed.destroy(); els.ed = null; }
       els.editor.replaceChildren(h('div', { class: 'notes-intro' },
         h('span', { class: 'panel-icon' }, icon('note', 28)),
         h('h2', { text: 'Notes, kept in Gmail' }),
@@ -266,14 +269,15 @@
         if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); focusField('note-body'); }
       },
     });
-    const body = h('textarea', {
-      class: 'ne-body', 'aria-label': 'Note', value: c.body, maxlength: String(notesLogic.MAX_BODY),
-      placeholder: c.bodyState === 'loading' ? 'Loading…' : c.bodyState === 'error' ? 'Couldn’t load this note.' : 'Write here…',
-      disabled: c.bodyState !== 'ready', dataset: { key: 'note-body' },
-      oninput: e => edited(c, { body: e.target.value }),
-    });
+    // A fresh editor per note: its undo history belongs to that note.
+    if (els.ed) els.ed.destroy();
+    const ed = ns.noteEditor.create({ root: N.ctx.root, onChange: () => edited(c, { doc: ed.getDoc() }) });
+    els.ed = ed;
+    ed.setDoc(c.doc || fmt.emptyDoc());
+    ed.setEditable(c.bodyState === 'ready',
+      c.bodyState === 'loading' ? 'Loading…' : c.bodyState === 'error' ? 'Couldn’t load this note.' : 'Write here…');
 
-    els.editor.replaceChildren(els.bar, els.bannerSlot, title, body);
+    els.editor.replaceChildren(els.bar, els.bannerSlot, title, ed.toolbar, ed.linkbar, ed.element);
     drawBar();
   }
 
@@ -338,8 +342,8 @@
     N.chain = N.chain.then(async () => {
       if (!c.dirty) return;
       // An untouched new note is not worth a message.
-      if (!c.note && !c.title.trim() && !c.body.trim()) { c.dirty = false; return; }
-      const snap = { title: c.title, body: c.body };
+      if (!c.note && !c.title.trim() && fmt.isEmpty(c.doc)) { c.dirty = false; return; }
+      const snap = { title: c.title, doc: c.doc };
       const before = c.note;
       c.dirty = false;
       c.saving = true;

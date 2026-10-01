@@ -13,7 +13,7 @@ the train and see it on the board later, or look up a note. The leading
 underscore sorts both labels to the top of Gmail's label list. The board and the
 notes editor themselves only exist in desktop Chrome.
 
-Version 0.3.0. Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.4.0. Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies.
 
 ## Install
@@ -142,11 +142,29 @@ your Chrome profile to other computers. All of it is kept per Gmail account.
 - A note with no title is filed under its first line.
 - **Delete** moves the note to Gmail's Trash, with an **Undo**. **Open in Gmail**
   shows the note as Gmail stores it.
-- Notes are plain text for now; line breaks are kept.
+- **Formatting.** The toolbar above the text has a text style menu (normal text
+  and three heading sizes), bold, italic, strike-through, bulleted, numbered and
+  check lists, less and more indent (three levels deep), links and clear
+  formatting. Keyboard: Ctrl+B and Ctrl+I; Ctrl+K for a link; Ctrl+Shift+7, 8
+  and 9 for numbered, bulleted and check lists; Tab and Shift+Tab to indent a
+  list item; Ctrl+Enter ticks a check box, as does clicking it. Typing `- `,
+  `1. `, `[] `, `[x] ` or `#`, `##`, `###` and a space at the start of a line
+  turns it into that list or heading. Enter on an empty list item ends the list;
+  Backspace at the start of a list item or heading turns it back into text.
+  Ctrl-click a link to open it.
+- **Pasting brings text only.** Whatever was copied - a web page, a Word
+  document - arrives as plain lines, so no outside styling, images or scripts
+  come with it.
 
 How it works: a note is a message placed straight into your mailbox with
 `messages.insert`, from and to yourself, labelled `_Notes` and nothing else -
-not Inbox, not unread. It carries an `X-Gkb-Note` header with the note's own id.
+not Inbox, not unread. (Gmail itself adds its Sent label to anything from your
+own address, so notes also show under Sent.) A note is two renderings of the same
+content: an HTML part, which is the record - Gmail shows it, formatting and all,
+and the editor reads it back - and a plain-text part with bullets, numbers and
+☐ / ☑ for Gmail's previews and plain-text mail clients. The editor reads the HTML
+with its own small reader rather than the browser's HTML parser, and keeps only
+what the toolbar can make: anything else becomes text. It carries an `X-Gkb-Note` header with the note's own id.
 Gmail messages cannot be changed once stored, so saving inserts a new version
 and moves the previous one to Trash. That makes Gmail's Trash a 30-day version
 history: open an old version there to copy text back. If two versions are ever
@@ -154,7 +172,8 @@ both live (a save cut short, or two computers saving at once), the newest wins
 and the other is moved to Trash the next time the list loads.
 
 Anything else filed under `_Notes` shows up too - an email you sent yourself
-from your phone, say. It reads as plain text and is marked "From an email".
+from your phone, say. Its bold, italic, lists and links come across; the rest
+reads as text. It is marked "From an email".
 Editing it saves a new note in its place and takes the email off the list
 (it keeps the email, just without the `_Notes` label); Delete does the same.
 
@@ -308,6 +327,7 @@ src/lib/                   pure logic, shared by content scripts, worker and tes
   auth.js                  auth URL, redirect parsing, API allow-list
   board-logic.js           columns, order merge, move label diffs, summaries, card edits
   notes-logic.js           building and reading note messages, what may be inserted
+  note-format.js           the formatting model: HTML out and back in, plain text
 src/background/sw.js       OAuth (launchWebAuthFlow) and the Gmail API proxy
 src/content/               classic scripts, in manifest order
   gmail-hooks.js           every assumption about Gmail's page
@@ -315,6 +335,7 @@ src/content/               classic scripts, in manifest order
   notes-store.js           notes: list, read, save (insert + trash), delete
   ui.js, styles.js         DOM builder, icons, menus, toasts, shadow hosts
   board.js, dock.js        the overlay (header, tabs, board) and the corner buttons
+  note-editor.js           the formatted editor and its toolbar
   notes.js                 the Notes tab: list, editor, autosave
   main.js                  wiring
 src/options/               setup page
@@ -327,9 +348,9 @@ tools/make-icons.mjs       icon generator
 
 - **A to-do view.** One flat list across all columns, oldest first, for days when
   a board is too much.
-- **Formatting in notes**: bold, italic, headings, lists, checklists and links,
-  saved as an HTML part beside the plain text so a note also reads formatted in
-  Gmail on the phone.
+- **Search results with highlighting**: while searching, excerpts around every
+  match with the words highlighted, and inside an opened note every match
+  highlighted with "2 of 5" stepping between them.
 - **A "Needs reply" column**, computed rather than labelled. It would reuse the
   triage and ranking logic in `supervertaler-stats/src/email.js`
   (`classifyBulk`, `scoreThread`): threads whose newest message is inbound and

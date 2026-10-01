@@ -163,3 +163,35 @@ test('header text decoding handles B and Q words, and adjacent words join', () =
   assert.equal(notes.decodeHeaderText('=?UTF-8?B?Q2Fmw6k=?= =?UTF-8?Q?_na=C3=AFve?='), 'Café naïve');
   assert.equal(notes.decodeHeaderText('plain'), 'plain');
 });
+
+test('a formatted note is multipart: readable text first, the HTML record second', () => {
+  const raw = notes.buildNoteRaw({
+    noteId: ID, title: 'Shopping', body: '• bread\n☐ milk', html: '<div><ul><li>bread</li></ul><p>Café ✓</p></div>',
+    account: 'me@example.com', date: at,
+  });
+  assert.equal(notes.noteIdOfRaw(raw), ID, 'still recognisably a note');
+  assert.equal(notes.isNoteInsert({ raw, labelIds: ['Label_9'] }), true);
+  const bin = decode(raw);
+  const m = /^Content-Type: multipart\/alternative; boundary="([^"]+)"$/m.exec(headersOf(bin));
+  assert.ok(m, 'multipart/alternative');
+  const parts = bin.split(`--${m[1]}`).slice(1, -1);
+  assert.equal(parts.length, 2);
+  const partBody = p => utf8(atob(p.slice(p.indexOf('\r\n\r\n') + 4).replace(/\s+/g, '')));
+  assert.match(parts[0], /Content-Type: text\/plain; charset=UTF-8/);
+  assert.equal(partBody(parts[0]), '• bread\r\n☐ milk');
+  assert.match(parts[1], /Content-Type: text\/html; charset=UTF-8/);
+  assert.equal(partBody(parts[1]), '<div><ul><li>bread</li></ul><p>Café ✓</p></div>');
+  assert.ok(!bin.slice(bin.indexOf('\r\n\r\n')).includes(`${m[1]}x`), 'boundary only where it belongs');
+});
+
+test('messageParts gives both renderings, decoded', () => {
+  const p = notes.messageParts({
+    mimeType: 'multipart/alternative',
+    parts: [
+      { mimeType: 'text/plain', body: { data: b64u('• bread\r\n') } },
+      { mimeType: 'text/html', body: { data: b64u('<ul><li>bread ✓</li></ul>') } },
+    ],
+  });
+  assert.deepEqual(p, { plain: '• bread', html: '<ul><li>bread ✓</li></ul>' });
+  assert.deepEqual(notes.messageParts({ mimeType: 'text/plain', body: { data: b64u('only text') } }), { plain: 'only text', html: '' });
+});

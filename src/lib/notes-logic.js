@@ -136,11 +136,21 @@
     return s.replace(/.{1,76}/g, '$&\r\n').trimEnd();
   }
 
-  function buildNoteRaw({ noteId, title, body, account, date = new Date() }) {
+  const textPart = (type, s) => [
+    `Content-Type: ${type}; charset=UTF-8`,
+    'Content-Transfer-Encoding: base64',
+    '',
+    wrap76(utf8ToBase64(s.replace(/\n/g, '\r\n'))),
+  ];
+
+  // `body` is the plain text. With `html` as well, the note is a
+  // multipart/alternative message: Gmail shows the HTML, and its previews
+  // and plain-text readers get the text.
+  function buildNoteRaw({ noteId, title, body, html, account, date = new Date() }) {
     if (!ID_RE.test(String(noteId || ''))) throw new Error('Invalid note id');
     const me = oneLine(account);
     const text = String(body || '').replace(/\r\n?/g, '\n').slice(0, MAX_BODY);
-    const lines = [
+    const head = [
       `From: ${me}`,
       `To: ${me}`,
       `Subject: ${encodeHeaderText(titleFor(title, text) || 'Untitled note')}`,
@@ -148,12 +158,25 @@
       `Message-ID: <${noteId}.${date.getTime()}@notes.invalid>`,
       `${NOTE_HEADER}: ${noteId}`,
       'MIME-Version: 1.0',
-      'Content-Type: text/plain; charset=UTF-8',
-      'Content-Transfer-Encoding: base64',
-      '',
-      wrap76(utf8ToBase64(text.replace(/\n/g, '\r\n'))),
-      '',
     ];
+    let lines;
+    if (html) {
+      // Base64 never contains "-", so this boundary cannot occur in a part.
+      const boundary = `gkb-${noteId}-${date.getTime()}`;
+      lines = [
+        ...head,
+        `Content-Type: multipart/alternative; boundary="${boundary}"`,
+        '',
+        `--${boundary}`,
+        ...textPart('text/plain', text),
+        `--${boundary}`,
+        ...textPart('text/html', String(html)),
+        `--${boundary}--`,
+        '',
+      ];
+    } else {
+      lines = [...head, ...textPart('text/plain', text), ''];
+    }
     return base64UrlEncode(lines.join('\r\n'));
   }
 
@@ -220,8 +243,7 @@
       .trim();
   }
 
-  // Prefers a text/plain part anywhere in the tree, then HTML.
-  function extractText(payload) {
+  function textParts(payload) {
     const plain = [];
     const html = [];
     (function walk(p) {
@@ -231,9 +253,25 @@
       else if (type === 'text/html') html.push(p);
       (p.parts || []).forEach(walk);
     })(payload);
+    return { plain, html };
+  }
+
+  // Prefers a text/plain part anywhere in the tree, then HTML.
+  function extractText(payload) {
+    const { plain, html } = textParts(payload);
     if (plain.length) return plain.map(partText).join('\n').replace(/\r\n?/g, '\n').replace(/\n+$/, '');
     if (html.length) return htmlToText(html.map(partText).join('\n'));
     return '';
+  }
+
+  // Both renderings, decoded, for the formatted reader: the HTML is the
+  // record, the plain text the fallback for mail that has no HTML.
+  function messageParts(payload) {
+    const { plain, html } = textParts(payload);
+    return {
+      plain: plain.map(partText).join('\n').replace(/\r\n?/g, '\n').replace(/\n+$/, ''),
+      html: html.map(partText).join('\n'),
+    };
   }
 
   // One note from a messages.get. With format=metadata there is no body
@@ -252,6 +290,7 @@
       updated: Number(msg.internalDate) || Date.parse(headerOf(msg, 'Date')) || 0,
       snippet: util.decodeEntities(msg.snippet || ''),
       body: full ? extractText(msg.payload) : null,
+      parts: full ? messageParts(msg.payload) : null,
       labelIds: msg.labelIds || [],
     };
   }
@@ -279,7 +318,7 @@
     NOTE_HEADER, DEFAULT_LABEL, MAX_BODY, MAX_TITLE, FORBIDDEN_INSERT_LABELS,
     newNoteId, encodeHeaderText, decodeHeaderText, base64UrlEncode, base64UrlDecode,
     titleFor, buildNoteRaw, noteIdOfRaw, isNoteInsert,
-    htmlToText, extractText, noteFromMessage, dedupeNotes,
+    htmlToText, extractText, messageParts, noteFromMessage, dedupeNotes,
   };
 
   ns.notesLogic = api;

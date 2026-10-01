@@ -278,6 +278,28 @@
       'Tips on termbase hygiene\nA short piece on patent claim punctuation\nReader question: CAT tools and Markdown', 5, notesLabel);
     seedNote('rateschedule00000003', 'Rate schedule 2027 – draft',
       'Per-word rates, minimum charge, rush surcharge.\nRevisit in December. ✓', 200, notesLabel);
+    // One written with formatting: the HTML part is the record.
+    addMessageThread({
+      hoursAgo: 30,
+      labelIds: [notesLabel],
+      headers: [{ name: 'Subject', value: 'Launch checklist' }, { name: NOTE_HEADER, value: 'launchchecklist0004' }],
+      payload: {
+        mimeType: 'multipart/alternative',
+        parts: [
+          { mimeType: 'text/plain', headers: [{ name: 'Content-Type', value: 'text/plain; charset=UTF-8' }],
+            body: { data: b64url(toBinary('Before Friday\r\n\u2611 Proofread the IFU\r\n\u2610 Send the invoice\r\n  \u2610 Check the PO number')) } },
+          { mimeType: 'text/html', headers: [{ name: 'Content-Type', value: 'text/html; charset=UTF-8' }],
+            body: { data: b64url(toBinary(
+              '<div data-gkb-note="1"><h2>Before Friday</h2>' +
+              '<p>Deliver to <b>Kestrel</b> by <i>noon</i>, see <a href="https://example.com/portal">the portal</a>.</p>' +
+              '<ul data-check="1"><li data-checked="1"><span data-glyph="1">\u2611&nbsp;</span>Proofread the IFU</li>' +
+              '<li data-checked="0"><span data-glyph="1">\u2610&nbsp;</span>Send the invoice' +
+              '<ul data-check="1"><li data-checked="0"><span data-glyph="1">\u2610&nbsp;</span>Check the PO number</li></ul></li></ul>' +
+              '<ol><li>Zip the files</li><li>Upload</li></ol><p>~~not struck~~ and **not bold**</p></div>')) } },
+        ],
+      },
+      snippet: 'Before Friday \u2611 Proofread the IFU \u2610 Send the invoice',
+    });
     addMessageThread({
       hoursAgo: 26,
       labelIds: [notesLabel],
@@ -303,18 +325,23 @@
     return new Set(t.messages.flatMap(msg => msg.labelIds));
   }
 
-  // The text of a message, for the fake search and for the tests.
-  function messageText(msg) {
+  // The text of a message - its text/plain part when it has one - for the
+  // fake search and for the tests. messagePart() picks out one type.
+  function messagePart(msg, want) {
     const out = [];
     (function walk(p) {
       if (!p) return;
-      if (p.body && p.body.data) {
+      if (p.body && p.body.data && (!want || p.mimeType === want)) {
         const bin = atob(p.body.data.replace(/-/g, '+').replace(/_/g, '/'));
         out.push(new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0))));
       }
       (p.parts || []).forEach(walk);
     })(msg.payload);
     return out.join('\n').replace(/\r\n/g, '\n');
+  }
+
+  function messageText(msg) {
+    return messagePart(msg, 'text/plain') || messagePart(msg, '');
   }
 
   function header(msg, name) {
@@ -496,21 +523,30 @@
     },
 
     // What messages.insert does with a raw RFC 2822 message, near enough:
-    // headers unfolded and decoded, a base64 body stored as its bytes.
+    // headers unfolded and decoded, each base64 part stored as its bytes,
+    // multipart/alternative split into its parts.
     insertMessage(body) {
       if (FAIL === 'insert') throw new HttpError(500, 'Backend Error');
       const notes = window.gkb.notesLogic;
-      const bin = notes.base64UrlDecode(body.raw);
-      const split = bin.indexOf('\r\n\r\n');
-      const head = bin.slice(0, split).replace(/\r\n[ \t]+/g, ' ');
-      const headers = head.split('\r\n').map(line => {
-        const i = line.indexOf(':');
-        const name = line.slice(0, i);
-        const raw = line.slice(i + 1).trim();
-        return { name, value: name.toLowerCase() === 'subject' ? notes.decodeHeaderText(raw) : raw };
-      });
-      const bytes = atob(bin.slice(split + 4).replace(/\s+/g, ''));
-      const text = new TextDecoder().decode(Uint8Array.from(bytes, c => c.charCodeAt(0)));
+      const parse = bin => {
+        const split = bin.indexOf('\r\n\r\n');
+        const head = bin.slice(0, split).replace(/\r\n[ \t]+/g, ' ');
+        const headers = head.split('\r\n').filter(Boolean).map(line => {
+          const i = line.indexOf(':');
+          const name = line.slice(0, i);
+          const raw = line.slice(i + 1).trim();
+          return { name, value: name.toLowerCase() === 'subject' ? notes.decodeHeaderText(raw) : raw };
+        });
+        const type = (headers.find(x => x.name.toLowerCase() === 'content-type') || { value: 'text/plain' }).value;
+        const rest = bin.slice(split + 4);
+        const boundary = /boundary="([^"]+)"/.exec(type);
+        if (boundary) {
+          const parts = rest.split(`--${boundary[1]}`).slice(1).filter(x => !x.startsWith('--')).map(x => parse(x.replace(/^\r\n/, '')));
+          return { mimeType: type.split(';')[0].trim(), headers, parts };
+        }
+        return { mimeType: type.split(';')[0].trim(), headers, body: { data: b64url(atob(rest.replace(/\s+/g, ''))) } };
+      };
+      const payload = parse(notes.base64UrlDecode(body.raw));
       const known = new Set(labels.map(l => l.id));
       for (const l of body.labelIds || []) if (!known.has(l)) throw new HttpError(400, `Invalid label: ${l}`);
       const threadId = `19b0c0de${(0x10000 + noteCounter++ * 97).toString(16)}`;
@@ -518,11 +554,12 @@
         id: `${threadId}0`,
         threadId,
         labelIds: (body.labelIds || []).slice(),
-        snippet: text.replace(/\s+/g, ' ').trim().slice(0, 140),
+        snippet: '',
         historyId: String(historyCounter++),
         internalDate: String(Date.now()),
-        payload: { mimeType: 'text/plain', headers, body: { data: b64url(bytes) } },
+        payload,
       };
+      msg.snippet = messageText(msg).replace(/\s+/g, ' ').trim().slice(0, 140);
       threads.set(threadId, { id: threadId, historyId: msg.historyId, messages: [msg] });
       changed();
       return { id: msg.id, threadId, labelIds: msg.labelIds.slice() };
@@ -573,6 +610,7 @@
       return found.length ? found[found.length - 1].id : '';
     },
     messageText(id) { return messageText(box.findMessage(id)); },
+    messageHtml(id) { return messagePart(box.findMessage(id), 'text/html'); },
     messageHeader(id, name) { return header(box.findMessage(id), name); },
 
     threadsInInbox() {

@@ -15,11 +15,12 @@
   const ns = (globalThis.gkb = globalThis.gkb || {});
   const { api, store, util, KEYS } = ns;
   const notesLogic = ns.notesLogic;
+  const fmt = ns.noteFormat;
 
   const S = {
     label: null,       // { name, id } once resolved for the current account
     meta: new Map(),   // message id → note (metadata only)
-    bodies: new Map(), // message id → body text
+    bodies: new Map(), // message id → formatted content (note-format blocks)
   };
 
   // ── The label ────────────────────────────────────────────────────────
@@ -85,12 +86,15 @@
     return { notes: live, truncated: !!r.nextPageToken };
   }
 
+  // A note's content as formatted blocks: read from its HTML part, or -
+  // for notes saved before formatting existed, and plain mail - from its
+  // text.
   async function body(note) {
     if (S.bodies.has(note.messageId)) return S.bodies.get(note.messageId);
     const msg = await api.gmail('GET', `messages/${note.messageId}`, { format: 'full' });
-    const text = notesLogic.noteFromMessage(msg).body || '';
-    S.bodies.set(note.messageId, text);
-    return text;
+    const doc = fmt.docFromParts(notesLogic.noteFromMessage(msg).parts || {});
+    S.bodies.set(note.messageId, doc);
+    return doc;
   }
 
   // ── Writing ──────────────────────────────────────────────────────────
@@ -98,10 +102,12 @@
   // Inserts the new version, then retires the old one. If retiring fails
   // the note briefly has two versions; the next full list keeps the newer
   // and tidies the older away, so nothing is lost either way.
-  async function save(account, previous, { title, body: text }) {
+  async function save(account, previous, { title, doc }) {
     const label = S.label || await resolveLabel(account);
     const noteId = previous && previous.own ? previous.noteId : notesLogic.newNoteId();
-    const raw = notesLogic.buildNoteRaw({ noteId, title, body: text, account });
+    const clean = fmt.normaliseDoc(doc);
+    const text = fmt.toPlain(clean);
+    const raw = notesLogic.buildNoteRaw({ noteId, title, body: text, html: fmt.toHtml(clean), account });
     const inserted = await api.gmail('POST', 'messages', null, { raw, labelIds: [label.id] });
 
     const note = {
@@ -112,12 +118,12 @@
       key: `n:${noteId}`,
       title: notesLogic.titleFor(title, text) || 'Untitled note',
       updated: Date.now(),
-      snippet: String(text || '').replace(/\s+/g, ' ').trim().slice(0, 140),
+      snippet: text.replace(/\s+/g, ' ').trim().slice(0, 140),
       body: null,
       labelIds: inserted.labelIds || [label.id],
     };
     S.meta.set(note.messageId, note);
-    S.bodies.set(note.messageId, String(text || '').replace(/\r\n?/g, '\n'));
+    S.bodies.set(note.messageId, clean);
 
     if (previous && previous.messageId) await retire(previous).catch(() => {});
     return note;

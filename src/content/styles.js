@@ -720,7 +720,7 @@ button:disabled { cursor: default; }
   line-height: 1.45;
   flex: none;
 }
-.ne-title, .ne-body {
+.ne-title {
   border: 0;
   background: transparent;
   color: var(--fg);
@@ -728,16 +728,152 @@ button:disabled { cursor: default; }
 }
 .ne-title { flex: none; padding: 8px 28px 6px; font-size: 24px; line-height: 1.3; }
 .ne-body {
+  position: relative;
   flex: 1;
   min-height: 0;
-  padding: 8px 28px 28px;
+  overflow-y: auto;
+  padding: 10px 28px 28px;
   font-size: 15px;
   line-height: 1.6;
-  resize: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  outline: none;
+  counter-reset: ol0 ol1 ol2 ol3;
 }
-.ne-title::placeholder, .ne-body::placeholder { color: var(--fg-3); }
-.ne-title:focus-visible, .ne-body:focus-visible { outline: none; }
-.ne-title:disabled, .ne-body:disabled { opacity: .6; }
+.ne-title::placeholder { color: var(--fg-3); }
+.ne-title:focus-visible { outline: none; }
+.ne-title:disabled, .ne-body[aria-disabled="true"] { opacity: .6; }
+.ne-body[data-empty="1"]::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  top: 10px;
+  left: 28px;
+  color: var(--fg-3);
+  pointer-events: none;
+}
+
+/* Blocks: one per paragraph, heading or list item. Bullets, numbers and
+   boxes are drawn here, in each block's left padding. */
+.blk { position: relative; min-height: 1.6em; --lvl: 0; }
+.blk[data-level="1"] { --lvl: 1; }
+.blk[data-level="2"] { --lvl: 2; }
+.blk[data-level="3"] { --lvl: 3; }
+.blk[data-type="h1"] { font-size: 24px; line-height: 1.3; font-weight: 600; margin: 14px 0 4px; }
+.blk[data-type="h2"] { font-size: 20px; line-height: 1.35; font-weight: 600; margin: 12px 0 2px; }
+.blk[data-type="h3"] { font-size: 17px; line-height: 1.4; font-weight: 600; margin: 10px 0 2px; }
+.blk:first-child { margin-top: 0; }
+.blk[data-type="ul"], .blk[data-type="ol"], .blk[data-type="check"] { padding-left: calc(28px + var(--lvl) * 24px); }
+.blk[data-type="ul"]::before {
+  content: '\\2022';
+  position: absolute;
+  left: calc(9px + var(--lvl) * 24px);
+  color: var(--fg-2);
+}
+.blk[data-type="ul"][data-level="1"]::before { content: '\\25E6'; }
+.blk[data-type="ul"][data-level="2"]::before, .blk[data-type="ul"][data-level="3"]::before { content: '\\25AA'; }
+.blk[data-type="ol"]::before {
+  position: absolute;
+  left: calc(var(--lvl) * 24px);
+  width: 22px;
+  text-align: right;
+  color: var(--fg-2);
+  font-variant-numeric: tabular-nums;
+}
+/* Numbering restarts whenever the run of numbered items at a level is
+   broken by anything shallower or by a non-list block. */
+.blk:not([data-type="ul"]):not([data-type="ol"]):not([data-type="check"]) { counter-reset: ol0 ol1 ol2 ol3; }
+.blk[data-type="ul"][data-level="0"], .blk[data-type="check"][data-level="0"] { counter-reset: ol0 ol1 ol2 ol3; }
+.blk[data-type="ul"][data-level="1"], .blk[data-type="check"][data-level="1"] { counter-reset: ol1 ol2 ol3; }
+.blk[data-type="ul"][data-level="2"], .blk[data-type="check"][data-level="2"] { counter-reset: ol2 ol3; }
+.blk[data-type="ul"][data-level="3"], .blk[data-type="check"][data-level="3"] { counter-reset: ol3; }
+.blk[data-type="ol"][data-level="0"] { counter-increment: ol0; counter-reset: ol1 ol2 ol3; }
+.blk[data-type="ol"][data-level="1"] { counter-increment: ol1; counter-reset: ol2 ol3; }
+.blk[data-type="ol"][data-level="2"] { counter-increment: ol2; counter-reset: ol3; }
+.blk[data-type="ol"][data-level="3"] { counter-increment: ol3; }
+.blk[data-type="ol"][data-level="0"]::before { content: counter(ol0) '.'; }
+.blk[data-type="ol"][data-level="1"]::before { content: counter(ol1, lower-alpha) '.'; }
+.blk[data-type="ol"][data-level="2"]::before { content: counter(ol2, lower-roman) '.'; }
+.blk[data-type="ol"][data-level="3"]::before { content: counter(ol3) '.'; }
+.blk[data-type="check"]::before {
+  content: '';
+  position: absolute;
+  left: calc(3px + var(--lvl) * 24px);
+  top: calc(.8em - 9px);
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--fg-3);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.blk[data-type="check"][data-checked="1"]::before { background: var(--accent); border-color: var(--accent); }
+.blk[data-type="check"][data-checked="1"]::after {
+  content: '';
+  position: absolute;
+  left: calc(9px + var(--lvl) * 24px);
+  top: calc(.8em - 7px);
+  width: 5px;
+  height: 10px;
+  border: solid var(--on-accent);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+.blk[data-type="check"][data-checked="1"] { color: var(--fg-3); text-decoration: line-through; }
+.ne-body a { color: var(--accent); text-decoration: underline; cursor: text; }
+
+/* Formatting toolbar and the link field beneath it. */
+.ne-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  margin: 2px 20px 0;
+  padding: 4px 6px;
+  border-radius: 12px;
+  background: var(--col);
+  flex: none;
+}
+.tb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--fg-2);
+}
+.tb-btn:hover:not(:disabled), .tb-style:hover:not(:disabled) { background: var(--hover); color: var(--fg); }
+.tb-btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--on-accent-soft); }
+.tb-btn:disabled, .tb-style:disabled { opacity: .4; }
+.tb-style {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  padding: 0 4px 0 10px;
+  border-radius: 8px;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 500;
+}
+.tb-style-label { min-width: 84px; text-align: left; }
+.tb-sep { width: 1px; height: 20px; margin: 0 6px; background: var(--border-strong); opacity: .6; }
+.ne-linkbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 20px 0;
+  padding: 6px 8px 6px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  color: var(--fg-2);
+  flex: none;
+}
+.ne-linkbar .text-input { flex: 1; min-width: 180px; height: 34px; }
+.ne-linkbar .btn { height: 34px; }
+.link-error { flex-basis: 100%; color: var(--danger); font-size: 12px; }
+.link-error:empty { display: none; }
 .notes-intro { margin: auto; max-width: 440px; padding: 32px; text-align: center; }
 .notes-intro .panel-icon {
   display: inline-flex;

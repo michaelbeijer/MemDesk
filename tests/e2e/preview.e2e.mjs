@@ -463,14 +463,52 @@ try {
   const noteTitles = () => np.locator('.note-item .ni-title').allInnerTexts();
   const noteStatus = () => np.locator('.ne-status').innerText();
   const savedSoon = () => until(async () => /^Saved/.test(await noteStatus()), 'note saved', 8000);
+  const bodyOf = p => p.locator('[data-key="note-body"]');
+  const bodyReady = (p, re, what) => until(async () =>
+    (await bodyOf(p).getAttribute('contenteditable')) === 'true' && re.test(await bodyOf(p).innerText()), what);
+  const blocks = p => p.locator('.ne-body .blk').evaluateAll(els =>
+    els.map(e => [e.dataset.type, Number(e.dataset.level || 0), e.dataset.checked || '', e.textContent]));
+  const focused = (p, key) => p.evaluate(k => {
+    const a = document.getElementById('gkb-board-host').shadowRoot.activeElement;
+    return !!a && a.dataset.key === k;
+  }, key);
+  // Selects the first occurrence of some text in the editor, as a person
+  // dragging over it would.
+  const selectText = (p, text) => p.evaluate(t => {
+    const ed = document.getElementById('gkb-board-host').shadowRoot.querySelector('[data-key="note-body"]');
+    ed.focus();
+    const walker = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const i = n.data.indexOf(t);
+      if (i < 0) continue;
+      const r = document.createRange();
+      r.setStart(n, i);
+      r.setEnd(n, i + t.length);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+      return true;
+    }
+    return false;
+  }, text);
+  // Replaces the whole note with these lines, typed.
+  async function typeLines(p, lines) {
+    await bodyOf(p).click();
+    await p.keyboard.press('Control+a');
+    await p.keyboard.press('Delete');
+    for (let i = 0; i < lines.length; i++) {
+      if (i) await p.keyboard.press('Enter');
+      await p.keyboard.type(lines[i]);
+    }
+  }
 
   await r.step('Notes tab: newest first, one entry per note, a stale version tidied into Trash', async () => {
     await openBoard(np);
     await np.locator('[data-key="view:notes"]').click();
     await np.locator('.note-item').first().waitFor();
     assert.equal(await np.locator('.tab[aria-selected="true"]').innerText(), 'Notes');
-    assert.deepEqual(await noteTitles(),
-      ['Ideas for the October newsletter', 'Shopping list', 'Kestrel glossary decisions', 'Rate schedule 2027 – draft']);
+    assert.deepEqual(await noteTitles(), ['Ideas for the October newsletter', 'Shopping list', 'Launch checklist',
+      'Kestrel glossary decisions', 'Rate schedule 2027 – draft']);
     assert.ok(await np.locator('.notes-intro').isVisible(), 'nothing open yet: the intro');
     assert.match(await np.locator('.notes-foot').innerText(), /_Notes/);
     assert.ok(await np.locator('[data-key="settings"]').isHidden(), 'column settings hidden on the notes tab');
@@ -480,17 +518,17 @@ try {
     await np.screenshot({ path: join(SCREENS, 'notes-intro.png'), animations: 'disabled' });
   });
 
-  await r.step('editing a note saves a new version and trashes the old one', async () => {
+  await r.step('editing a note saves a new version, formatted, and trashes the old one', async () => {
     await np.locator('.note-item[data-note="n:newsletterideas0002"]').click();
-    const body = np.locator('[data-key="note-body"]');
-    await until(async () => (await body.isEnabled()) && /termbase hygiene/.test(await body.inputValue()), 'body loaded');
-    await body.fill('Tips on termbase hygiene\nA short piece on patent claim punctuation\nNEW LINE ✓');
+    await bodyReady(np, /termbase hygiene/, 'body loaded');
+    await typeLines(np, ['Tips on termbase hygiene', 'A short piece on patent claim punctuation', 'NEW LINE ✓']);
     assert.equal(await noteStatus(), 'Unsaved changes');
     await savedSoon();
     const versions = await gm('notesWithId', 'newsletterideas0002');
     const current = versions.filter(n => !n.labels.includes('TRASH'));
     assert.equal(current.length, 1, 'one live version');
-    assert.match(current[0].text, /NEW LINE ✓$/);
+    assert.equal(current[0].text, 'Tips on termbase hygiene\nA short piece on patent claim punctuation\nNEW LINE ✓');
+    assert.match(await gm('messageHtml', current[0].id), /<p[^>]*>NEW LINE ✓<\/p>/, 'with its HTML part');
     assert.deepEqual(current[0].labels, ['_Notes'], 'not in the Inbox, not unread');
     assert.ok(versions.some(n => n.labels.includes('TRASH')), 'the old version is in Trash');
     assert.equal((await noteTitles())[0], 'Ideas for the October newsletter');
@@ -499,13 +537,14 @@ try {
   await r.step('a new note in Unicode, saved at once with Ctrl+S', async () => {
     await np.locator('[data-key="note-new"]').click();
     const title = np.locator('[data-key="note-title"]');
-    assert.ok(await title.evaluate(e => e.getRootNode().activeElement === e), 'title has focus');
+    assert.ok(await focused(np, 'note-title'), 'title has focus');
     await title.fill('Café meeting – naïve ✓');
     await title.press('Enter');
-    const body = np.locator('[data-key="note-body"]');
-    assert.ok(await body.evaluate(e => e.getRootNode().activeElement === e), 'Enter moves to the body');
-    await body.fill('Line one\nLine two 日本');
-    await body.press('Control+s');
+    assert.ok(await focused(np, 'note-body'), 'Enter moves to the body');
+    await np.keyboard.type('Line one');
+    await np.keyboard.press('Enter');
+    await np.keyboard.type('Line two 日本');
+    await np.keyboard.press('Control+s');
     await until(async () => /^Saved/.test(await noteStatus()), 'saved straight away', 2000);
     const id = await gm('findMessageBySubject', 'Café meeting – naïve ✓');
     assert.ok(id, 'stored under its title');
@@ -524,7 +563,7 @@ try {
     await search.fill('nothing-matches-this');
     await until(async () => (await np.locator('.notes-empty').innerText()) === 'No notes match.', 'no hits');
     await search.fill('');
-    await until(async () => (await noteTitles()).length === 5, 'all five back');
+    await until(async () => (await noteTitles()).length === 6, 'all six back');
   });
 
   await r.step('a search typed while another is still loading is not lost', async () => {
@@ -541,28 +580,32 @@ try {
     await p.context().close();
   });
 
-  await r.step('an emailed note reads as text, and editing it makes it a note of ours', async () => {
+  await r.step('an emailed note keeps its list, and editing it makes it a note of ours', async () => {
     const origId = await gm('findMessageBySubject', 'Shopping list');
     await np.locator(`.note-item[data-note="m:${origId}"]`).click();
     assert.ok(await np.locator('.ne-banner').isVisible(), 'explains what will happen');
-    const body = np.locator('[data-key="note-body"]');
-    await until(async () => /• Espresso beans\n• Stroopwafels/.test(await body.inputValue()), 'HTML shown as text');
-    await body.fill(`${await body.inputValue()}\n• Milk`);
-    await body.press('Control+s');
+    await bodyReady(np, /Stroopwafels/, 'loaded');
+    assert.deepEqual(await blocks(np), [['p', 0, '', 'For the weekend'], ['ul', 0, '', 'Espresso beans'], ['ul', 0, '', 'Stroopwafels']]);
+    await np.locator('.ne-body .blk[data-type="ul"]').last().click();
+    await np.keyboard.press('End');
+    await np.keyboard.press('Enter');
+    await np.keyboard.type('Milk');
+    assert.deepEqual((await blocks(np)).at(-1), ['ul', 0, '', 'Milk'], 'Enter carries the list on');
+    await np.keyboard.press('Control+s');
     await savedSoon();
     const orig = await gm('messageLabelNames', origId);
     assert.ok(!orig.includes('_Notes') && !orig.includes('TRASH'), `original email kept, off the list: ${orig}`);
     const now = await gm('findMessageBySubject', 'Shopping list');
     assert.notEqual(now, origId);
     assert.match(await gm('messageHeader', now, 'X-Gkb-Note'), /^[a-z0-9]{20}$/);
-    assert.match(await gm('messageText', now), /• Milk$/);
+    assert.equal(await gm('messageText', now), 'For the weekend\n• Espresso beans\n• Stroopwafels\n• Milk');
     assert.equal((await noteTitles()).filter(t => t === 'Shopping list').length, 1);
     assert.equal(await np.locator('.ne-banner').count(), 0, 'now ours: no banner');
   });
 
   await r.step('delete moves a note to Trash, and Undo brings it back', async () => {
     await np.locator('.note-item[data-note="n:rateschedule00000003"]').click();
-    await until(async () => np.locator('[data-key="note-body"]').isEnabled(), 'loaded');
+    await bodyReady(np, /rush surcharge/, 'loaded');
     await np.locator('[data-key="note-delete"]').click();
     await until(async () => !(await noteTitles()).includes('Rate schedule 2027 – draft'), 'gone from the list');
     await until(async () => (await live('rateschedule00000003')).length === 0, 'in Trash');
@@ -571,17 +614,169 @@ try {
     assert.equal((await live('rateschedule00000003')).length, 1, 'out of Trash');
   });
 
-  await r.step('closing the board saves unsaved text; the board reopens on Notes', async () => {
+  // ── Formatting ──
+
+  await r.step('a formatted note opens with its headings, marks, link and nested checklist', async () => {
+    await np.locator('.note-item[data-note="n:launchchecklist0004"]').click();
+    await bodyReady(np, /Proofread the IFU/, 'loaded');
+    assert.deepEqual(await blocks(np), [
+      ['h2', 0, '', 'Before Friday'],
+      ['p', 0, '', 'Deliver to Kestrel by noon, see the portal.'],
+      ['check', 0, '1', 'Proofread the IFU'],
+      ['check', 0, '0', 'Send the invoice'],
+      ['check', 1, '0', 'Check the PO number'],
+      ['ol', 0, '', 'Zip the files'],
+      ['ol', 0, '', 'Upload'],
+      ['p', 0, '', '~~not struck~~ and **not bold**'],
+    ]);
+    assert.equal(await np.locator('.ne-body b').innerText(), 'Kestrel');
+    assert.equal(await np.locator('.ne-body i').innerText(), 'noon');
+    assert.equal(await np.locator('.ne-body a').getAttribute('href'), 'https://example.com/portal');
+    assert.equal(await np.locator('.ne-body a').getAttribute('title'), 'https://example.com/portal');
+    await np.mouse.move(0, 0);
+    await np.screenshot({ path: join(SCREENS, 'notes-format.png'), animations: 'disabled' });
+  });
+
+  await r.step('ticking a box and saving keeps every bit of the formatting', async () => {
+    await np.locator('.ne-body .blk[data-type="check"]', { hasText: 'Send the invoice' }).click({ position: { x: 10, y: 12 } });
+    assert.equal(await np.locator('.ne-body .blk[data-type="check"]', { hasText: 'Send the invoice' }).getAttribute('data-checked'), '1');
+    assert.equal(await noteStatus(), 'Unsaved changes');
+    await np.keyboard.press('Control+s');
+    await savedSoon();
+    const [cur] = await live('launchchecklist0004');
+    const html = await gm('messageHtml', cur.id);
+    assert.match(html, /data-checked="1"><span data-glyph="1">☑&nbsp;<\/span>Send the invoice/);
+    assert.match(html, /<h2[^>]*>Before Friday<\/h2>/);
+    assert.match(html, /<b>Kestrel<\/b>/);
+    assert.match(html, /<a href="https:\/\/example\.com\/portal">the portal<\/a>/);
+    assert.match(html, /<ol[^>]*><li[^>]*>Zip the files<\/li><li[^>]*>Upload<\/li><\/ol>/);
+    assert.equal(cur.text, [
+      'Before Friday', 'Deliver to Kestrel by noon, see the portal (https://example.com/portal).',
+      '☑ Proofread the IFU', '☑ Send the invoice', '  ☐ Check the PO number', '1. Zip the files', '2. Upload',
+      '~~not struck~~ and **not bold**',
+    ].join('\n'), 'and the plain-text part reads cleanly');
+  });
+
+  await r.step('bold, italic and strike-through from the toolbar and the keyboard', async () => {
+    await np.locator('[data-key="note-new"]').click();
+    await np.locator('[data-key="note-title"]').fill('Formatting test');
+    await np.locator('[data-key="note-title"]').press('Enter');
+    await np.keyboard.type('plain bold italic gone');
+    assert.ok(await selectText(np, 'bold'));
+    await np.locator('[data-key="fmt-bold"]').click();
+    assert.equal(await np.locator('.ne-body b').innerText(), 'bold');
+    assert.equal(await np.locator('[data-key="fmt-bold"]').getAttribute('aria-pressed'), 'true');
+    assert.ok(await selectText(np, 'italic'));
+    await np.keyboard.press('Control+i');
+    assert.ok(await selectText(np, 'gone'));
+    await np.locator('[data-key="fmt-strike"]').click();
+    await np.keyboard.press('Control+s');
+    await savedSoon();
+    const html = await gm('messageHtml', await gm('findMessageBySubject', 'Formatting test'));
+    assert.match(html, /plain <b>bold<\/b> <i>italic<\/i> <s>gone<\/s>/);
+  });
+
+  await r.step('lists by typing: bullets, Tab nesting, numbers, checkboxes; Enter on an empty item ends a list', async () => {
+    await bodyOf(np).focus();
+    await np.keyboard.press('Control+End');
+    // The caret sits at the end of the struck-through word, so what comes
+    // next would be struck through too - until the button is pressed again.
+    assert.equal(await np.locator('[data-key="fmt-strike"]').getAttribute('aria-pressed'), 'true');
+    await np.locator('[data-key="fmt-strike"]').click();
+    assert.equal(await np.locator('[data-key="fmt-strike"]').getAttribute('aria-pressed'), 'false');
+    await np.keyboard.press('Enter');
+    await np.keyboard.type('- one');
+    assert.equal(await np.locator('[data-key="fmt-ul"]').getAttribute('aria-pressed'), 'true');
+    await np.keyboard.press('Enter');
+    await np.keyboard.press('Tab');
+    await np.keyboard.type('nested');
+    await np.keyboard.press('Enter');
+    await np.keyboard.press('Shift+Tab');
+    await np.keyboard.type('two');
+    await np.keyboard.press('Enter');
+    await np.keyboard.press('Enter');
+    await np.keyboard.type('1. first');
+    await np.keyboard.press('Enter');
+    await np.keyboard.type('second');
+    await np.keyboard.press('Enter');
+    await np.keyboard.press('Enter');
+    await np.keyboard.type('[] task');
+    await np.keyboard.press('Enter');
+    await np.keyboard.press('Enter');
+    await np.keyboard.type('[x] done');
+    assert.deepEqual((await blocks(np)).slice(1), [
+      ['ul', 0, '', 'one'], ['ul', 1, '', 'nested'], ['ul', 0, '', 'two'],
+      ['ol', 0, '', 'first'], ['ol', 0, '', 'second'], ['check', 0, '0', 'task'], ['check', 0, '1', 'done'],
+    ]);
+    await np.keyboard.press('Control+s');
+    await savedSoon();
+    const id = await gm('findMessageBySubject', 'Formatting test');
+    assert.equal(await gm('messageText', id),
+      'plain bold italic gone\n• one\n  • nested\n• two\n1. first\n2. second\n☐ task\n☑ done');
+    assert.doesNotMatch(await gm('messageHtml', id), /<s>one<\/s>/, 'strike-through stayed off');
+  });
+
+  await r.step('headings from the style menu, links with Ctrl+K, and unsafe links refused', async () => {
+    await np.keyboard.press('Enter');
+    await np.keyboard.press('Enter');
+    await np.keyboard.type('Heading here');
+    await np.locator('[data-key="fmt-style"]').click();
+    await np.locator('.menu [data-key="style:h1"]').click();
+    assert.deepEqual((await blocks(np)).at(-1), ['h1', 0, '', 'Heading here']);
+    assert.equal(await np.locator('.tb-style-label').innerText(), 'Heading 1');
+    await np.keyboard.press('End');
+    await np.keyboard.press('Enter');
+    await np.keyboard.type('see example');
+    assert.deepEqual((await blocks(np)).at(-1), ['p', 0, '', 'see example'], 'a heading does not carry on');
+
+    assert.ok(await selectText(np, 'example'));
+    await np.keyboard.press('Control+k');
+    const input = np.locator('[data-key="fmt-link-input"]');
+    assert.ok(await focused(np, 'fmt-link-input'), 'the link field takes focus');
+    await input.fill('javascript:alert(1)');
+    await input.press('Enter');
+    assert.equal(await np.locator('.link-error').innerText(), 'That is not a web or email address.');
+    await input.fill('example.com');
+    await input.press('Enter');
+    assert.equal(await np.locator('.ne-body a', { hasText: 'example' }).getAttribute('href'), 'https://example.com/');
+    await np.keyboard.press('Control+s');
+    await savedSoon();
+    const html = await gm('messageHtml', await gm('findMessageBySubject', 'Formatting test'));
+    assert.match(html, /<h1[^>]*>Heading here<\/h1>/);
+    assert.match(html, /see <a href="https:\/\/example\.com\/">example<\/a>/);
+    await np.mouse.move(0, 0);
+    await np.screenshot({ path: join(SCREENS, 'notes-format-new.png'), animations: 'disabled' });
+  });
+
+  await r.step('pasting brings the text and nothing else', async () => {
+    await bodyOf(np).focus();
+    await np.keyboard.press('Control+End');
+    await np.keyboard.press('Enter');
+    await np.evaluate(() => {
+      const ed = document.getElementById('gkb-board-host').shadowRoot.querySelector('[data-key="note-body"]');
+      const dt = new DataTransfer();
+      dt.setData('text/html', '<b style="color:red">loud</b><img src="x" onerror="window.__pwned = 1">');
+      dt.setData('text/plain', 'pasted one\npasted two');
+      ed.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    assert.deepEqual((await blocks(np)).slice(-2).map(b => b[3]), ['pasted one', 'pasted two']);
+    assert.equal(await np.locator('.ne-body img').count(), 0);
+    assert.equal(await np.evaluate(() => window.__pwned), undefined);
+    assert.equal(await np.locator('.ne-body b', { hasText: 'loud' }).count(), 0);
+  });
+
+  await r.step('a plain note from before formatting opens with its lists; closing saves it, formatted', async () => {
     await np.locator('.note-item[data-note="n:kestrelglossary0001"]').click();
-    const body = np.locator('[data-key="note-body"]');
-    await until(async () => /decimal commas/.test(await body.inputValue()), 'loaded');
-    await body.fill('Closing test');
+    await bodyReady(np, /decimal commas/, 'loaded');
+    assert.deepEqual((await blocks(np)).map(b => b[0]), ['p', 'p', 'ul', 'ul', 'ul'], 'its "- " lines are a list');
+    await typeLines(np, ['Closing test']);
     await np.keyboard.press('Escape');
     await np.locator('.overlay').waitFor({ state: 'hidden' });
     await until(async () => (await live('kestrelglossary0001')).map(n => n.text).join() === 'Closing test', 'saved on close');
+    assert.match(await gm('messageHtml', (await live('kestrelglossary0001'))[0].id), /<p[^>]*>Closing test<\/p>/);
     await np.locator('[data-action="toggle-notes"]').click();
     await np.locator('.overlay').waitFor({ state: 'visible' });
-    assert.equal(await np.locator('.tab[aria-selected="true"]').innerText(), 'Notes');
+    assert.equal(await np.locator('.tab[aria-selected="true"]').innerText(), 'Notes', 'the board reopens on Notes');
     // The overlay covers the dock while open; the dock's Board button is
     // for when it is closed, and opens the board on its own tab.
     await np.keyboard.press('Escape');
@@ -615,8 +810,8 @@ try {
   await r.step('notes in dark mode', async () => {
     const p = await openPage('', { colorScheme: 'dark' });
     await p.locator('[data-action="toggle-notes"]').click();
-    await p.locator('.note-item[data-note="n:kestrelglossary0001"]').click();
-    await until(async () => /decimal commas/.test(await p.locator('[data-key="note-body"]').inputValue()), 'loaded');
+    await p.locator('.note-item[data-note="n:launchchecklist0004"]').click();
+    await bodyReady(p, /Proofread the IFU/, 'loaded');
     await p.mouse.move(0, 0);
     await p.screenshot({ path: join(SCREENS, 'notes-dark.png'), animations: 'disabled' });
     await p.context().close();
