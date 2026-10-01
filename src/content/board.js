@@ -13,7 +13,11 @@
 
   const ns = (globalThis.gkb = globalThis.gkb || {});
   const { h, icon, mountShadow, toast, openMenu, closeMenu, isMenuOpen } = ns.ui;
-  const { util, logic, store, hooks, api, APP_NAME, HOST_IDS } = ns;
+  const { util, logic, store, hooks, api, APP_NAME, HOST_IDS, KEYS } = ns;
+
+  // States with a panel of their own, shown whichever tab is open: they
+  // are about the account, not about the board or the notes.
+  const PANEL_STATES = new Set(['no_account', 'not_configured', 'auth_required', 'account_mismatch']);
 
   // Opening the board re-reads Gmail if what is on screen is older than
   // this. Short enough that a label added on the phone shows up; long
@@ -27,6 +31,8 @@
   const S = {
     mounted: false,
     open: false,
+    view: 'board',    // board | notes - the overlay's two tabs
+    viewLoaded: false,
     account: '',
     columns: [],
     lists: {},        // column id → thread ids, in display order
@@ -59,7 +65,7 @@
     els.updated = h('span', { class: 'updated' });
     els.refresh = h('button', {
       class: 'icon-btn', type: 'button', 'aria-label': 'Refresh', title: 'Refresh',
-      onclick: () => refresh(),
+      onclick: () => (S.view === 'notes' ? ns.notes.load({ force: true }) : refresh()),
     }, icon('refresh'));
     els.settings = h('button', {
       class: 'icon-btn', type: 'button', 'aria-label': 'Column settings', title: 'Column settings',
@@ -70,12 +76,18 @@
       onclick: close,
     }, icon('close'));
 
+    const tab = (view, label, iconName) => h('button', {
+      class: 'tab', type: 'button', role: 'tab', 'aria-selected': String(S.view === view),
+      dataset: { key: `view:${view}`, view }, onclick: () => switchView(view),
+    }, icon(iconName, 18), label);
+    els.tabs = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'View' },
+      tab('board', 'Board', 'board'), tab('notes', 'Notes', 'note'));
+
     const bar = h('header', { class: 'bar' },
       h('h1', { class: 'brand' },
         h('span', { class: 'logo' }, icon('board', 26)),
-        h('span', { text: APP_NAME }),
-        h('span', { class: 'dim', text: '·' }),
-        h('span', { text: 'Board' })),
+        h('span', { text: APP_NAME })),
+      els.tabs,
       els.account,
       h('div', { class: 'spacer' }),
       els.updated, els.refresh, els.settings, els.close);
@@ -93,26 +105,56 @@
     root.appendChild(els.overlay);
     S.mounted = true;
 
+    ns.notes.init({
+      root,
+      // Account trouble found by the notes gets the same panel as the board's.
+      onStateError: err => {
+        S.status = err.code;
+        S.statusMessage = err.message;
+        render();
+      },
+      onLoaded: () => {
+        if (!PANEL_STATES.has(S.status)) return;
+        S.status = 'idle';
+        render();
+      },
+      closeBoard: close,
+      barChanged: updateBar,
+    });
+
     // A move made from the dock (or another tab) makes what the board last
     // loaded wrong; the board's own moves are already reflected on screen.
     store.bus.addEventListener('thread-changed', e => {
       if (e.detail && e.detail.source === 'board') return;
       S.loadedAt = 0;
-      if (S.open) refresh();
+      if (S.open && S.view === 'board') refresh();
     });
   }
 
   // ── Open / close ─────────────────────────────────────────────────────
 
-  async function open() {
+  async function open({ view } = {}) {
     mount();
-    if (S.open) return;
+    if (S.open) {
+      if (view) switchView(view);
+      return;
+    }
     S.open = true;
     S.returnFocus = deepActiveElement();
     els.overlay.hidden = false;
     els.close.focus();
     document.addEventListener('keydown', onDocumentKey, true);
     S.ticker = setInterval(updateBar, 5000);
+
+    // The tab last used, unless the caller asked for one.
+    if (!S.viewLoaded) {
+      S.viewLoaded = true;
+      try {
+        const got = await chrome.storage.local.get(KEYS.view);
+        if (got[KEYS.view] === 'notes') S.view = 'notes';
+      } catch { /* extension reloaded; handled just below */ }
+    }
+    if (view) S.view = view;
 
     S.account = hooks.getAccount();
     if (!S.account) {
@@ -130,6 +172,11 @@
       render();
       return;
     }
+    if (S.view === 'notes') showNotes();
+    else showBoard();
+  }
+
+  function showBoard() {
     const stale = S.status !== 'ready' || Date.now() - S.loadedAt > STALE_MS;
     // Skeleton columns while a first (or retried) load runs, rather than
     // leaving an old "Connect Gmail" panel up after the user has connected.
@@ -138,8 +185,38 @@
     if (stale) refresh();
   }
 
+  // An account panel left over from earlier is retried rather than shown
+  // again; if the trouble is still there, the notes' own load says so.
+  function showNotes() {
+    if (PANEL_STATES.has(S.status)) S.status = 'idle';
+    render();
+    ns.notes.load();
+    ns.notes.focusDefault();
+  }
+
+  function switchView(view) {
+    if (view === S.view || !S.open) return;
+    if (S.view === 'notes') ns.notes.flush();
+    closeMenu(root);
+    S.search = null;
+    S.view = view;
+    chrome.storage.local.set({ [KEYS.view]: view }).catch(() => {});
+    if (view === 'notes') showNotes();
+    else showBoard();
+  }
+
+  // The dock's two buttons: open on that tab, switch to it, or - when it
+  // is already showing - close.
+  function toggleView(view) {
+    if (S.open && S.view === view) close();
+    else if (S.open) switchView(view);
+    else open({ view });
+  }
+
   function close() {
     if (!S.open) return;
+    // Whatever was typed in the last second or two is saved on the way out.
+    ns.notes.flush();
     closeMenu(root);
     S.open = false;
     S.search = null;
@@ -176,6 +253,7 @@
   // Esc peels back one layer at a time: card editor or drawer, then
   // search, then board. Open menus handle their own Esc before it gets here.
   function onOverlayKey(e) {
+    if (S.view === 'notes' && !S.editor && ns.notes.handleKey(e)) return;
     if (e.key === 'Escape') {
       if (isMenuOpen(root)) return;
       e.preventDefault();
@@ -237,6 +315,8 @@
           store.loadCardEdits(S.account),
         ]);
         S.edits = edits;
+        // Label names as Gmail has them now; a column follows a rename.
+        S.columns = board.columns;
         // A card moved while the lists were in flight: what came back may
         // predate that move and would snap the card back. Throw it away and
         // ask again; loadBoard waits for the move to land first.
@@ -301,11 +381,18 @@
     if (!S.mounted) return;
     els.account.textContent = S.account || 'Account not detected';
     els.account.title = S.account ? `Gmail account: ${S.account}` : '';
-    els.updated.textContent = S.loading ? 'Updating…'
-      : S.loadedAt ? `updated ${util.agoText(Date.now() - S.loadedAt)}` : '';
-    els.refresh.classList.toggle('spinning', !!S.loading);
-    els.refresh.disabled = !!S.loading || !S.account;
+    // The refresh button and "updated …" speak for whichever tab is open.
+    const notes = S.view === 'notes';
+    const loading = notes ? ns.notes.isLoading() : !!S.loading;
+    const loadedAt = notes ? ns.notes.loadedAt() : S.loadedAt;
+    els.updated.textContent = loading ? 'Updating…'
+      : loadedAt ? `updated ${util.agoText(Date.now() - loadedAt)}` : '';
+    els.refresh.classList.toggle('spinning', loading);
+    els.refresh.disabled = loading || !S.account;
+    els.settings.hidden = notes;
     els.settings.disabled = S.status !== 'ready';
+    for (const t of els.tabs.children) t.setAttribute('aria-selected', String(t.dataset.view === S.view));
+    if (notes) ns.notes.tick();
   }
 
   function render() {
@@ -319,7 +406,10 @@
 
     const key = focusKey();
     const scroll = captureScroll();
-    els.body.replaceChildren(renderBody());
+    // The notes view hands back the same element every time; putting it
+    // back would blur the text box mid-sentence, so it is left in place.
+    const next = renderBody();
+    if (els.body.firstChild !== next || els.body.childNodes.length !== 1) els.body.replaceChildren(next);
     restoreScroll(scroll);
     restoreFocus(key, els.body);
     // The focused card may be gone (removed, or moved off a column that
@@ -367,6 +457,7 @@
   }
 
   function renderBody() {
+    if (S.view === 'notes' && !PANEL_STATES.has(S.status)) return ns.notes.element();
     switch (S.status) {
       case 'no_account':
         return panel('board', 'Which account is this?',
@@ -411,6 +502,12 @@
     if (btn) btn.disabled = true;
     try {
       await api.connect();
+      if (S.view === 'notes') {
+        S.status = 'idle';
+        render();
+        await ns.notes.load({ force: true });
+        return;
+      }
       S.status = 'loading';
       render();
       await refresh();
@@ -943,7 +1040,7 @@
         rowTitle.textContent = c.title || 'New column';
         // A new column's label follows its title until edited by hand.
         if (c.isNew && !c.labelTouched) {
-          c.label = `Board/${c.title.trim()}`;
+          c.label = `${c.root}/${c.title.trim()}`;
           labelInput.value = c.label;
         }
       },
@@ -1000,10 +1097,14 @@
 
   function addDraftColumn() {
     const d = S.drawer.draft;
+    // Under whatever parent the columns already share ("_Board", or one
+    // the user moved them to), not a hard-coded one.
+    const root = logic.labelRoot(S.columns);
     d.push({
       id: logic.newColumnId(d),
       title: 'New column',
-      label: 'Board/New column',
+      label: `${root}/New column`,
+      root,
       archiveOnDrop: false,
       origLabel: '',
       isNew: true,
@@ -1236,7 +1337,7 @@
   function columnsChanged(next) {
     if (next && JSON.stringify(next) === JSON.stringify(S.columns)) return;
     S.loadedAt = 0;
-    if (S.open && !S.drawer) refresh();
+    if (S.open && !S.drawer && S.view === 'board') refresh();
   }
 
   // Card edits saved in another tab, or synced from another computer.
@@ -1253,11 +1354,11 @@
       else S.edits.delete(id);
       changed = true;
     }
-    if (changed && S.open && S.status === 'ready') render();
+    if (changed && S.open && S.status === 'ready' && S.view === 'board') render();
   }
 
   ns.board = {
-    open, close, toggle, columnsChanged, cardEditsChanged,
+    open, close, toggle, toggleView, columnsChanged, cardEditsChanged,
     isOpen: () => S.open,
   };
 })();

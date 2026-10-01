@@ -1,15 +1,19 @@
 # Supermail
 
-A Kanban board inside Gmail, for one person, backed entirely by Gmail labels.
+A Kanban board and a notes system inside Gmail, for one person, backed
+entirely by Gmail itself.
 
-Every card is a Gmail thread and every column is a Gmail label (`Board/To do`,
-`Board/Doing`, `Board/Waiting` and `Board/Done` to start with). Moving a card
-moves the label. There is no separate database and no server: the board is a
-view of your mailbox. Because the columns are ordinary labels, they show up in
-the Gmail app on your phone too, so you can file a thread from the train and see
-it on the board later. The board itself only exists in desktop Chrome.
+Every card is a Gmail thread and every column is a Gmail label (`_Board/To do`,
+`_Board/Doing`, `_Board/Waiting` and `_Board/Done` to start with). Moving a card
+moves the label. Every note is a message in your own mailbox, never sent, filed
+under `_Notes`. There is no separate database and no server: the board and the
+notes are views of your mailbox. Because they are ordinary labels and messages,
+they show up in the Gmail app on your phone too, so you can file a thread from
+the train and see it on the board later, or look up a note. The leading
+underscore sorts both labels to the top of Gmail's label list. The board and the
+notes editor themselves only exist in desktop Chrome.
 
-Version 0.2.0. Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.3.0. Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies.
 
 ## Install
@@ -78,7 +82,11 @@ search (`q=`) stops working.
   toolbar icon, or **Alt+Shift+K**. Change the shortcut at
   `chrome://extensions/shortcuts`. Press **Esc** to close it.
 - The first time you open it, the board creates any column labels that are
-  missing, plus their parent (`Board`) so Gmail nests them in the sidebar.
+  missing, plus their parent (`_Board`) so Gmail nests them in the sidebar.
+- Columns remember their label's id as well as its name, so renaming a label in
+  Gmail itself (say `Board` to `_Board`, which renames every column label under
+  it) is followed rather than answered with a fresh, empty label. New columns
+  go under whatever parent the existing ones share.
 - **Drag** a card to another column, or within a column to reorder it. A
   placeholder shows where it will land.
 - Each card's **⋯** menu offers the same actions without a mouse: Open in Gmail,
@@ -117,6 +125,44 @@ Card order within each column is stored in this browser (`storage.local`). The
 column layout and your card edits are stored in `storage.sync`, so they follow
 your Chrome profile to other computers. All of it is kept per Gmail account.
 
+### Notes
+
+- **Open the notes** with the **Notes** tab next to **Board** at the top of the
+  board, or the **Notes** button beside **Board** at the bottom left of Gmail.
+  The board reopens on whichever tab you used last.
+- The list on the left shows your notes, newest first, with their first lines.
+  The **search box** above it runs Gmail's own search inside your notes, so it
+  finds words anywhere in a note and takes Gmail syntax (`before:2026/09/01`).
+  **New** starts a note.
+- The open note is on the right: a title and the text. It **saves itself** a
+  couple of seconds after you stop typing, and again when you switch notes or
+  tabs or close the board; **Ctrl+S** saves at once. The line above the title
+  says "Unsaved changes", "Saving…" or "Saved". Closing the Gmail tab with an
+  unsaved change asks before leaving. Enter in the title moves to the text.
+- A note with no title is filed under its first line.
+- **Delete** moves the note to Gmail's Trash, with an **Undo**. **Open in Gmail**
+  shows the note as Gmail stores it.
+- Notes are plain text for now; line breaks are kept.
+
+How it works: a note is a message placed straight into your mailbox with
+`messages.insert`, from and to yourself, labelled `_Notes` and nothing else -
+not Inbox, not unread. It carries an `X-Gkb-Note` header with the note's own id.
+Gmail messages cannot be changed once stored, so saving inserts a new version
+and moves the previous one to Trash. That makes Gmail's Trash a 30-day version
+history: open an old version there to copy text back. If two versions are ever
+both live (a save cut short, or two computers saving at once), the newest wins
+and the other is moved to Trash the next time the list loads.
+
+Anything else filed under `_Notes` shows up too - an email you sent yourself
+from your phone, say. It reads as plain text and is marked "From an email".
+Editing it saves a new note in its place and takes the email off the list
+(it keeps the email, just without the `_Notes` label); Delete does the same.
+
+Like the columns, the notes label is followed by id, so you can rename `_Notes`
+in Gmail and the notes follow.
+
+### Storage
+
 Chrome's sync storage is small: 100 KB in all, and at most 512 entries. Each
 edited card takes one entry, so there is room for hundreds of renamed cards,
 fewer if every one carries a long note (notes are capped at 500 characters,
@@ -137,13 +183,19 @@ silently.
   (including message bodies), changing labels, archiving, moving to Trash, and
   technically sending mail. It does **not** permit permanent deletion; that
   needs the full `https://mail.google.com/` scope.
-- **What this code does.** It reads thread metadata (subject, sender, date,
-  label ids and Gmail's snippet), creates and renames labels, and adds or
-  removes labels on threads, including `INBOX` when archiving. It **never sends
-  and never deletes**, and never moves anything to Trash or Spam. The background
-  worker enforces this with an allow-list: any other Gmail API call, any
-  `DELETE`, and any attempt to add `TRASH` or `SPAM` is refused before a token
-  is even fetched.
+- **What this code does.** For the board, it reads thread metadata (subject,
+  sender, date, label ids and Gmail's snippet), creates and renames labels, and
+  adds or removes labels on threads, including `INBOX` when archiving. For the
+  notes, it reads the messages under `_Notes` (bodies included), inserts new
+  notes, and moves its own old versions and deleted notes to Trash. It **never
+  sends and never permanently deletes**, never touches Spam, and moves nothing
+  to Trash but its own notes. The background worker enforces this with an
+  allow-list: any other Gmail API call, any `DELETE`, any attempt to add `TRASH`
+  or `SPAM` as a label, and any insert that is not a note (a message carrying
+  the `X-Gkb-Note` header, filed under user labels only - never Inbox, Sent,
+  Drafts, Spam, Trash or unread) is refused before a token is even fetched.
+  Before trashing a message, the worker reads that message's headers itself and
+  refuses unless it is a note.
 - Every token is checked against Gmail's own profile before use. If Google
   signs in a different account from the one in the Gmail tab, the token is
   discarded and the board says so, rather than acting on the wrong mailbox.
@@ -254,13 +306,16 @@ src/shared/ns.js           namespace, APP_NAME, storage keys
 src/lib/                   pure logic, shared by content scripts, worker and tests
   util.js                  entities, addresses, account detection, dates, pool
   auth.js                  auth URL, redirect parsing, API allow-list
-  board-logic.js           columns, order merge, move label diffs, summaries
+  board-logic.js           columns, order merge, move label diffs, summaries, card edits
+  notes-logic.js           building and reading note messages, what may be inserted
 src/background/sw.js       OAuth (launchWebAuthFlow) and the Gmail API proxy
 src/content/               classic scripts, in manifest order
   gmail-hooks.js           every assumption about Gmail's page
   api.js, store.js         messaging and the shared data layer
+  notes-store.js           notes: list, read, save (insert + trash), delete
   ui.js, styles.js         DOM builder, icons, menus, toasts, shadow hosts
-  board.js, dock.js        the board overlay and the corner buttons
+  board.js, dock.js        the overlay (header, tabs, board) and the corner buttons
+  notes.js                 the Notes tab: list, editor, autosave
   main.js                  wiring
 src/options/               setup page
 dev/                       preview page and fake Gmail
@@ -272,11 +327,9 @@ tools/make-icons.mjs       icon generator
 
 - **A to-do view.** One flat list across all columns, oldest first, for days when
   a board is too much.
-- **Notes**, stored as messages inserted into your own mailbox with
-  `messages.insert` under a `Notes` label. They stay in Gmail, are found by
-  Gmail search, sync everywhere, and still need no server. This needs
-  `messages.insert` added to the worker's allow-list. (Short notes on a card
-  already exist; see **Edit card…** above.)
+- **Formatting in notes**: bold, italic, headings, lists, checklists and links,
+  saved as an HTML part beside the plain text so a note also reads formatted in
+  Gmail on the phone.
 - **A "Needs reply" column**, computed rather than labelled. It would reuse the
   triage and ranking logic in `supervertaler-stats/src/email.js`
   (`classifyBulk`, `scoreThread`): threads whose newest message is inbound and

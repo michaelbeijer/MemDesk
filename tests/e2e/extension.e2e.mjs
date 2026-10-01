@@ -132,7 +132,7 @@ try {
     await until(async () => (await options.locator('#test-status').innerText()) === 'Save a client ID first.', 'status text');
   });
 
-  await r.step('the proxy refuses sending and deleting before asking for a token', async () => {
+  await r.step('the proxy refuses sending, deleting and non-note inserts before asking for a token', async () => {
     const ask = msg => options.evaluate(m => chrome.runtime.sendMessage(m), msg);
     const send = await ask({ type: 'gmail', account: 'test@example.com', method: 'POST', path: 'messages/send', body: {} });
     assert.equal(send.ok, false);
@@ -144,6 +144,14 @@ try {
       path: 'threads/18f2a3b4c5d6e000/modify', body: { addLabelIds: ['TRASH'] },
     });
     assert.equal(trash.error.code, 'not_allowed');
+    // messages.insert only takes a note: ordinary mail is refused outright.
+    const raw = Buffer.from('From: bank@example.com\r\nSubject: Verify your account\r\n\r\nclick here').toString('base64url');
+    const insert = await ask({ type: 'gmail', account: 'test@example.com', method: 'POST', path: 'messages', body: { raw, labelIds: ['Label_1'] } });
+    assert.equal(insert.error.code, 'not_allowed');
+    // Trashing a message gets past the request check to the header check,
+    // which needs a token - so here it stops at the missing client ID.
+    const noteTrash = await ask({ type: 'gmail', account: 'test@example.com', method: 'POST', path: 'messages/18f2a3b4c5d6e000/trash' });
+    assert.equal(noteTrash.error.code, 'not_configured');
     const labels = await ask({ type: 'gmail', account: 'test@example.com', method: 'GET', path: 'labels' });
     assert.equal(labels.error.code, 'not_configured', 'an allowed call gets as far as the missing client ID');
   });
@@ -165,7 +173,8 @@ try {
     await until(async () => /Add to board/.test(await pill.innerText()), 'thread pill for the open conversation');
     await boardBtn.click();
     await gmail.locator('.panel', { hasText: 'Finish setting up' }).waitFor();
-    assert.match(await gmail.locator('.brand').innerText(), /Supermail\s*·\s*Board/);
+    assert.match(await gmail.locator('.brand').innerText(), /Supermail/);
+    assert.equal(await gmail.locator('.tab[aria-selected="true"]').innerText(), 'Board');
     assert.equal(await gmail.locator('.account').innerText(), 'test@example.com');
     // Styles were adopted inside the shadow root, not leaked to the page.
     assert.equal(await gmail.locator('.overlay').evaluate(e => getComputedStyle(e).position), 'fixed');

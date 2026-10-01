@@ -93,6 +93,10 @@
     S.labelsAt = Date.now();
   }
 
+  function allLabels() {
+    return [...S.labels.values()];
+  }
+
   // Gmail label names are unique case-insensitively, so lookups are too.
   function labelId(name) {
     const l = S.labels.get(String(name || '').toLowerCase());
@@ -173,13 +177,28 @@
     });
   }
 
+  // Brings the columns' label names in line with Gmail (a label renamed
+  // there is followed by its id) and records ids for labels that have
+  // them. Saved only when something changed.
+  async function syncColumnLabels(account, columns) {
+    const { columns: next, changed } = logic.resolveColumnLabels(columns, [...S.labels.values()]);
+    if (changed) await saveColumns(account, next);
+    return next;
+  }
+
   // Everything the board needs for one render: per-column thread ids
-  // (each thread in exactly one column) and which columns were cut off.
-  async function loadBoard(account, columns) {
+  // (each thread in exactly one column), which columns were cut off, and
+  // the columns themselves, in case a label was renamed in Gmail.
+  async function loadBoard(account, columnsIn) {
     // Let any move still in flight land first, or the list could show the
     // thread back in the column it is leaving.
     await Promise.allSettled([...S.pending]);
-    await ensureLabels(columns.map(c => c.label), { fresh: true });
+    // Renames first: ensuring labels by their stale names would recreate
+    // the old ones, empty.
+    await refreshLabels();
+    let columns = await syncColumnLabels(account, columnsIn);
+    await ensureLabels(columns.map(c => c.label));
+    columns = await syncColumnLabels(account, columns);
 
     const results = await util.mapPool(columns, 6, col =>
       api.gmail('GET', 'threads', { labelIds: labelId(col.label), maxResults: 100 })
@@ -200,7 +219,7 @@
     const lists = logic.assignColumns(columns, raw);
     for (const id of Object.keys(lists)) lists[id] = lists[id].filter(t => S.meta.has(t));
     emit('board-loaded', {});
-    return { lists, truncated };
+    return { lists, truncated, columns };
   }
 
   // `source` lets listeners ignore echoes of their own changes: the board
@@ -260,7 +279,7 @@
 
   ns.store = {
     bus, loadColumns, saveColumns, loadOrder, saveOrder, loadCardEdits, saveCardEdit, loadDockPosition,
-    refreshLabels, ensureLabels, renameLabel, labelId,
+    refreshLabels, ensureLabels, renameLabel, labelId, allLabels,
     thread, loadBoard, moveToColumn, removeFromBoard, search, threadColumn,
   };
 })();

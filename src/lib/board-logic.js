@@ -17,13 +17,17 @@
 
   // ── Columns ──────────────────────────────────────────────────────────
 
+  // The leading underscore sorts the board's labels above everything else
+  // in Gmail's long, alphabetical label list - on the phone especially.
+  const DEFAULT_ROOT = '_Board';
+
   // Done archives on drop because that is what finishing something in
   // Gmail usually means: out of the Inbox, still findable under its label.
   const DEFAULT_COLUMNS = [
-    { id: 'todo', title: 'To do', label: 'Board/To do', archiveOnDrop: false },
-    { id: 'doing', title: 'Doing', label: 'Board/Doing', archiveOnDrop: false },
-    { id: 'waiting', title: 'Waiting', label: 'Board/Waiting', archiveOnDrop: false },
-    { id: 'done', title: 'Done', label: 'Board/Done', archiveOnDrop: true },
+    { id: 'todo', title: 'To do', label: `${DEFAULT_ROOT}/To do`, archiveOnDrop: false },
+    { id: 'doing', title: 'Doing', label: `${DEFAULT_ROOT}/Doing`, archiveOnDrop: false },
+    { id: 'waiting', title: 'Waiting', label: `${DEFAULT_ROOT}/Waiting`, archiveOnDrop: false },
+    { id: 'done', title: 'Done', label: `${DEFAULT_ROOT}/Done`, archiveOnDrop: true },
   ];
 
   function defaultColumns() {
@@ -43,14 +47,68 @@
       const label = String(c.label || '').trim();
       if (!id || !label || seen.has(id)) continue;
       seen.add(id);
-      out.push({
+      const col = {
         id,
         title: String(c.title || '').trim() || label.split('/').pop(),
         label,
         archiveOnDrop: !!c.archiveOnDrop,
-      });
+      };
+      if (c.labelId && typeof c.labelId === 'string') col.labelId = c.labelId;
+      out.push(col);
     }
     return out.length ? out : defaultColumns();
+  }
+
+  // Where a new column's label goes: under the parent the existing columns
+  // share, so a board moved to "_Board/…" keeps growing there rather than
+  // quietly recreating the old "Board" parent.
+  function labelRoot(columns) {
+    const parents = new Set((columns || []).map(c => {
+      const parts = String(c.label || '').split('/');
+      return parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+    }));
+    if (parents.size === 1) {
+      const [only] = parents;
+      if (only) return only;
+    }
+    return DEFAULT_ROOT;
+  }
+
+  // Columns remember their label's id as well as its name, because Gmail
+  // lets a label be renamed - and renaming "Board" to "_Board" renames
+  // every column label under it. Following the id keeps a column on the
+  // same mail; following the name alone would create a fresh, empty label
+  // with the old name. Returns the columns with names brought up to date
+  // and ids filled in, and whether anything changed (so it can be saved).
+  function resolveColumnLabels(columns, labels) {
+    const byId = new Map((labels || []).map(l => [l.id, l]));
+    const byName = new Map((labels || []).map(l => [String(l.name).toLowerCase(), l]));
+    let changed = false;
+    const out = columns.map(c => {
+      const viaId = c.labelId && byId.get(c.labelId);
+      if (viaId) {
+        if (viaId.name === c.label) return c;
+        changed = true;
+        return { ...c, label: viaId.name };
+      }
+      // Gmail's own spelling wins, so a case-only difference settles here
+      // rather than counting as a rename on the next pass.
+      const viaName = byName.get(String(c.label).toLowerCase());
+      if (viaName) {
+        if (c.labelId === viaName.id && c.label === viaName.name) return c;
+        changed = true;
+        return { ...c, label: viaName.name, labelId: viaName.id };
+      }
+      // Not in Gmail (yet): it is created under this name, and its id is
+      // recorded on the next pass.
+      if (c.labelId) {
+        changed = true;
+        const { labelId, ...rest } = c;
+        return rest;
+      }
+      return c;
+    });
+    return { columns: out, changed };
   }
 
   function newColumnId(existing, rand = Math.random) {
@@ -89,7 +147,7 @@
     return '';
   }
 
-  // "Board/To do" → ["Board"]. Gmail only nests a label in its sidebar
+  // "_Board/To do" → ["_Board"]. Gmail only nests a label in its sidebar
   // when the parent exists, so the parents are created too.
   function labelAncestors(name) {
     const parts = String(name).split('/');
@@ -305,7 +363,8 @@
   }
 
   const api = {
-    DEFAULT_COLUMNS, defaultColumns, normaliseColumns, newColumnId, validateColumns,
+    DEFAULT_ROOT, DEFAULT_COLUMNS, defaultColumns, normaliseColumns, labelRoot, resolveColumnLabels,
+    newColumnId, validateColumns,
     labelAncestors, assignColumns, mergeOrder, placeId, pruneOrder,
     moveLabelDiff, removeLabelDiff, columnForLabels, summariseThread, searchQuery,
     CARD_COLOURS, MAX_TITLE, MAX_NOTE, normaliseCardEdit, displayTitle, cardEditsFrom,

@@ -11,9 +11,10 @@
 // and not readable by content scripts at the default access level.
 // ─────────────────────────────────────────────────────────────────────
 
-importScripts('/src/shared/ns.js', '/src/lib/util.js', '/src/lib/auth.js');
+importScripts('/src/shared/ns.js', '/src/lib/util.js', '/src/lib/notes-logic.js', '/src/lib/auth.js');
 
 const { KEYS } = self.gkb;
+const notesLogic = self.gkb.notesLogic;
 const auth = self.gkb.auth;
 
 // After a silent renewal fails, further silent attempts for the same
@@ -219,15 +220,32 @@ async function handleGmail(msg) {
     throw new ProxyError('auth_required', 'Could not tell which Gmail account this tab belongs to.');
   }
 
+  // Trash is for notes only. The request cannot prove that, so the
+  // message's own headers are read first: no note header, no trash.
+  const checkId = auth.noteCheckId(method, path);
+  if (checkId) {
+    const meta = await callGmail(account, {
+      method: 'GET', path: `messages/${checkId}`,
+      query: { format: 'metadata', metadataHeaders: [notesLogic.NOTE_HEADER] },
+    });
+    if (!notesLogic.noteFromMessage(meta).own) {
+      throw new ProxyError('not_allowed', 'Only notes can be moved to Trash from here.');
+    }
+  }
+
+  return callGmail(account, { method, path, query: msg.query, body: msg.body });
+}
+
+async function callGmail(account, req) {
   let { accessToken } = await getToken(account);
-  let res = await gmailFetch(accessToken, { method, path, query: msg.query, body: msg.body });
+  let res = await gmailFetch(accessToken, req);
 
   // A 401 means the token was revoked or expired early. One silent retry
   // with a fresh token covers that; a second 401 is a real problem.
   if (res.status === 401) {
     await dropToken(account);
     ({ accessToken } = await getToken(account));
-    res = await gmailFetch(accessToken, { method, path, query: msg.query, body: msg.body });
+    res = await gmailFetch(accessToken, req);
     if (res.status === 401) {
       await dropToken(account);
       throw new ProxyError('auth_required', 'Gmail rejected the sign-in. Connect again.');

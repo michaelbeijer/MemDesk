@@ -1,9 +1,9 @@
 // ─────────────────────────────────────────────────────────────────────
 // The dock
 //
-// Two small pills in a corner of Gmail: one opens the board, the other
-// appears only while a conversation is open and says whether it is on
-// the board. Filing the thread you are reading is the most common thing
+// Small pills in a corner of Gmail: one opens the board, one the notes,
+// and a third appears only while a conversation is open and says whether
+// it is on the board. Filing the thread you are reading is the most common thing
 // a board gets used for, and it should not mean opening the board.
 // ─────────────────────────────────────────────────────────────────────
 
@@ -32,8 +32,14 @@
     els.board = h('button', {
       class: 'pill', type: 'button', title: `Open the ${APP_NAME} board`,
       dataset: { action: 'toggle-board' },
-      onclick: () => ns.board.toggle(),
+      onclick: () => ns.board.toggleView('board'),
     }, icon('board', 20), h('span', { class: 'pill-label', text: 'Board' }));
+
+    els.notes = h('button', {
+      class: ['pill', 'pill-compact'], type: 'button', title: `Open ${APP_NAME} notes`,
+      dataset: { action: 'toggle-notes' },
+      onclick: () => ns.board.toggleView('notes'),
+    }, icon('note', 20), h('span', { class: 'pill-label', text: 'Notes' }));
 
     els.thread = h('button', {
       class: 'pill', type: 'button', hidden: true,
@@ -42,7 +48,7 @@
       onclick: toggleThreadMenu,
     });
 
-    els.dock = h('div', { class: 'dock', role: 'group', 'aria-label': APP_NAME }, els.board, els.thread);
+    els.dock = h('div', { class: 'dock', role: 'group', 'aria-label': APP_NAME }, els.board, els.notes, els.thread);
     root.appendChild(els.dock);
   }
 

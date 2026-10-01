@@ -11,6 +11,7 @@
   'use strict';
 
   const ns = (globalThis.gkb = globalThis.gkb || {});
+  const notes = (typeof module === 'object' && module.exports) ? require('./notes-logic.js') : ns.notesLogic;
 
   const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
   const SCOPE = 'https://www.googleapis.com/auth/gmail.modify';
@@ -82,9 +83,10 @@
   // ── Request policy ───────────────────────────────────────────────────
   //
   // gmail.modify would let a token send mail and move things to Trash.
-  // This code never needs either, so the proxy refuses anything outside
-  // this short list. A bug in the content script - or anything that ever
-  // managed to talk to it - cannot reach further than the board does.
+  // This code never sends, and only ever trashes its own notes, so the
+  // proxy refuses anything outside this short list. A bug in the content
+  // script - or anything that ever managed to talk to it - cannot reach
+  // further than the board and the notes do.
 
   const ALLOWED = [
     ['GET', /^profile$/],
@@ -94,6 +96,13 @@
     ['GET', /^threads$/],
     ['GET', /^threads\/[A-Za-z0-9]+$/],
     ['POST', /^threads\/[A-Za-z0-9]+\/modify$/],
+    // Notes.
+    ['GET', /^messages$/],
+    ['GET', /^messages\/[A-Za-z0-9]+$/],
+    ['POST', /^messages$/],                          // insert - a note, checked below
+    ['POST', /^messages\/[A-Za-z0-9]+\/modify$/],
+    ['POST', /^messages\/[A-Za-z0-9]+\/trash$/],     // a note only - see noteCheckId
+    ['POST', /^messages\/[A-Za-z0-9]+\/untrash$/],
   ];
 
   // Labels that would turn a "move" into deleting or reporting mail.
@@ -107,7 +116,19 @@
         body.addLabelIds.some(id => FORBIDDEN_ADD.has(String(id).toUpperCase()))) {
       return false;
     }
+    // messages.insert never sends, but it can put anything into the
+    // mailbox. Only a note, filed under user labels, gets through.
+    if (m === 'POST' && p === 'messages' && !notes.isNoteInsert(body)) return false;
     return true;
+  }
+
+  // Moving to Trash is allowed for notes and nothing else. Whether a
+  // message is a note is a fact about the message, not the request, so
+  // the worker reads its headers first; this names the message to check.
+  function noteCheckId(method, path) {
+    if (String(method || '').toUpperCase() !== 'POST') return '';
+    const m = /^messages\/([A-Za-z0-9]+)\/trash$/.exec(String(path || ''));
+    return m ? m[1] : '';
   }
 
   // Query values may be arrays (metadataHeaders=Subject&metadataHeaders=From).
@@ -124,7 +145,7 @@
 
   const api = {
     AUTH_ENDPOINT, SCOPE, API_BASE, EXPIRY_MARGIN_MS,
-    buildAuthUrl, parseAuthResponse, tokenExpiry, isAllowedRequest, buildApiUrl,
+    buildAuthUrl, parseAuthResponse, tokenExpiry, isAllowedRequest, noteCheckId, buildApiUrl,
   };
 
   ns.auth = api;

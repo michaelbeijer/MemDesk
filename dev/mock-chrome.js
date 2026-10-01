@@ -13,7 +13,8 @@
 //   ?state=auth_required   gmail calls fail until "Connect Gmail" is used
 //   ?state=not_configured  no client ID saved
 //   ?fail=modify           every threads.modify fails with a 500
-//   ?fresh                 no Board/* labels yet, so the board creates them
+//   ?fail=insert           every note save (messages.insert) fails with a 500
+//   ?fresh                 no _Board/* or _Notes labels yet, so they get created
 //   ?page=N                cap list pages at N threads (shows truncation)
 //   ?latency=MS            simulated round-trip time (default 120)
 // ─────────────────────────────────────────────────────────────────────
@@ -182,11 +183,11 @@
     return label;
   }
 
-  const COLUMN_LABELS = { todo: 'Board/To do', doing: 'Board/Doing', waiting: 'Board/Waiting', done: 'Board/Done' };
+  const COLUMN_LABELS = { todo: '_Board/To do', doing: '_Board/Doing', waiting: '_Board/Waiting', done: '_Board/Done' };
   addUserLabel('Clients');
   addUserLabel('Invoices');
   if (!FRESH) {
-    addUserLabel('Board');
+    addUserLabel('_Board');
     for (const name of Object.values(COLUMN_LABELS)) addUserLabel(name);
   }
   const labelByName = name => labels.find(l => l.name.toLowerCase() === String(name).toLowerCase());
@@ -222,6 +223,77 @@
     threads.set(threadId, { id: threadId, historyId: String(historyCounter++), messages });
   });
 
+  // ── Seed notes ───────────────────────────────────────────────────────
+  //
+  // Three notes of ours - one with a stale older version still carrying
+  // the label, as a save cut short would leave it - and one email the
+  // user sent themselves from a phone and filed under _Notes.
+
+  const NOTE_HEADER = 'X-Gkb-Note';
+  const toBinary = str => Array.from(new TextEncoder().encode(str), b => String.fromCharCode(b)).join('');
+  const b64url = bin => btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  let noteCounter = 0;
+
+  function addMessageThread({ hoursAgo, labelIds, headers, payload, snippet }) {
+    const threadId = `19a0c0de${(0x10000 + noteCounter++ * 97).toString(16)}`;
+    const ts = Math.round(now - hoursAgo * 3600 * 1000);
+    const msg = {
+      id: `${threadId}0`,
+      threadId,
+      labelIds,
+      snippet,
+      historyId: String(historyCounter++),
+      internalDate: String(ts),
+      payload: {
+        ...payload,
+        headers: [
+          { name: 'From', value: P.me },
+          { name: 'To', value: P.me },
+          { name: 'Date', value: new Date(ts).toUTCString() },
+          ...headers,
+        ],
+      },
+    };
+    threads.set(threadId, { id: threadId, historyId: msg.historyId, messages: [msg] });
+    return msg;
+  }
+
+  function seedNote(noteId, title, body, hoursAgo, notesLabel) {
+    return addMessageThread({
+      hoursAgo,
+      labelIds: [notesLabel],
+      headers: [{ name: 'Subject', value: title }, { name: NOTE_HEADER, value: noteId }],
+      payload: { mimeType: 'text/plain', body: { data: b64url(toBinary(body.replace(/\n/g, '\r\n'))) } },
+      snippet: body.replace(/\s+/g, ' ').slice(0, 140),
+    });
+  }
+
+  if (!FRESH) {
+    const notesLabel = addUserLabel('_Notes').id;
+    seedNote('kestrelglossary0001', 'Kestrel glossary decisions',
+      'Stent coating project\n\n- "coating" stays "coating", not "layer"\n- IFU = instructions for use, spelled out once\n- Use NL decimal commas in tables', 50, notesLabel);
+    seedNote('kestrelglossary0001', 'Kestrel glossary decisions',
+      'Stent coating project (older draft)', 60, notesLabel);
+    seedNote('newsletterideas0002', 'Ideas for the October newsletter',
+      'Tips on termbase hygiene\nA short piece on patent claim punctuation\nReader question: CAT tools and Markdown', 5, notesLabel);
+    seedNote('rateschedule00000003', 'Rate schedule 2027 – draft',
+      'Per-word rates, minimum charge, rush surcharge.\nRevisit in December. ✓', 200, notesLabel);
+    addMessageThread({
+      hoursAgo: 26,
+      labelIds: [notesLabel],
+      headers: [{ name: 'Subject', value: 'Shopping list' }],
+      payload: {
+        mimeType: 'multipart/alternative',
+        parts: [{
+          mimeType: 'text/html',
+          headers: [{ name: 'Content-Type', value: 'text/html; charset="UTF-8"' }],
+          body: { data: b64url(toBinary('<div>For the weekend</div><ul><li>Espresso beans</li><li>Stroopwafels</li></ul>')) },
+        }],
+      },
+      snippet: 'For the weekend Espresso beans Stroopwafels',
+    });
+  }
+
   // ── Search ───────────────────────────────────────────────────────────
 
   const fold = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -229,6 +301,20 @@
 
   function threadLabels(t) {
     return new Set(t.messages.flatMap(msg => msg.labelIds));
+  }
+
+  // The text of a message, for the fake search and for the tests.
+  function messageText(msg) {
+    const out = [];
+    (function walk(p) {
+      if (!p) return;
+      if (p.body && p.body.data) {
+        const bin = atob(p.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+        out.push(new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0))));
+      }
+      (p.parts || []).forEach(walk);
+    })(msg.payload);
+    return out.join('\n').replace(/\r\n/g, '\n');
   }
 
   function header(msg, name) {
@@ -368,7 +454,126 @@
       return { id: t.id, messages: t.messages.map(msg => ({ id: msg.id, threadId: t.id, labelIds: msg.labelIds })) };
     },
 
+    // ── Messages (notes) ──
+
+    allMessages() {
+      return [...threads.values()].flatMap(t => t.messages);
+    },
+
+    findMessage(id) {
+      const msg = box.allMessages().find(x => x.id === id);
+      if (!msg) throw new HttpError(404, 'Requested entity was not found.');
+      return msg;
+    },
+
+    listMessages(query) {
+      let list = box.allMessages().filter(x => !x.labelIds.includes('TRASH') && !x.labelIds.includes('SPAM'));
+      if (query.labelIds) {
+        const want = [].concat(query.labelIds);
+        list = list.filter(x => want.every(id => x.labelIds.includes(id)));
+      }
+      if (query.q) {
+        const words = String(query.q).match(/\S+/g) || [];
+        list = list.filter(x => {
+          const hay = fold(`${header(x, 'Subject')} ${x.snippet} ${messageText(x)}`);
+          return words.every(w => hay.includes(fold(w)));
+        });
+      }
+      list.sort((a, b) => Number(b.internalDate) - Number(a.internalDate));
+      const size = Math.min(Number(query.maxResults || 100), PAGE_CAP || Infinity);
+      const out = { messages: list.slice(0, size).map(x => ({ id: x.id, threadId: x.threadId })), resultSizeEstimate: list.length };
+      if (list.length > size) out.nextPageToken = String(size);
+      if (!out.messages.length) delete out.messages;
+      return out;
+    },
+
+    getMessage(id, query) {
+      const msg = box.findMessage(id);
+      const base = { id: msg.id, threadId: msg.threadId, labelIds: msg.labelIds.slice(), historyId: msg.historyId, internalDate: msg.internalDate, snippet: msg.snippet };
+      if (query.format === 'full') return { ...base, payload: structuredClone(msg.payload) };
+      const wanted = [].concat(query.metadataHeaders || []).map(x => x.toLowerCase());
+      return { ...base, payload: { headers: msg.payload.headers.filter(hd => !wanted.length || wanted.includes(hd.name.toLowerCase())) } };
+    },
+
+    // What messages.insert does with a raw RFC 2822 message, near enough:
+    // headers unfolded and decoded, a base64 body stored as its bytes.
+    insertMessage(body) {
+      if (FAIL === 'insert') throw new HttpError(500, 'Backend Error');
+      const notes = window.gkb.notesLogic;
+      const bin = notes.base64UrlDecode(body.raw);
+      const split = bin.indexOf('\r\n\r\n');
+      const head = bin.slice(0, split).replace(/\r\n[ \t]+/g, ' ');
+      const headers = head.split('\r\n').map(line => {
+        const i = line.indexOf(':');
+        const name = line.slice(0, i);
+        const raw = line.slice(i + 1).trim();
+        return { name, value: name.toLowerCase() === 'subject' ? notes.decodeHeaderText(raw) : raw };
+      });
+      const bytes = atob(bin.slice(split + 4).replace(/\s+/g, ''));
+      const text = new TextDecoder().decode(Uint8Array.from(bytes, c => c.charCodeAt(0)));
+      const known = new Set(labels.map(l => l.id));
+      for (const l of body.labelIds || []) if (!known.has(l)) throw new HttpError(400, `Invalid label: ${l}`);
+      const threadId = `19b0c0de${(0x10000 + noteCounter++ * 97).toString(16)}`;
+      const msg = {
+        id: `${threadId}0`,
+        threadId,
+        labelIds: (body.labelIds || []).slice(),
+        snippet: text.replace(/\s+/g, ' ').trim().slice(0, 140),
+        historyId: String(historyCounter++),
+        internalDate: String(Date.now()),
+        payload: { mimeType: 'text/plain', headers, body: { data: b64url(bytes) } },
+      };
+      threads.set(threadId, { id: threadId, historyId: msg.historyId, messages: [msg] });
+      changed();
+      return { id: msg.id, threadId, labelIds: msg.labelIds.slice() };
+    },
+
+    // The worker reads the message before trashing it; so does this.
+    trashMessage(id) {
+      const msg = box.findMessage(id);
+      if (!/^[a-z0-9]{12,40}$/.test(header(msg, NOTE_HEADER))) {
+        const err = new Error('Only notes can be moved to Trash from here.');
+        err.code = 'not_allowed';
+        throw err;
+      }
+      msg.labelIds = [...new Set([...msg.labelIds.filter(l => l !== 'INBOX'), 'TRASH'])];
+      changed();
+      return { id: msg.id, threadId: msg.threadId, labelIds: msg.labelIds.slice() };
+    },
+
+    untrashMessage(id) {
+      const msg = box.findMessage(id);
+      msg.labelIds = msg.labelIds.filter(l => l !== 'TRASH');
+      changed();
+      return { id: msg.id, threadId: msg.threadId, labelIds: msg.labelIds.slice() };
+    },
+
+    modifyMessage(id, body) {
+      const msg = box.findMessage(id);
+      const set = new Set(msg.labelIds);
+      (body.removeLabelIds || []).forEach(l => set.delete(l));
+      (body.addLabelIds || []).forEach(l => set.add(l));
+      msg.labelIds = [...set];
+      changed();
+      return { id: msg.id, threadId: msg.threadId, labelIds: msg.labelIds.slice() };
+    },
+
     // ── Helpers for the backdrop and the browser tests ──
+
+    notesWithId(noteId) {
+      return box.allMessages().filter(x => header(x, NOTE_HEADER) === noteId)
+        .map(x => ({ id: x.id, subject: header(x, 'Subject'), labels: box.messageLabelNames(x.id), text: messageText(x) }));
+    },
+    messageLabelNames(id) {
+      const msg = box.findMessage(id);
+      return labels.filter(l => msg.labelIds.includes(l.id)).map(l => l.name).sort();
+    },
+    findMessageBySubject(subject) {
+      const found = box.allMessages().filter(x => header(x, 'Subject') === subject && !x.labelIds.includes('TRASH'));
+      return found.length ? found[found.length - 1].id : '';
+    },
+    messageText(id) { return messageText(box.findMessage(id)); },
+    messageHeader(id, name) { return header(box.findMessage(id), name); },
 
     threadsInInbox() {
       return [...threads.values()].filter(t => threadLabels(t).has('INBOX')).sort((a, b) => latest(b) - latest(a));
@@ -402,6 +607,26 @@
     if (method === 'GET' && path === 'threads') return box.listThreads(query || {});
     if (method === 'GET' && (mm = path.match(/^threads\/([A-Za-z0-9]+)$/))) return box.getThread(mm[1], query || {});
     if (method === 'POST' && (mm = path.match(/^threads\/([A-Za-z0-9]+)\/modify$/))) return box.modify(mm[1], body || {});
+    if (method === 'GET' && path === 'messages') return box.listMessages(query || {});
+    if (method === 'GET' && (mm = path.match(/^messages\/([A-Za-z0-9]+)$/))) return box.getMessage(mm[1], query || {});
+    if (method === 'POST' && path === 'messages') {
+      if (!window.gkb.notesLogic.isNoteInsert(body)) {
+        const err = new Error(`${method} ${path} is not something this extension does.`);
+        err.code = 'not_allowed';
+        throw err;
+      }
+      return box.insertMessage(body);
+    }
+    if (method === 'POST' && (mm = path.match(/^messages\/([A-Za-z0-9]+)\/trash$/))) return box.trashMessage(mm[1]);
+    if (method === 'POST' && (mm = path.match(/^messages\/([A-Za-z0-9]+)\/untrash$/))) return box.untrashMessage(mm[1]);
+    if (method === 'POST' && (mm = path.match(/^messages\/([A-Za-z0-9]+)\/modify$/))) {
+      if ((body && body.addLabelIds || []).some(l => /^(TRASH|SPAM)$/i.test(l))) {
+        const err = new Error(`${method} ${path} is not something this extension does.`);
+        err.code = 'not_allowed';
+        throw err;
+      }
+      return box.modifyMessage(mm[1], body || {});
+    }
     const err = new Error(`${method} ${path} is not something this extension does.`);
     err.code = 'not_allowed';
     throw err;

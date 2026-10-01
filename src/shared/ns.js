@@ -36,6 +36,8 @@
     // a few dozen notes, while the 512-item cap leaves room for hundreds.
     cardPrefix: email => `card:${String(email).toLowerCase()}:`,                  // storage.sync
     card: (email, threadId) => `card:${String(email).toLowerCase()}:${threadId}`, // storage.sync
+    notes: email => `notes:${String(email).toLowerCase()}`,     // storage.sync: { label, labelId }
+    view: 'view',                                // storage.local: 'board' | 'notes'
     token: email => `token:${String(email).toLowerCase()}`,     // storage.session
     gmailTabs: 'gmailTabs',                      // storage.session
   };

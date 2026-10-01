@@ -7,10 +7,10 @@ const logic = require('../src/lib/board-logic.js');
 
 const COLUMNS = logic.defaultColumns();
 const IDS = {
-  'Board/To do': 'Label_1',
-  'Board/Doing': 'Label_2',
-  'Board/Waiting': 'Label_3',
-  'Board/Done': 'Label_4',
+  '_Board/To do': 'Label_1',
+  '_Board/Doing': 'Label_2',
+  '_Board/Waiting': 'Label_3',
+  '_Board/Done': 'Label_4',
 };
 
 // ── Order ────────────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ test('moving out of an archiving column does not touch INBOX', () => {
 });
 
 test('column labels without an id yet are skipped, not sent as undefined', () => {
-  const partial = { 'Board/To do': 'Label_1', 'Board/Doing': 'Label_2' };
+  const partial = { '_Board/To do': 'Label_1', '_Board/Doing': 'Label_2' };
   const diff = logic.moveLabelDiff(COLUMNS, 'todo', partial);
   assert.deepEqual(diff.removeLabelIds, ['Label_2']);
 });
@@ -105,10 +105,10 @@ test('columnForLabels picks the left-most matching column', () => {
 
 test('default columns', () => {
   assert.deepEqual(COLUMNS.map(c => [c.title, c.label, c.archiveOnDrop]), [
-    ['To do', 'Board/To do', false],
-    ['Doing', 'Board/Doing', false],
-    ['Waiting', 'Board/Waiting', false],
-    ['Done', 'Board/Done', true],
+    ['To do', '_Board/To do', false],
+    ['Doing', '_Board/Doing', false],
+    ['Waiting', '_Board/Waiting', false],
+    ['Done', '_Board/Done', true],
   ]);
   const copy = logic.defaultColumns();
   copy[0].title = 'mutated';
@@ -289,4 +289,40 @@ test('a card’s storage key sits under its account’s prefix, case-insensitive
   assert.equal(key, 'card:michael@example.com:18c2f');
   assert.ok(key.startsWith(KEYS.cardPrefix('MICHAEL@example.com')));
   assert.equal(KEYS.card('a@b.example', 'x').startsWith(KEYS.cardPrefix('ab@b.example')), false);
+});
+
+// ── Column labels: renames and roots ─────────────────────────────────
+
+test('new columns go under the parent the existing ones share', () => {
+  assert.equal(logic.labelRoot(logic.defaultColumns()), '_Board');
+  assert.equal(logic.labelRoot([{ label: 'Work/Board/To do' }, { label: 'Work/Board/Done' }]), 'Work/Board');
+  assert.equal(logic.labelRoot([{ label: 'Board/To do' }, { label: '_Board/Done' }]), '_Board', 'mixed parents: the default');
+  assert.equal(logic.labelRoot([{ label: 'Top level' }]), '_Board');
+  assert.equal(logic.labelRoot([]), '_Board');
+});
+
+test('a column follows its label when Gmail renames it, by id', () => {
+  const cols = [
+    { id: 'todo', title: 'To do', label: 'Board/To do', labelId: 'Label_1', archiveOnDrop: false },
+    { id: 'done', title: 'Done', label: 'Board/Done', archiveOnDrop: true },
+    { id: 'gone', title: 'Gone', label: 'Board/Gone', labelId: 'Label_99', archiveOnDrop: false },
+  ];
+  const labels = [
+    { id: 'Label_1', name: '_Board/To do' },
+    { id: 'Label_2', name: 'board/done' },
+  ];
+  const { columns, changed } = logic.resolveColumnLabels(cols, labels);
+  assert.equal(changed, true);
+  assert.deepEqual(columns[0], { ...cols[0], label: '_Board/To do' }, 'renamed in Gmail: followed by id');
+  assert.deepEqual(columns[1], { ...cols[1], label: 'board/done', labelId: 'Label_2' }, 'matched by name: id and Gmail’s spelling recorded');
+  assert.deepEqual(columns[2], { id: 'gone', title: 'Gone', label: 'Board/Gone', archiveOnDrop: false }, 'stale id dropped');
+
+  const again = logic.resolveColumnLabels(columns.slice(0, 2), labels);
+  assert.equal(again.changed, false, 'nothing to save the second time');
+});
+
+test('normaliseColumns keeps a stored label id', () => {
+  const [c] = logic.normaliseColumns([{ id: 'a', title: 'A', label: '_Board/A', labelId: 'Label_5' }, { id: 'b', label: 'x', labelId: 7 }]);
+  assert.equal(c.labelId, 'Label_5');
+  assert.equal('labelId' in logic.normaliseColumns([{ id: 'b', label: 'x', labelId: 7 }])[0], false);
 });
