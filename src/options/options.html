@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- The real title is set from APP_NAME in options.js. -->
+  <title>Setup</title>
+  <link rel="icon" href="/icons/icon-32.png">
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main class="page">
+    <header class="masthead">
+      <img src="/icons/icon-48.png" width="40" height="40" alt="">
+      <div>
+        <h1 id="app-name">Setup</h1>
+        <p class="lede">A Kanban board inside Gmail. Every card is a Gmail thread, every column a Gmail label.</p>
+      </div>
+    </header>
+
+    <section class="card" aria-labelledby="ids-title">
+      <h2 id="ids-title">This extension</h2>
+      <p class="hint">You will need these in Google Cloud. They stay the same across reinstalls.</p>
+      <div class="copy-row">
+        <span class="copy-label">Extension ID</span>
+        <code id="ext-id" class="copy-value">…</code>
+        <button type="button" class="btn btn-tonal" data-copy="ext-id">Copy</button>
+      </div>
+      <div class="copy-row">
+        <span class="copy-label">Redirect URI</span>
+        <code id="redirect-uri" class="copy-value">…</code>
+        <button type="button" class="btn btn-tonal" data-copy="redirect-uri">Copy</button>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="setup-title">
+      <h2 id="setup-title">One-time Google setup</h2>
+      <p class="hint">
+        Use the Google Cloud project you already set up for your dashboard. Its Gmail API is
+        enabled and its consent screen is Internal, so all you need is one new OAuth client.
+      </p>
+      <ol class="steps">
+        <li>
+          In <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">APIs &amp; Services → Credentials</a>,
+          choose <b>Create credentials → OAuth client ID</b>, application type <b>Web application</b>.
+        </li>
+        <li>Under <b>Authorised redirect URIs</b>, add the redirect URI above, exactly as shown.</li>
+        <li>Create it, then paste the <b>Client ID</b> below. No client secret is needed.</li>
+        <li>
+          Optional: under <b>Google Auth Platform → Data access</b>, add the
+          <code>…/auth/gmail.modify</code> scope, so the consent screen lists what this asks for.
+        </li>
+      </ol>
+      <details class="fallback">
+        <summary>Starting from a fresh Cloud project instead?</summary>
+        <ol>
+          <li>Create a project at <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a>.</li>
+          <li>APIs &amp; Services → Library → <b>Gmail API</b> → Enable.</li>
+          <li>Set up the OAuth consent screen with user type <b>Internal</b> (available on Google Workspace accounts; it avoids Google's review and the seven-day token limit of test mode).</li>
+          <li>Then follow the four steps above.</li>
+        </ol>
+      </details>
+    </section>
+
+    <section class="card" aria-labelledby="client-title">
+      <h2 id="client-title">OAuth client</h2>
+      <form id="client-form" class="field-row" autocomplete="off">
+        <label for="client-id" class="field-label">Client ID</label>
+        <input id="client-id" class="text-input" type="text" spellcheck="false"
+               placeholder="1234567890-abc123.apps.googleusercontent.com">
+        <button type="submit" class="btn btn-primary">Save</button>
+      </form>
+      <p id="client-status" class="status" role="status"></p>
+
+      <div class="test-row">
+        <button type="button" id="test" class="btn btn-tonal">Test connection</button>
+        <p id="test-status" class="status" role="status"></p>
+      </div>
+      <p class="hint">
+        The test opens Google's sign-in so you can pick an account, then reads that mailbox's
+        address back from Gmail. It sends nothing and changes nothing.
+      </p>
+    </section>
+
+    <section class="card" aria-labelledby="dock-title">
+      <h2 id="dock-title">In Gmail</h2>
+      <fieldset class="radio-group">
+        <legend class="field-label">Board buttons</legend>
+        <label><input type="radio" name="dock" value="left"> Bottom left</label>
+        <label><input type="radio" name="dock" value="right"> Bottom right</label>
+        <label><input type="radio" name="dock" value="hidden"> Hidden</label>
+      </fieldset>
+      <p class="hint">
+        Bottom right sits over Gmail's compose windows. With the buttons hidden, the board is
+        still a click on the toolbar icon or a keyboard shortcut away.
+      </p>
+      <div class="shortcut-row">
+        <span>Keyboard shortcut: <kbd id="shortcut">Alt+Shift+K</kbd></span>
+        <button type="button" id="shortcuts" class="btn btn-text">Change shortcut</button>
+      </div>
+      <p class="hint">Shortcuts are managed by Chrome at <code>chrome://extensions/shortcuts</code>.</p>
+    </section>
+
+    <section class="card quiet" aria-labelledby="privacy-title">
+      <h2 id="privacy-title">Privacy</h2>
+      <p class="hint">
+        There is no server. The access token lives only in this browser's session storage and is
+        gone when Chrome closes. Card order is kept in this browser; your column layout syncs
+        through your Chrome profile. The extension never sends or deletes mail.
+      </p>
+    </section>
+  </main>
+  <script src="/src/shared/ns.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
