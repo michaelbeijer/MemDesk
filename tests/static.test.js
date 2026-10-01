@@ -69,7 +69,7 @@ test('the preview loads exactly the manifest’s content scripts, in order', () 
 
 test('manifest: version, permissions and a key whose ID the README reports', () => {
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '0.1.0');
+  assert.equal(manifest.version, '0.2.0');
   assert.deepEqual(manifest.permissions.sort(), ['identity', 'storage']);
   assert.deepEqual(manifest.host_permissions, ['https://gmail.googleapis.com/*']);
   assert.equal(manifest.commands['toggle-board'].suggested_key.default, 'Alt+Shift+K');

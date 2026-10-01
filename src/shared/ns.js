@@ -31,6 +31,11 @@
     dockPosition: 'dockPosition',                // storage.sync
     columns: email => `columns:${String(email).toLowerCase()}`, // storage.sync
     order: email => `order:${String(email).toLowerCase()}`,     // storage.local
+    // Card edits get one key per card rather than one map per account:
+    // sync caps each item at 8 KB, which a single map would outgrow after
+    // a few dozen notes, while the 512-item cap leaves room for hundreds.
+    cardPrefix: email => `card:${String(email).toLowerCase()}:`,                  // storage.sync
+    card: (email, threadId) => `card:${String(email).toLowerCase()}:${threadId}`, // storage.sync
     token: email => `token:${String(email).toLowerCase()}`,     // storage.session
     gmailTabs: 'gmailTabs',                      // storage.session
   };

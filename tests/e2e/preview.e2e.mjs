@@ -260,6 +260,123 @@ try {
     assert.deepEqual(doing.filter(id => ifuOrder.includes(id)), ifuOrder.filter(id => doing.includes(id)));
   });
 
+  // ── Card edits ──
+
+  const editKey = id => `card:test@example.com:${id}`;
+  const syncDump = () => page.evaluate(() => chrome.storage.sync.dump());
+  const apiCalls = () => page.evaluate(() => window.__mockChrome.log.length);
+  const emailSubject = id => page.evaluate(i => window.__fakeGmail.header(window.__fakeGmail.thread(i).messages[0], 'Subject'), id);
+  const shadowFocusKey = () => page.evaluate(() => {
+    const a = document.getElementById('gkb-board-host').shadowRoot.activeElement;
+    return a && a.dataset ? a.dataset.key : '';
+  });
+  async function openEditor(id) {
+    await page.locator(`.card[data-id="${id}"]`).hover();
+    await page.locator(`.card[data-id="${id}"] .card-menu`).click();
+    await page.locator('.menu [data-key="edit"]').click();
+    await page.locator('.dialog').waitFor();
+  }
+
+  let quoteId;
+  let quoteSubject;
+  await r.step('Edit card: own title, note and colour, without a single Gmail call', async () => {
+    quoteId = await findThread(page, 'Quote request');
+    quoteSubject = await emailSubject(quoteId);
+    const before = await apiCalls();
+
+    await openEditor(quoteId);
+    const title = page.locator('.dialog [data-key="edit-title"]');
+    assert.equal(await title.inputValue(), quoteSubject, 'pre-filled with the subject');
+    assert.equal(await shadowFocusKey(), 'edit-title', 'title has focus');
+    assert.ok(await page.locator('.dialog [data-key="edit-reset"]').isHidden(), 'no reset while it is the subject');
+
+    await title.fill('Kestrel patent quote');
+    assert.ok(await page.locator('.dialog [data-key="edit-reset"]').isVisible(), 'reset offered once changed');
+    await page.locator('.dialog [data-key="edit-note"]').fill('14,200 words\nDue Friday');
+    await page.locator('.dialog .swatch[data-colour="green"]').click();
+    await page.mouse.move(0, 0);
+    await page.screenshot({ path: join(SCREENS, 'card-edit.png'), animations: 'disabled' });
+    await page.locator('.dialog [data-key="edit-save"]').click();
+    await page.locator('.dialog').waitFor({ state: 'detached' });
+
+    const card = page.locator(`.card[data-id="${quoteId}"]`);
+    assert.equal(await card.locator('.subject').innerText(), 'Kestrel patent quote');
+    // "Note: " is for screen readers only.
+    assert.equal(await card.locator('.card-note').textContent(), 'Note: 14,200 words\nDue Friday');
+    assert.equal(await card.locator('.snippet').count(), 0, 'the note replaces the preview');
+    assert.equal(await card.getAttribute('data-colour'), 'green');
+    assert.match(await card.locator('.card-main').getAttribute('title'), new RegExp(`Email subject: ${quoteSubject.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    assert.equal(await shadowFocusKey(), `menu:${quoteId}`, 'focus back on the card');
+
+    assert.deepEqual((await syncDump())[editKey(quoteId)],
+      { title: 'Kestrel patent quote', note: '14,200 words\nDue Friday', colour: 'green' });
+    assert.equal(await emailSubject(quoteId), quoteSubject, 'the email is untouched');
+    assert.equal(await apiCalls(), before, 'no Gmail API call at all');
+    await page.mouse.move(0, 0);
+    await page.screenshot({ path: join(SCREENS, 'card-edited.png'), animations: 'disabled' });
+  });
+
+  await r.step('edits survive a refresh; Esc cancels; Enter saves', async () => {
+    await page.locator('button[aria-label="Refresh"]').click();
+    await page.waitForTimeout(600);
+    const card = page.locator(`.card[data-id="${quoteId}"]`);
+    assert.equal(await card.locator('.subject').innerText(), 'Kestrel patent quote');
+
+    await openEditor(quoteId);
+    await page.locator('.dialog [data-key="edit-title"]').fill('Something I will not keep');
+    await page.keyboard.press('Escape');
+    await page.locator('.dialog').waitFor({ state: 'detached' });
+    assert.ok(await overlayVisible(page), 'Esc closed only the editor');
+    assert.equal(await card.locator('.subject').innerText(), 'Kestrel patent quote');
+
+    await openEditor(quoteId);
+    await page.locator('.dialog [data-key="edit-title"]').fill('Kestrel quote');
+    await page.keyboard.press('Enter');
+    await page.locator('.dialog').waitFor({ state: 'detached' });
+    assert.equal(await card.locator('.subject').innerText(), 'Kestrel quote');
+    assert.equal((await syncDump())[editKey(quoteId)].title, 'Kestrel quote');
+  });
+
+  await r.step('putting everything back deletes the record', async () => {
+    await openEditor(quoteId);
+    await page.locator('.dialog [data-key="edit-reset"]').click();
+    assert.equal(await page.locator('.dialog [data-key="edit-title"]').inputValue(), quoteSubject);
+    await page.locator('.dialog [data-key="edit-note"]').fill('');
+    await page.locator('.dialog .swatch[data-colour="none"]').click();
+    await page.locator('.dialog [data-key="edit-save"]').click();
+    await page.locator('.dialog').waitFor({ state: 'detached' });
+    const card = page.locator(`.card[data-id="${quoteId}"]`);
+    assert.equal(await card.locator('.subject').innerText(), quoteSubject);
+    assert.equal(await card.locator('.snippet').count(), 1, 'the preview is back');
+    assert.equal(await card.getAttribute('data-colour'), null);
+    assert.equal(editKey(quoteId) in (await syncDump()), false);
+  });
+
+  await r.step('an edit synced from another computer shows up without a refresh', async () => {
+    const id = await findThread(page, 'Deadline moved');
+    await page.evaluate(([k, v]) => chrome.storage.sync.set({ [k]: v }), [editKey(id), { title: 'From the laptop', colour: 'orange' }]);
+    const card = page.locator(`.card[data-id="${id}"]`);
+    await until(async () => (await card.locator('.subject').innerText()) === 'From the laptop', 'synced edit drawn');
+    assert.equal(await card.getAttribute('data-colour'), 'orange');
+    await page.evaluate(k => chrome.storage.sync.remove(k), editKey(id));
+    await until(async () => (await card.locator('.subject').innerText()) === 'Deadline moved to Thursday 10:00', 'synced removal drawn');
+  });
+
+  await r.step('removing a card from the board forgets its edit', async () => {
+    const id = await findThread(page, 'Coffee next week');
+    await openEditor(id);
+    await page.locator('.dialog .swatch[data-colour="red"]').click();
+    await page.locator('.dialog [data-key="edit-save"]').click();
+    await page.locator('.dialog').waitFor({ state: 'detached' });
+    assert.deepEqual((await syncDump())[editKey(id)], { colour: 'red' });
+
+    await page.locator(`.card[data-id="${id}"]`).hover();
+    await page.locator(`.card[data-id="${id}"] .card-menu`).click();
+    await page.locator('.menu [data-key="remove"]').click();
+    await page.locator(`.card[data-id="${id}"]`).waitFor({ state: 'detached' });
+    await until(async () => !(editKey(id) in (await syncDump())), 'edit deleted with the card');
+  });
+
   await r.step('Esc closes the board', async () => {
     await page.locator('.overlay').press('Escape');
     await page.locator('.overlay').waitFor({ state: 'hidden' });
@@ -322,6 +439,18 @@ try {
     assert.equal(bg, 'rgb(19, 19, 20)');
     await dark.mouse.move(0, 0);
     await dark.screenshot({ path: join(SCREENS, 'board-dark.png'), animations: 'disabled' });
+
+    // The edited card and the editor, in dark mode.
+    const id = await findThread(dark, 'Quote request');
+    await dark.evaluate(([k, v]) => chrome.storage.sync.set({ [k]: v }),
+      [`card:test@example.com:${id}`, { title: 'Kestrel patent quote', note: '14,200 words\nDue Friday', colour: 'purple' }]);
+    await until(async () => (await dark.locator(`.card[data-id="${id}"] .subject`).innerText()) === 'Kestrel patent quote', 'dark: edit shown');
+    await dark.locator(`.card[data-id="${id}"]`).hover();
+    await dark.locator(`.card[data-id="${id}"] .card-menu`).click();
+    await dark.locator('.menu [data-key="edit"]').click();
+    await dark.locator('.dialog').waitFor();
+    await dark.mouse.move(0, 0);
+    await dark.screenshot({ path: join(SCREENS, 'card-edit-dark.png'), animations: 'disabled' });
     await dark.context().close();
   });
 

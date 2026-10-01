@@ -179,7 +179,7 @@
     S.column = null;
     renderPill();
     try {
-      await store.removeFromBoard(id, await columns(), 'dock');
+      await store.removeFromBoard(id, await columns(), 'dock', hooks.getAccount());
       toast(root, 'Removed from the board.');
     } catch (err) {
       if (S.threadId === id) {

@@ -2,10 +2,11 @@
 // Board logic (pure)
 //
 // The board has no data of its own. A card is a Gmail thread, a column is
-// a Gmail label, and the only thing stored locally is the order of cards
-// within a column. Everything here is the arithmetic between those: which
-// labels a move adds and removes, where a thread shows up when it carries
-// two column labels, and how a saved order meets a fresh thread list.
+// a Gmail label, and the only things stored outside Gmail are the order of
+// cards within a column and the user's own edits to a card. Everything
+// here is the arithmetic between those: which labels a move adds and
+// removes, where a thread shows up when it carries two column labels, how
+// a saved order meets a fresh thread list, and what an edit looks like.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -251,10 +252,63 @@
     return q || 'in:inbox';
   }
 
+  // ── Card edits ───────────────────────────────────────────────────────
+  //
+  // A card can carry the user's own title, a short note and a colour. They
+  // live in storage.sync beside the column layout and never touch the mail:
+  // Gmail has nowhere to put a private title on a thread, and rewriting a
+  // subject would change what correspondents see in their replies.
+
+  const CARD_COLOURS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'grey'];
+
+  // Long enough for a working title or a "4,200 words, due Fri" note, short
+  // enough that hundreds of cards fit sync's 100 KB.
+  const MAX_TITLE = 200;
+  const MAX_NOTE = 500;
+
+  // Returns the edit to store, or null when nothing differs from the
+  // email - so clearing every field deletes the record instead of leaving
+  // an empty one to count against the quota. A title identical to the
+  // subject is not an edit either: the editor opens pre-filled with it.
+  function normaliseCardEdit(raw, subject = '') {
+    if (!raw || typeof raw !== 'object') return null;
+    const title = String(raw.title || '').replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE);
+    const note = String(raw.note || '')
+      .replace(/\r\n?/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+      .slice(0, MAX_NOTE);
+    const colour = CARD_COLOURS.includes(raw.colour) ? raw.colour : '';
+
+    const out = {};
+    if (title && title !== String(subject || '').trim()) out.title = title;
+    if (note) out.note = note;
+    if (colour) out.colour = colour;
+    return Object.keys(out).length ? out : null;
+  }
+
+  function displayTitle(thread, edit) {
+    return (edit && edit.title) || (thread && thread.subject) || '(no subject)';
+  }
+
+  // Picks one account's card edits out of a storage.sync dump, keyed by
+  // thread id. Records that no longer normalise to anything are dropped.
+  function cardEditsFrom(all, prefix) {
+    const out = new Map();
+    for (const [key, value] of Object.entries(all || {})) {
+      if (!key.startsWith(prefix)) continue;
+      const id = key.slice(prefix.length);
+      const edit = normaliseCardEdit(value);
+      if (id && edit) out.set(id, edit);
+    }
+    return out;
+  }
+
   const api = {
     DEFAULT_COLUMNS, defaultColumns, normaliseColumns, newColumnId, validateColumns,
     labelAncestors, assignColumns, mergeOrder, placeId, pruneOrder,
     moveLabelDiff, removeLabelDiff, columnForLabels, summariseThread, searchQuery,
+    CARD_COLOURS, MAX_TITLE, MAX_NOTE, normaliseCardEdit, displayTitle, cardEditsFrom,
   };
 
   ns.logic = api;

@@ -230,3 +230,63 @@ test('summary: blank subject and empty threads', () => {
   assert.equal(empty.snippet, 'a & b');
   assert.equal(empty.count, 0);
 });
+
+// ── Card edits ───────────────────────────────────────────────────────
+
+test('card edit: trims, collapses whitespace and caps lengths', () => {
+  const e = logic.normaliseCardEdit({
+    title: '  Genpact   EN>NL \n ',
+    note: '\r\n 4,200 words\r\n\r\n\r\n\r\ndue Fri  ',
+    colour: 'green',
+  }, 'PO2627669 | Genpact- Translation| EN to Dutch');
+  assert.deepEqual(e, { title: 'Genpact EN>NL', note: '4,200 words\n\ndue Fri', colour: 'green' });
+
+  const long = logic.normaliseCardEdit({ title: 'x'.repeat(500), note: 'y'.repeat(900) });
+  assert.equal(long.title.length, logic.MAX_TITLE);
+  assert.equal(long.note.length, logic.MAX_NOTE);
+});
+
+test('card edit: nothing that differs from the email is not an edit', () => {
+  assert.equal(logic.normaliseCardEdit({ title: 'Quote request', note: ' ', colour: '' }, 'Quote request'), null);
+  assert.equal(logic.normaliseCardEdit({ title: '  Quote request ' }, 'Quote request'), null, 'subject, padded');
+  assert.equal(logic.normaliseCardEdit({}), null);
+  assert.equal(logic.normaliseCardEdit(null), null);
+  assert.equal(logic.normaliseCardEdit('a string'), null);
+  // Keeping the subject but adding a colour stores just the colour.
+  assert.deepEqual(logic.normaliseCardEdit({ title: 'Quote request', colour: 'red' }, 'Quote request'), { colour: 'red' });
+});
+
+test('card edit: unknown colours are dropped, known ones kept', () => {
+  assert.equal(logic.normaliseCardEdit({ colour: 'chartreuse' }), null);
+  assert.equal(logic.normaliseCardEdit({ colour: 'javascript:alert(1)' }), null);
+  for (const c of logic.CARD_COLOURS) assert.deepEqual(logic.normaliseCardEdit({ colour: c }), { colour: c });
+});
+
+test('card edit: display title falls back to the subject', () => {
+  const t = { subject: 'Termbase export won’t open' };
+  assert.equal(logic.displayTitle(t, null), 'Termbase export won’t open');
+  assert.equal(logic.displayTitle(t, { note: 'only a note' }), 'Termbase export won’t open');
+  assert.equal(logic.displayTitle(t, { title: 'Termbase bug' }), 'Termbase bug');
+  assert.equal(logic.displayTitle(null, null), '(no subject)');
+});
+
+test('card edits are read per account out of a storage.sync dump', () => {
+  const all = {
+    clientId: 'x.apps.googleusercontent.com',
+    'columns:me@example.com': [],
+    'card:me@example.com:18c2f': { title: 'Mine', colour: 'blue' },
+    'card:me@example.com:18c30': { colour: 'not-a-colour' },
+    'card:other@example.com:18c2f': { title: 'Someone else’s' },
+    'card:me@example.com:': { title: 'no thread id' },
+  };
+  const edits = logic.cardEditsFrom(all, 'card:me@example.com:');
+  assert.deepEqual([...edits.entries()], [['18c2f', { title: 'Mine', colour: 'blue' }]]);
+});
+
+test('a card’s storage key sits under its account’s prefix, case-insensitively', () => {
+  const { KEYS } = require('../src/shared/ns.js');
+  const key = KEYS.card('Michael@Example.com', '18c2f');
+  assert.equal(key, 'card:michael@example.com:18c2f');
+  assert.ok(key.startsWith(KEYS.cardPrefix('MICHAEL@example.com')));
+  assert.equal(KEYS.card('a@b.example', 'x').startsWith(KEYS.cardPrefix('ab@b.example')), false);
+});

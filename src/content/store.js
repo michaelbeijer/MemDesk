@@ -4,10 +4,10 @@
 // Shared by the board and the dock, so a move made from either is seen by
 // both. Gmail is the source of truth for which column a thread is in;
 // what lives here is a cache of label ids and thread summaries, plus the
-// two small things Gmail cannot hold - the column layout (storage.sync,
-// so it follows the user between computers) and card order within each
-// column (storage.local, because it changes on every drag and sync has a
-// tight write quota).
+// small things Gmail cannot hold - the column layout and the user's own
+// card titles, notes and colours (storage.sync, so they follow the user
+// between computers) and card order within each column (storage.local,
+// because it changes on every drag and sync has a tight write quota).
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -53,6 +53,30 @@
 
   async function saveOrder(account, lists, columns) {
     await chrome.storage.local.set({ [KEYS.order(account)]: logic.pruneOrder(lists, columns) });
+  }
+
+  // ── Card edits ───────────────────────────────────────────────────────
+
+  async function loadCardEdits(account) {
+    const all = await chrome.storage.sync.get(null);
+    return logic.cardEditsFrom(all, KEYS.cardPrefix(account));
+  }
+
+  // A null edit deletes the record. Sync's own quota message ("QUOTA_BYTES
+  // quota exceeded") says nothing about what to do, so it is rephrased.
+  async function saveCardEdit(account, threadId, edit) {
+    const key = KEYS.card(account, threadId);
+    try {
+      if (edit) await chrome.storage.sync.set({ [key]: edit });
+      else await chrome.storage.sync.remove(key);
+    } catch (err) {
+      if (/quota/i.test((err && err.message) || '')) {
+        throw Object.assign(new Error(
+          'Chrome’s synced storage is full. Clear the notes on cards you no longer need, or take finished cards off the board.'
+        ), { code: 'quota' });
+      }
+      throw err;
+    }
   }
 
   async function loadDockPosition() {
@@ -207,9 +231,14 @@
     await modify(threadId, logic.moveLabelDiff(columns, columnId, labelId), source);
   }
 
-  async function removeFromBoard(threadId, columns, source) {
+  // Taking a card off the board also forgets its title, note and colour.
+  // Edits would otherwise outlive their card, and sync's quota is small
+  // enough that leftovers would eventually crowd out the ones in use. A
+  // card that merely moves to Done keeps them.
+  async function removeFromBoard(threadId, columns, source, account) {
     if (!S.labelsAt) await refreshLabels();
     await modify(threadId, logic.removeLabelDiff(columns, labelId), source);
+    if (account) await saveCardEdit(account, threadId, null).catch(() => {});
   }
 
   async function search(text, account) {
@@ -230,7 +259,7 @@
   }
 
   ns.store = {
-    bus, loadColumns, saveColumns, loadOrder, saveOrder, loadDockPosition,
+    bus, loadColumns, saveColumns, loadOrder, saveOrder, loadCardEdits, saveCardEdit, loadDockPosition,
     refreshLabels, ensureLabels, renameLabel, labelId,
     thread, loadBoard, moveToColumn, removeFromBoard, search, threadColumn,
   };

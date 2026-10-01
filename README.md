@@ -9,7 +9,7 @@ view of your mailbox. Because the columns are ordinary labels, they show up in
 the Gmail app on your phone too, so you can file a thread from the train and see
 it on the board later. The board itself only exists in desktop Chrome.
 
-Version 0.1.0. Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.2.0. Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies.
 
 ## Install
@@ -83,6 +83,14 @@ search (`q=`) stops working.
   placeholder shows where it will land.
 - Each card's **⋯** menu offers the same actions without a mouse: Open in Gmail,
   Move to another column, and Remove from board.
+- **Edit card…** on the same menu gives a card your own title, a note and a
+  colour. The title replaces the subject on the board, the note replaces the
+  email preview, and the colour shows as a stripe down the card's left edge.
+  None of it touches the email: the subject, the labels and what your
+  correspondents see stay exactly as they were. Hover over a renamed card to see
+  the email's real subject. "Use the email subject" in the editor, an empty note
+  and "No colour" put the card back as it was. Enter saves from the title field,
+  Ctrl+Enter from the note, and Esc cancels.
 - **Click** a card to open the thread in Gmail. Ctrl-click or middle-click opens
   it in a new tab.
 - The **+** on a column opens a search box that takes Gmail search syntax
@@ -106,8 +114,15 @@ search (`q=`) stops working.
 - The setup page can move the buttons to the bottom right or hide them.
 
 Card order within each column is stored in this browser (`storage.local`). The
-column layout is stored in `storage.sync`, so it follows your Chrome profile to
-other computers. Both are kept per Gmail account.
+column layout and your card edits are stored in `storage.sync`, so they follow
+your Chrome profile to other computers. All of it is kept per Gmail account.
+
+Chrome's sync storage is small: 100 KB in all, and at most 512 entries. Each
+edited card takes one entry, so there is room for hundreds of renamed cards,
+fewer if every one carries a long note (notes are capped at 500 characters,
+titles at 200). Taking a card off the board deletes its edit. Moving it to Done
+keeps it. If the storage ever fills, saving an edit says so rather than failing
+silently.
 
 ## Privacy
 
@@ -257,10 +272,11 @@ tools/make-icons.mjs       icon generator
 
 - **A to-do view.** One flat list across all columns, oldest first, for days when
   a board is too much.
-- **Notes on cards**, stored as messages inserted into your own mailbox with
-  `messages.insert` under a `Notes` label and linked to the thread. They stay in
-  Gmail, sync everywhere, and still need no server. This needs `messages.insert`
-  added to the worker's allow-list.
+- **Notes**, stored as messages inserted into your own mailbox with
+  `messages.insert` under a `Notes` label. They stay in Gmail, are found by
+  Gmail search, sync everywhere, and still need no server. This needs
+  `messages.insert` added to the worker's allow-list. (Short notes on a card
+  already exist; see **Edit card…** above.)
 - **A "Needs reply" column**, computed rather than labelled. It would reuse the
   triage and ranking logic in `supervertaler-stats/src/email.js`
   (`classifyBulk`, `scoreThread`): threads whose newest message is inbound and
