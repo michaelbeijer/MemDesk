@@ -47,13 +47,13 @@ test('the display name lives only in the documented rename spots', () => {
   for (const f of candidates) {
     if (!fs.existsSync(path.join(ROOT, f)) || allowed.has(f)) continue;
     // The repository's address is where it lives, not what it is called.
-    const text = read(f).replace(/github\.com\/michaelbeijer\/Supermail/g, '');
+    const text = read(f).replace(/(github\.com|raw\.githubusercontent\.com)\/michaelbeijer\/Supermail/g, '');
     assert.equal(text.includes(NAME), false, `${f} mentions “${NAME}”; use APP_NAME instead`);
   }
   assert.equal(manifest.action.default_title, NAME);
   assert.equal(JSON.parse(read('addon/appsscript.json')).addOns.common.name, NAME, 'the phone panel has the same name');
   assert.match(read('src/shared/ns.js'), new RegExp(`APP_NAME = '${NAME}'`));
-  assert.match(read('README.md'), new RegExp(`^# ${NAME}\\b`, 'm'));
+  assert.match(read('README.md'), new RegExp(`^(# |<h1[^>]*>)${NAME}\\b`, 'm'));
 });
 
 test('internal identifiers stay brand-free', () => {
@@ -73,7 +73,8 @@ test('the preview loads exactly the manifest’s content scripts, in order', () 
 
 test('manifest: version, permissions and a key whose ID the README reports', () => {
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '0.12.3');
+  assert.equal(manifest.version, '0.13.0');
+  assert.ok(read('README.md').includes(`badge/version-${manifest.version}-`), 'the README\'s version badge is current');
   assert.deepEqual(manifest.permissions.sort(), ['identity', 'storage']);
   assert.deepEqual(manifest.host_permissions, ['https://gmail.googleapis.com/*']);
   assert.equal(manifest.commands['toggle-board'].suggested_key.default, 'Alt+Shift+K');
@@ -86,6 +87,21 @@ test('manifest: version, permissions and a key whose ID the README reports', () 
   const id = [...hex].map(c => String.fromCharCode(97 + parseInt(c, 16))).join('');
   assert.ok(read('README.md').includes(id), `README should state the extension ID ${id}`);
   assert.ok(read('README.md').includes(`https://${id}.chromiumapp.org/`));
+});
+
+test('one icon everywhere: the PNGs, the add-on, the phone app and the in-app mark all come from icons/icon.svg', () => {
+  const svg = read('icons/icon.svg');
+  for (const size of [16, 32, 48, 128, 192]) assert.ok(fs.existsSync(path.join(ROOT, 'icons', `icon-${size}.png`)), `icon-${size}.png`);
+  const RAW = 'https://raw.githubusercontent.com/michaelbeijer/Supermail/main/';
+  const logoUrl = JSON.parse(read('addon/appsscript.json')).addOns.common.logoUrl;
+  assert.ok(logoUrl.startsWith(RAW) && fs.existsSync(path.join(ROOT, logoUrl.slice(RAW.length))), logoUrl);
+  const favicon = /var SUPERMAIL_ICON_URL = '([^']+)'/.exec(read('addon/Code.gs'))[1];
+  assert.ok(favicon.startsWith(RAW) && fs.existsSync(path.join(ROOT, favicon.slice(RAW.length))), favicon);
+  // The mark drawn inside the app is the icon's own drawing.
+  const ui = read('src/content/ui.js');
+  assert.equal(/letters: '([^']+)'/.exec(ui)[1], /<path fill="#fff" d="([^"]+)"/.exec(svg)[1]);
+  const [dark, light] = [...svg.matchAll(/stop-color="(#[0-9A-Fa-f]{6})"/g)].map(m => m[1]);
+  assert.match(ui, new RegExp(`colours: \\['${dark}', '${light}'\\]`));
 });
 
 test('no private key material in the repo', () => {

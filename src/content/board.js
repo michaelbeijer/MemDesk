@@ -12,7 +12,7 @@
   'use strict';
 
   const ns = (globalThis.gkb = globalThis.gkb || {});
-  const { h, icon, mountShadow, toast, openMenu, closeMenu, isMenuOpen } = ns.ui;
+  const { h, icon, logo, mountShadow, toast, openMenu, closeMenu, isMenuOpen } = ns.ui;
   const { util, logic, store, hooks, api, APP_NAME, HOST_IDS, KEYS } = ns;
 
   // States with a panel of their own, shown whichever tab is open: they
@@ -85,7 +85,7 @@
 
     const bar = h('header', { class: 'bar' },
       h('h1', { class: 'brand' },
-        h('span', { class: 'logo' }, icon('board', 26)),
+        h('span', { class: 'logo' }, logo(26)),
         h('span', { text: APP_NAME })),
       els.tabs,
       els.account,
@@ -120,6 +120,14 @@
       },
       closeBoard: close,
       barChanged: updateBar,
+      // Which folders are folded, on this computer, for this account.
+      prefs: {
+        async get(name) {
+          const key = KEYS.pref(hooks.getAccount(), name);
+          return (await chrome.storage.local.get(key))[key];
+        },
+        set: (name, value) => chrome.storage.local.set({ [KEYS.pref(hooks.getAccount(), name)]: value }),
+      },
     });
 
     // A move made from the dock (or another tab) makes what the board last

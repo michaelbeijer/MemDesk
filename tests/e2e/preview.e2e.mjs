@@ -1027,6 +1027,57 @@ try {
     await np.locator('[data-key="folder:all"]').click();
   });
 
+  await r.step('folders: one with subfolders folds them away, by its arrow or the arrow keys, and stays folded', async () => {
+    const twisty = async name => np.locator(`[data-key="folder-twisty:${await folderId(name)}"]`);
+    const folderBtn = name => np.locator('.folder-btn', { has: np.locator('.folder-title', { hasText: new RegExp(`^${name}$`) }) });
+    const iconX = async name => (await folderBtn(name).locator('.icon').boundingBox()).x;
+    assert.deepEqual(await folderTitles(), ['All notes', 'Cooking', 'Desserts', 'Personal', 'Work', 'Clients']);
+    assert.equal(await np.locator('button.folder-twisty').count(), 2, 'an arrow only where there are subfolders');
+    assert.equal(await iconX('Personal'), await iconX('Work'), 'with or without one, the folders line up');
+    assert.equal(await iconX('All notes'), await iconX('Work'));
+    assert.ok(await iconX('Clients') > await iconX('Work'), 'and a subfolder is still drawn inside');
+
+    const work = await twisty('Work');
+    assert.equal(await work.getAttribute('aria-expanded'), 'true');
+    await work.click();
+    assert.deepEqual(await folderTitles(), ['All notes', 'Cooking', 'Desserts', 'Personal', 'Work'], 'Clients folded away');
+    assert.equal(await (await twisty('Work')).getAttribute('aria-expanded'), 'false');
+    assert.equal(await (await twisty('Work')).getAttribute('aria-label'), 'Show the folders in Work');
+    const key = 'pref:test@example.com:foldedFolders';
+    await until(async () => JSON.stringify(await np.evaluate(k => window.chrome.storage.local.dump()[k], key)) === JSON.stringify([await folderId('Work')]),
+      'remembered on this computer');
+    await np.mouse.move(0, 0);
+    await np.screenshot({ path: join(SCREENS, 'notes-folders-folded.png'), animations: 'disabled' });
+    await (await twisty('Work')).click();
+    assert.ok((await folderTitles()).includes('Clients'), 'and back');
+
+    // The keyboard: left folds, right opens, and the focus stays put.
+    await folderBtn('Cooking').focus();
+    await np.keyboard.press('ArrowLeft');
+    assert.ok(!(await folderTitles()).includes('Desserts'));
+    assert.equal(await np.evaluate(() => document.querySelector('#gkb-board-host').shadowRoot.activeElement.dataset.key), `folder:${await folderId('Cooking')}`);
+    await np.keyboard.press('ArrowRight');
+    assert.ok((await folderTitles()).includes('Desserts'));
+
+    // Folded with the folder being looked at inside: the folded one says so.
+    await folderBtn('Clients').click();
+    await (await twisty('Work')).click();
+    assert.equal(await folderBtn('Work').getAttribute('class'), 'folder-btn holds-current');
+    assert.equal(await np.locator('.notes-scope').innerText(), 'Work › Clients · 1 note', 'still looking at it');
+    await (await twisty('Work')).click();
+
+    // A new subfolder in a folded folder opens it, to show where it goes.
+    await (await twisty('Cooking')).click();
+    assert.ok(!(await folderTitles()).includes('Desserts'));
+    await openFolderMenu('Cooking');
+    await np.locator('.menu [data-key="folder-sub"]').click();
+    assert.ok((await folderTitles()).includes('Desserts'), 'opened');
+    assert.equal(await np.locator('[data-key="folder-input"]').count(), 1);
+    await np.locator('[data-key="folder-input"]').press('Escape');
+    await np.locator('[data-key="folder:all"]').click();
+    await until(async () => JSON.stringify(await np.evaluate(k => window.chrome.storage.local.dump()[k], key)) === '[]', 'nothing folded now');
+  });
+
   await r.step('a plain note from before formatting opens with its lists; closing saves it, formatted', async () => {
     await np.locator('.note-item[data-note="n:kestrelglossary0001"]').click();
     await bodyReady(np, /decimal commas/, 'loaded');

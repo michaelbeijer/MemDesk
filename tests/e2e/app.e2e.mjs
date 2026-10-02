@@ -147,6 +147,32 @@ await r.step('the folder tree: nested as on a computer, with counts and a ⋯ me
   assert.equal((await titles(page)).length, 5);
 });
 
+await r.step('a folder with subfolders folds them away with its arrow, and the phone remembers it', async () => {
+  const folderBtn = (p, name) => q(p, '.folder-btn').filter({ has: p.locator('.folder-title').filter({ hasText: new RegExp(`^${name}$`) }) });
+  const workId = await q(page, '.folder-row').filter({ has: page.locator('.folder-title').filter({ hasText: /^Work$/ }) }).getAttribute('data-folder');
+  const twisty = p => q(p, `[data-key="folder-twisty:${workId}"]`);
+  await q(page, '[data-key="folders-toggle"]').tap();
+  assert.equal(await q(page, 'button.folder-twisty').count(), 1, 'only Work has subfolders');
+  const box = await twisty(page).boundingBox();
+  assert.ok(box.width >= 34 && box.height >= 44, `big enough for a thumb (${box.width}×${box.height})`);
+  await twisty(page).tap();
+  assert.deepEqual(await q(page, '.folder-row .folder-title').allInnerTexts(), ['All notes', 'Empty', 'Personal', 'Work']);
+  assert.equal(await visible(page, '.folder-items'), true, 'folding a folder leaves the tree open');
+  await page.screenshot({ path: join(SCREENS, 'app-folders-folded.png'), animations: 'disabled' });
+
+  // Opened again later: still folded.
+  await page.reload();
+  await q(page, '.note-item').first().waitFor();
+  await q(page, '[data-key="folders-toggle"]').tap();
+  assert.deepEqual(await q(page, '.folder-row .folder-title').allInnerTexts(), ['All notes', 'Empty', 'Personal', 'Work'], 'remembered');
+  assert.equal(await twisty(page).getAttribute('aria-expanded'), 'false');
+  await twisty(page).tap();
+  assert.ok((await q(page, '.folder-row .folder-title').allInnerTexts()).includes('Clients'));
+  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('supermail.foldedFolders'))), []);
+  await folderBtn(page, 'All notes').tap();
+  assert.equal(await visible(page, '.folder-items'), false);
+});
+
 await r.step('tapping a note opens it full-screen; Back returns to the list', async () => {
   await q(page, '.note-item', ).filter({ hasText: 'Launch checklist' }).tap();
   await q(page, '.ne-body .blk').first().waitFor();

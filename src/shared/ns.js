@@ -38,6 +38,7 @@
     card: (email, threadId) => `card:${String(email).toLowerCase()}:${threadId}`, // storage.sync
     notes: email => `notes:${String(email).toLowerCase()}`,     // storage.sync: { label, labelId }
     view: 'view',                                // storage.local: 'board' | 'notes'
+    pref: (email, name) => `pref:${String(email).toLowerCase()}:${name}`, // storage.local: the notes' small preferences
     token: email => `token:${String(email).toLowerCase()}`,     // storage.session
     gmailTabs: 'gmailTabs',                      // storage.session
   };

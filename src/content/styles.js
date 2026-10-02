@@ -294,7 +294,7 @@ button:disabled { cursor: default; }
   color: var(--fg);
   white-space: nowrap;
 }
-.brand .logo { color: var(--accent); }
+.brand .logo { display: flex; }
 .brand .dim { color: var(--fg-3); }
 .account {
   margin-left: 14px;
@@ -694,6 +694,27 @@ button:disabled { cursor: default; }
 .folder-edit { display: flex; align-items: center; gap: 8px; padding-left: 10px; color: var(--fg-2); }
 .folder-input { height: 34px; flex: 1; min-width: 0; }
 .folder-error { padding: 4px 4px 2px 36px; font-size: 12px; color: var(--danger); }
+/* The arrow that folds a folder's subfolders away: a column of its own,
+   once some folder has subfolders, so every folder's icon lines up. */
+.folder-twisty {
+  flex: none;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 36px;
+  margin-right: 2px;
+  border-radius: 8px;
+  color: var(--fg-3);
+}
+.folder-items[data-nested] .folder-twisty { display: inline-flex; }
+button.folder-twisty:hover { background: var(--hover); color: var(--fg); }
+.folder-twisty .icon { transition: transform .15s ease; }
+.folder-twisty[aria-expanded="false"] .icon { transform: rotate(-90deg); }
+.folder-items[data-nested] .folder-edit { padding-left: 32px; }
+.folder-items[data-nested] .folder-error { padding-left: 58px; }
+/* Folded, with the folder being looked at inside it. */
+.folder-btn.holds-current { color: var(--fg); font-weight: 500; }
 .notes-scope { flex: none; padding: 0 20px 6px; font-size: 12px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .notes-list {
   flex: 0 0 320px;

@@ -15,12 +15,13 @@
   'use strict';
 
   const ns = (globalThis.gkb = globalThis.gkb || {});
-  const { h, icon, mountShadow, toast } = ns.ui;
+  const { h, icon, logo, mountShadow, toast } = ns.ui;
 
   const PHONE = `
 :host { position: fixed !important; inset: 0 !important; }
 .overlay { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 .app-head { display: flex; align-items: center; gap: 8px; padding: 8px 8px 4px 20px; flex: none; }
+.app-logo { display: flex; margin-right: 4px; }
 .app-title { flex: 1; font-size: 20px; color: var(--fg); }
 
 @media (max-width: 760px) {
@@ -45,6 +46,9 @@
   .folders-head { background: var(--col); padding: 0 6px 0 16px; }
   .folder-items { flex: none; max-height: 55vh; background: var(--col); border-radius: 0 0 14px 14px; padding: 2px 8px 10px; }
   .folder-btn { height: 44px; }
+  .folder-twisty { width: 34px; height: 44px; margin-right: 0; }
+  .folder-items[data-nested] .folder-edit { padding-left: 44px; }
+  .folder-items[data-nested] .folder-error { padding-left: 70px; }
   /* No hover on a phone: each folder's ⋯ is always there, next to its count. */
   .folder-menu { opacity: 1; right: 4px; }
   .folder-row .folder-count, .folder-row:hover .folder-count, .folder-row:focus-within .folder-count { visibility: visible; margin-right: 34px; }
@@ -85,6 +89,7 @@
     let noteOnHistory = false;
 
     const head = h('header', { class: 'app-head' },
+      h('span', { class: 'app-logo' }, logo(28)),
       h('span', { class: 'app-title', text: 'Notes' }),
       h('button', {
         class: 'icon-btn', type: 'button', title: 'Refresh', 'aria-label': 'Refresh', dataset: { key: 'app-refresh' },
@@ -98,6 +103,16 @@
       onLoaded() {},
       closeBoard() {},
       barChanged() {},
+      // Which folders are folded, on this phone. The page is only ever
+      // opened by its owner, so there is no account to key it by.
+      prefs: {
+        get(name) {
+          try { return JSON.parse(localStorage.getItem(`supermail.${name}`) || 'null'); } catch (err) { return null; }
+        },
+        set(name, value) {
+          try { localStorage.setItem(`supermail.${name}`, JSON.stringify(value)); } catch (err) { /* storage off: not remembered */ }
+        },
+      },
       onViewChange(view) {
         app.dataset.view = view;
         if (!history) return;

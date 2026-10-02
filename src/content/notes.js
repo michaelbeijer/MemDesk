@@ -51,6 +51,8 @@
     folders: [],        // notesLogic.folderTree(), from the last listing
     folder: '',         // the folder shown; '' for all notes
     folderEdit: null,   // { mode: 'new' | 'rename', parentId, folderId, value, error, busy }
+    folded: new Set(),  // folders whose subfolders are folded away
+    foldedRead: false,  // the saved set has been asked for
     dragKey: '',        // the note being dragged onto a folder
     terms: [],          // searchLogic.queryTerms() of the search that is showing
     hits: new Map(),    // `${messageId}|${terms}` → { count, excerpts }
@@ -148,7 +150,9 @@
 
     N.loading = (async () => {
       try {
+        const folded = N.foldedRead ? null : readFolded();
         const r = await notesStore.list(hooks.getAccount(), query);
+        if (folded) await folded;
         if (query !== N.query) return; // a newer search has started
         N.notes = r.notes;
         N.truncated = r.truncated;
@@ -419,6 +423,69 @@
     els.foldersToggle.setAttribute('aria-expanded', String(open));
   }
 
+  // ── Folding ──────────────────────────────────────────────────────────
+  //
+  // A folder with subfolders has an arrow that folds them away, for a tree
+  // that has grown long. Which ones are folded is remembered where the
+  // host keeps such things (ctx.prefs), if it does: a nicety, so any
+  // trouble with it just leaves every folder open.
+
+  function hasSubfolders(f) {
+    return N.folders.some(x => x.name.startsWith(`${f.name}/`));
+  }
+
+  // Inside a folded folder, at any depth.
+  function isTucked(f) {
+    return N.folders.some(x => N.folded.has(x.id) && f.name.startsWith(`${x.name}/`));
+  }
+
+  async function readFolded() {
+    N.foldedRead = true;
+    const prefs = N.ctx && N.ctx.prefs;
+    if (!prefs) return;
+    try {
+      const ids = await prefs.get('foldedFolders');
+      if (Array.isArray(ids)) N.folded = new Set(ids.filter(id => typeof id === 'string'));
+    } catch (err) { /* every folder open */ }
+  }
+
+  function saveFolded() {
+    const prefs = N.ctx && N.ctx.prefs;
+    if (!prefs) return;
+    // Only folders that are still there, so deleted ones do not pile up.
+    const ids = [...N.folded].filter(id => folderById(id));
+    try {
+      Promise.resolve(prefs.set('foldedFolders', ids)).catch(() => {});
+    } catch (err) { /* not remembered, that is all */ }
+  }
+
+  function setFolded(f, folded) {
+    if (folded === N.folded.has(f.id)) return;
+    if (folded) N.folded.add(f.id);
+    else N.folded.delete(f.id);
+    saveFolded();
+    // The rows are drawn afresh: keep the keyboard where it was.
+    const active = N.ctx.root.activeElement;
+    const key = active && els.folderItems.contains(active) ? active.dataset.key : '';
+    drawFolders();
+    if (key) {
+      const again = els.folderItems.querySelector(`[data-key="${key}"]`);
+      if (again) again.focus();
+    }
+  }
+
+  // Opens every folder above this one, and with self, this one too.
+  function unfold(f, self) {
+    let changed = false;
+    for (const x of N.folders) {
+      if (N.folded.has(x.id) && ((self && x.id === f.id) || f.name.startsWith(`${x.name}/`))) {
+        N.folded.delete(x.id);
+        changed = true;
+      }
+    }
+    if (changed) saveFolded();
+  }
+
   function selectFolder(id) {
     setFoldersOpen(false);
     if (N.folder === id) return;
@@ -434,8 +501,12 @@
     const rows = [folderRow(null, N.notes.length)];
     const edit = N.folderEdit;
     if (edit && edit.mode === 'new' && !edit.parentId) rows.push(editRow(0));
+    const current = N.folder ? folderById(N.folder) : null;
     N.folders.forEach((f, i) => {
-      rows.push(edit && edit.mode === 'rename' && edit.folderId === f.id ? editRow(f.depth, f) : folderRow(f, tally.get(f.id) || 0));
+      if (!isTucked(f)) {
+        rows.push(edit && edit.mode === 'rename' && edit.folderId === f.id ? editRow(f.depth, f)
+          : folderRow(f, tally.get(f.id) || 0, !!current && N.folded.has(f.id) && current.name.startsWith(`${f.name}/`)));
+      }
       // A new subfolder's field goes after the whole branch it joins.
       const next = N.folders[i + 1];
       const branchEnds = !next || !next.name.startsWith(`${f.name}/`);
@@ -445,6 +516,8 @@
       }
     });
     els.folderItems.replaceChildren(...rows);
+    // Room for the arrows only once some folder has subfolders.
+    els.folderItems.toggleAttribute('data-nested', N.folders.some(f => f.depth > 0));
 
     const shown = N.folder ? folderById(N.folder) : null;
     els.foldersToggle.replaceChildren(
@@ -454,16 +527,29 @@
       icon('caret', 20));
   }
 
-  function folderRow(f, count) {
+  // holdsCurrent: folded, with the folder being looked at somewhere inside.
+  function folderRow(f, count, holdsCurrent = false) {
     const id = f ? f.id : '';
-    const children = f ? N.folders.some(x => x.name.startsWith(`${f.name}/`)) : false;
+    const children = f ? hasSubfolders(f) : false;
+    const folded = children && N.folded.has(id);
     const row = h('div', {
       class: 'folder-row', role: 'listitem', dataset: { folder: id || 'all' },
     },
+      children ? h('button', {
+        class: 'folder-twisty', type: 'button', 'aria-expanded': String(!folded),
+        'aria-label': `${folded ? 'Show' : 'Hide'} the folders in ${f.title}`, title: folded ? 'Show subfolders' : 'Hide subfolders',
+        dataset: { key: `folder-twisty:${id}` }, onclick: () => setFolded(f, !folded),
+      }, icon('caret', 18)) : h('span', { class: 'folder-twisty', 'aria-hidden': 'true' }),
       h('button', {
-        class: 'folder-btn', type: 'button', 'aria-current': N.folder === id ? 'true' : null,
+        class: `folder-btn${holdsCurrent ? ' holds-current' : ''}`, type: 'button', 'aria-current': N.folder === id ? 'true' : null,
         dataset: { key: `folder:${id || 'all'}` }, title: f ? f.name : 'Every note, in any folder',
         onclick: () => selectFolder(id),
+        // As in any tree: right opens a folder's subfolders, left folds them.
+        onkeydown: e => {
+          if (!children || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+          if (e.key === 'ArrowRight' && folded) { e.preventDefault(); setFolded(f, false); }
+          if (e.key === 'ArrowLeft' && !folded) { e.preventDefault(); setFolded(f, true); }
+        },
       },
         icon(f ? 'folder' : 'notes', 18),
         h('span', { class: 'folder-title', text: f ? f.title : 'All notes' }),
@@ -527,6 +613,9 @@
 
   function startFolderEdit({ mode, parentId = '', folderId = '' }) {
     const f = folderById(folderId);
+    // A new subfolder's field shows inside its parent, so that has to be open.
+    const parent = mode === 'new' ? folderById(parentId) : null;
+    if (parent) unfold(parent, true);
     N.folderEdit = { mode, parentId, folderId, value: mode === 'rename' && f ? f.title : '', error: '', busy: false };
     drawFolders();
     const input = els.folderItems.querySelector('[data-key="folder-input"]');
