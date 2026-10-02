@@ -52,11 +52,19 @@ the board, and files it in a column without opening the board.
 Headings, bold and italics, lists, checklists you tick, links. Notes save as
 you type, and a paste from Word, Google Docs, a web page or Markdown arrives
 formatted. Folders nest as deep as you like, and fold away when the tree gets
-long. And whenever no other note is open, the **Scratchpad** is: one note,
-the same on every computer and phone, there to type into the moment the notes
-appear.
+long.
 
 <img src="images/notes.jpg" width="100%" alt="The notes: nested folders on the left, the list in the middle, a checklist note open on the right">
+
+### ✏️ A Scratchpad, always open
+
+Open the notes and you are already in it, cursor blinking: one note for
+whatever needs writing down right now, and the same one on every computer and
+phone, so a line jotted on the train is waiting at your desk. On the phone it
+fills the screen under the search box; in Chrome it is open whenever no other
+note is, and pinned at the top of the list.
+
+<img src="images/scratchpad.jpg" width="100%" alt="The Scratchpad open in Chrome beside the notes list, and on a phone, where the app opens on it">
 
 ### 🔎 Search that shows you where
 

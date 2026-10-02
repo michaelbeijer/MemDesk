@@ -76,6 +76,12 @@ async function desktop(colorScheme, viewport = { width: 1440, height: 900 }) {
 
   await page.locator('[data-key="view:notes"]').click();
   await page.locator('.note-item').first().waitFor();
+  // Nothing else open: the scratchpad.
+  await page.locator('.note-editor.scratch .ne-body[contenteditable="true"]').waitFor();
+  await page.locator('.note-editor.scratch .ne-body').evaluate(el => el.blur());
+  await pause(300);
+  await page.mouse.move(0, 0);
+  await shot(page, 'notes-scratch');
   await page.locator('.note-item', { hasText: 'This week' }).click();
   await page.locator('.ne-body .blk').first().waitFor();
   await pause(300);
@@ -292,6 +298,12 @@ await compose('board', 1200, framed('board', 1088) + 112, {
 await compose('gmail', 1200, framed('gmail-dock', 1088) + 112, single('gmail-dock', { title: 'Termbase export won’t open', url: 'mail.google.com/mail/u/0/#inbox/18f2a3b4c5d6e025' }));
 await compose('notes', 1200, framed('notes', 1088) + 112, single('notes'));
 await compose('search', 1200, framed('notes-search', 1088) + 112, single('notes-search'));
+
+// The scratchpad: open in Chrome whenever no other note is, and what the
+// phone opens on.
+await compose('scratchpad', 1200, 760, { cls: 'soft dots', html:
+  at(browserWindow('notes-scratch', { width: 900 }), 56, 56) +
+  at(phoneFrame('phone-home', { width: 262 }), 884, 104) });
 
 // The phone app: the folders, a note, and search in the dark.
 await compose('phone', 1200, 760, { cls: 'violet dots', html:
