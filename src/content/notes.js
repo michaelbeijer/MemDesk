@@ -11,6 +11,12 @@
 // connect); this file owns everything inside the body while the Notes tab
 // is showing. Its element is built once and kept, so that a board redraw
 // never pulls the text box out from under someone who is typing.
+//
+// The phone app (addon/app) runs this same view full-screen on a phone,
+// with a different way to Gmail behind notesStore. A phone shows one pane
+// at a time - the list, or the open note - so the element says which
+// (data-view) and the note has a Back button, which only the phone's
+// stylesheet shows.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -60,6 +66,7 @@
 
   function init(ctx) {
     N.ctx = ctx;
+    N.view = '';
     // Closing the tab mid-sentence would lose the last few seconds of
     // typing; the browser's own "Leave site?" prompt is the only defence.
     window.addEventListener('beforeunload', e => {
@@ -681,8 +688,36 @@
     if (el) el.focus();
   }
 
+  // Which pane a phone shows: the list, or the open note.
+  function setView() {
+    const view = N.current ? 'note' : 'list';
+    if (els.wrap) els.wrap.dataset.view = view;
+    if (view !== N.view) {
+      N.view = view;
+      if (N.ctx && N.ctx.onViewChange) N.ctx.onViewChange(view);
+    }
+  }
+
+  // Back to the list, once whatever is pending is saved. A save that
+  // failed keeps the note open, with its error showing, rather than
+  // leaving the edits behind.
+  async function closeNote() {
+    const c = N.current;
+    if (!c) return;
+    await flush();
+    if (N.current !== c) return;
+    if (c.dirty) {
+      toast(N.ctx.root, 'Not saved yet, so the note stays open. Try again in a moment.', { kind: 'error' });
+      return;
+    }
+    N.current = null;
+    drawEditor();
+    drawList();
+  }
+
   function drawEditor() {
     if (!els.editor) return;
+    setView();
     const c = N.current;
     if (!c) {
       if (els.ed) { els.ed.destroy(); els.ed = null; }
@@ -733,6 +768,10 @@
     const foreign = !!(c.note && !c.note.own);
     els.status = h('span', { class: 'ne-status', 'aria-live': 'polite' });
     els.bar.replaceChildren(
+      h('button', {
+        class: 'icon-btn ne-back', type: 'button', 'aria-label': 'Back to the list', title: 'Back to the list',
+        dataset: { key: 'note-back' }, onclick: () => closeNote(),
+      }, icon('back')),
       els.status,
       h('div', { class: 'spacer' }),
       h('button', {
@@ -904,7 +943,8 @@
   }
 
   ns.notes = {
-    init, element, load, isStale, flush, handleKey, tick, focusDefault,
+    init, element, load, isStale, flush, handleKey, tick, focusDefault, closeNote,
+    isOpen: () => !!N.current,
     loadedAt: () => N.loadedAt,
     isLoading: () => !!N.loading,
   };

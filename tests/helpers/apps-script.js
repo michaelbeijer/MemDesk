@@ -252,6 +252,30 @@ function fields(card) {
 const stripTags = s => String(s || '').replace(/<br>/g, '\n').replace(/<[^>]+>/g, '')
   .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
 
+// ── HtmlService ──────────────────────────────────────────────────────
+
+function htmlService() {
+  return {
+    createHtmlOutput(html) {
+      const out = { html: String(html), title: '', meta: [] };
+      const api = {
+        setTitle(t) { out.title = t; return api; },
+        addMetaTag(name, content) { out.meta.push([name, content]); return api; },
+        setFaviconUrl(url) { out.favicon = url; return api; },
+        getContent: () => out.html,
+        getTitle: () => out.title,
+        output: out,
+      };
+      return new Proxy(api, {
+        get(t, prop) {
+          if (prop in t || typeof prop === 'symbol') return t[prop];
+          throw new TypeError(`HtmlOutput has no method ${String(prop)}`);
+        },
+      });
+    },
+  };
+}
+
 // ── The add-on, loaded ───────────────────────────────────────────────
 
 function loadAddon(fake) {
@@ -261,6 +285,7 @@ function loadAddon(fake) {
     console: { log: () => {}, info: () => {}, warn: m => logged.push(['warn', String(m)]), error: m => logged.push(['error', String(m)]) },
     UrlFetchApp: urlFetch(fake, log),
     ScriptApp: { getOAuthToken: () => TOKEN },
+    HtmlService: htmlService(),
   };
   sandbox.CardService = cardService(name => typeof sandbox[name] === 'function');
   vm.createContext(sandbox);
@@ -443,6 +468,13 @@ class Phone {
 
   writes() {
     return this.log.filter(l => l.method !== 'GET');
+  }
+
+  // A server function, as google.script.run calls it from the phone app:
+  // arguments and answer pass through JSON on the way.
+  server(fn, ...args) {
+    if (typeof this.addon[fn] !== 'function') throw new Error(`No server function ${fn}`);
+    return plain(this.addon[fn](...plain(args)));
   }
 }
 

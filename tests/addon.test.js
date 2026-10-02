@@ -512,6 +512,110 @@ test('a failed move says so and changes nothing', () => {
   assert.deepEqual(threadLabels(p, threadId).filter(n => n.startsWith('_Board')), ['_Board/To do']);
 });
 
+// ── The phone app's server side ──────────────────────────────────────
+
+test('the app page: served by doGet, titled, sized for a phone, with the notes view inside', () => {
+  const p = new Phone();
+  const out = p.addon.doGet({}).output;
+  assert.equal(out.title, 'Supermail notes');
+  assert.deepEqual(out.meta, [['viewport', 'width=device-width, initial-scale=1, viewport-fit=cover']]);
+  assert.match(out.html, /^<!DOCTYPE html>/);
+  for (const f of ['src/content/notes.js', 'src/content/note-editor.js', 'addon/app/remote.js', 'addon/app/shell.js']) {
+    assert.ok(out.html.includes(`// ${f}\n`), f);
+  }
+  assert.ok(out.html.indexOf('// addon/app/remote.js') < out.html.indexOf('// src/content/notes.js'), 'the store before the view');
+});
+
+test('appList: every note once, newest first, with its folder; stale versions tidied; a search brings content', () => {
+  const p = new Phone();
+  const r = p.server('appList', '');
+  assert.deepEqual(r.notes.map(n => n.title), [
+    'Ideas for the October newsletter', 'Shopping list', 'Launch checklist', 'Kestrel glossary decisions', 'Rate schedule 2027 – draft',
+  ]);
+  assert.equal(r.label, '_Notes');
+  assert.deepEqual(r.folders.map(f => f.path), ['Empty', 'Personal', 'Work', 'Work/Clients']);
+  const byTitle = t => r.notes.find(n => n.title === t);
+  assert.equal(r.folders.find(f => f.id === byTitle('Kestrel glossary decisions').folderId).path, 'Work/Clients');
+  assert.equal(byTitle('Rate schedule 2027 – draft').folderId, '');
+  assert.equal(byTitle('Shopping list').own, false);
+  assert.deepEqual(r.docs, {});
+  assert.equal(live(p, 'kestrelglossary0001').length, 1, 'the older live version went to Trash');
+  assert.ok(!('parts' in r.notes[0]), 'no message parts sent to the page');
+
+  const s = p.server('appList', 'kestrel');
+  assert.deepEqual(s.notes.map(n => n.title), ['Launch checklist', 'Kestrel glossary decisions']);
+  assert.deepEqual(Object.keys(s.docs).sort(), s.notes.map(n => n.messageId).sort());
+  assert.match(JSON.stringify(s.docs), /Kestrel/);
+});
+
+test('appBody, and appSave: a new note, a new version, an email turned into a note', () => {
+  const p = new Phone();
+  const launch = idOf(p, 'launchchecklist0004');
+  const doc = p.server('appBody', launch);
+  assert.equal(doc[0].type, 'h2');
+  assert.equal(doc.find(b => b.type === 'check').runs[0].text, 'Proofread the IFU');
+
+  const work = p.server('appList', '').folders.find(f => f.path === 'Work').id;
+  const made = p.server('appSave', '', { title: 'From the phone', doc: [{ type: 'p', runs: [{ text: 'Hello', b: true }] }], folderId: work }).note;
+  assert.equal(made.title, 'From the phone');
+  assert.equal(made.folderId, work);
+  assert.ok(made.own);
+  assert.deepEqual(plain(p.fake.box.messageLabelNames(made.messageId)), ['_Notes', '_Notes/Work']);
+  assert.match(html(p, made.messageId), /<b>Hello<\/b>/);
+
+  const next = p.server('appSave', made.messageId, { title: 'From the phone', doc: [{ type: 'p', runs: [{ text: 'Hello again' }] }], folderId: work }).note;
+  assert.equal(next.noteId, made.noteId, 'the same note');
+  assert.ok(plain(p.fake.box.messageLabelNames(made.messageId)).includes('TRASH'), 'the old version in Trash');
+
+  const mail = p.fake.box.findMessageBySubject('Shopping list');
+  const kept = p.server('appSave', mail, { title: 'Shopping list', doc: [{ type: 'p', runs: [{ text: 'Milk' }] }], folderId: '' }).note;
+  assert.ok(kept.own);
+  assert.deepEqual(plain(p.fake.box.messageLabelNames(mail)), [], 'the email leaves the list, not for Trash');
+});
+
+test('appRetire and appRestore: Trash and back for a note; off and on the list for an email', () => {
+  const p = new Phone();
+  const rate = idOf(p, 'rateschedule00000003');
+  p.server('appRetire', rate);
+  assert.ok(plain(p.fake.box.messageLabelNames(rate)).includes('TRASH'));
+  p.server('appRestore', rate, '');
+  assert.deepEqual(plain(p.fake.box.messageLabelNames(rate)), ['_Notes']);
+
+  const mail = p.fake.box.findMessageBySubject('Shopping list');
+  const personal = p.server('appList', '').folders.find(f => f.path === 'Personal').id;
+  p.server('appRetire', mail);
+  assert.deepEqual(plain(p.fake.box.messageLabelNames(mail)), []);
+  p.server('appRestore', mail, personal);
+  assert.deepEqual(plain(p.fake.box.messageLabelNames(mail)), ['_Notes', '_Notes/Personal']);
+
+  const inbox = p.fake.box.threadsInInbox()[0].messages[0].id;
+  assert.throws(() => p.server('appRetire', inbox) && p.addon.gkb.addonGmail.trashNote(inbox), /Only notes/);
+  assert.ok(!plain(p.fake.box.messageLabelNames(inbox)).includes('TRASH'), 'an email is never sent to Trash');
+});
+
+test('appMove and the folder functions, with the extension\'s rules', () => {
+  const p = new Phone();
+  const folders = () => p.server('appList', '').folders;
+  const idFor = path => folders().find(f => f.path === path).id;
+  const rate = idOf(p, 'rateschedule00000003');
+  p.server('appMove', rate, idFor('Personal'));
+  assert.deepEqual(plain(p.fake.box.messageFolders(rate)), ['_Notes/Personal']);
+
+  const made = p.server('appCreateFolder', idFor('Work'), 'Archive');
+  assert.equal(made.folder.path, 'Work/Archive');
+  assert.throws(() => p.server('appCreateFolder', idFor('Work'), 'archive'), /already a folder/);
+  assert.throws(() => p.server('appCreateFolder', '', 'a/b'), /cannot contain/);
+
+  const r = p.server('appRenameFolder', idFor('Work'), 'Jobs');
+  assert.deepEqual(r.folders.map(f => f.path), ['Empty', 'Jobs', 'Jobs/Archive', 'Jobs/Clients', 'Personal'], 'the branch follows');
+
+  assert.throws(() => p.server('appDeleteFolder', idFor('Jobs/Clients')), /^Error: not_allowed: only an empty notes folder/);
+  const after = p.server('appDeleteFolder', idFor('Empty')).folders;
+  assert.ok(!after.some(f => f.path === 'Empty'));
+  const notNotes = plain(p.fake.box.labelByName('Clients')).id;
+  assert.throws(() => p.server('appDeleteFolder', notNotes), /not_allowed/, 'never a label outside the notes');
+});
+
 // ── Limits and failures ──────────────────────────────────────────────
 
 test('it trashes only notes, never adds Trash, Spam or Inbox, and inserts only notes', () => {

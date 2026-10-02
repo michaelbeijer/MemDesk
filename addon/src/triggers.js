@@ -19,3 +19,15 @@ function onCreateNote(e) { return gkb.panel.onCreateNote(e); }
 function onMoveThread(e) { return gkb.panel.onMoveThread(e); }
 function onUniversalAllNotes(e) { return gkb.panel.onUniversalAllNotes(e); }
 function onUniversalNewNote(e) { return gkb.panel.onUniversalNewNote(e); }
+
+// The phone app: the page, and what its notes view asks of Gmail.
+function doGet(e) { return gkb.app.page(e); }
+function appList(query) { return gkb.app.list(query); }
+function appBody(messageId) { return gkb.app.body(messageId); }
+function appSave(previousId, snap) { return gkb.app.save(previousId, snap); }
+function appRetire(messageId) { return gkb.app.retire(messageId); }
+function appRestore(messageId, folderId) { return gkb.app.restore(messageId, folderId); }
+function appMove(messageId, folderId) { return gkb.app.move(messageId, folderId); }
+function appCreateFolder(parentId, title) { return gkb.app.createFolder(parentId, title); }
+function appRenameFolder(folderId, title) { return gkb.app.renameFolder(folderId, title); }
+function appDeleteFolder(folderId) { return gkb.app.deleteFolder(folderId); }

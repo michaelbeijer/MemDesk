@@ -102,5 +102,12 @@
     return call('POST', `messages/${encodeURIComponent(messageId)}/trash`);
   }
 
-  ns.addonGmail = { call, callAll, insertNote, modifyLabels, modifyThread, trashNote, queryString };
+  // Undo of a delete: out of Trash again - also only for a note.
+  function untrashNote(messageId) {
+    const msg = call('GET', `messages/${encodeURIComponent(messageId)}`, { format: 'metadata', metadataHeaders: [notesLogic.NOTE_HEADER] });
+    if (!notesLogic.noteFromMessage(msg).own) throw new Error('Only notes are ever taken out of Trash from here.');
+    return call('POST', `messages/${encodeURIComponent(messageId)}/untrash`);
+  }
+
+  ns.addonGmail = { call, callAll, insertNote, modifyLabels, modifyThread, trashNote, untrashNote, queryString };
 })();
