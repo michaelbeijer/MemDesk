@@ -10,8 +10,8 @@
 // the panel's own, one after the other - no transpiling, no minifying,
 // so what runs in Apps Script reads like the sources it came from. The
 // phone app's page goes in as one string: addon/app/index.html with the
-// extension's Notes view and editor (APP_FILES) inlined, which doGet
-// serves.
+// extension's Notes view and editor (APP_FILES) packed into it - see
+// LOADER - which doGet serves.
 // ─────────────────────────────────────────────────────────────────────
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -55,14 +55,55 @@ export const APP_FILES = [
   'addon/app/shell.js',
 ];
 
+// The page's code goes in as one small script with every module inside
+// it in base64url - letters, digits, "-" and "_" only - which it decodes
+// and runs, in order, one at a time. Apps Script does not serve inline
+// scripts as they are: its loader takes them out of the page and runs
+// them itself, and an app made of many plain scripts did not survive
+// that. Base64 survives anything done to text, and running the modules
+// here names any that fails, instead of leaving a blank page. The
+// loader itself has no "//", "<!--" or "</" in it, nothing a careless
+// rewrite of the page could cut.
+const LOADER = `<script>
+(function () {
+  var MODULES = __MODULES__;
+  var SOURCE = String.fromCharCode(10, 47, 47) + '# sourceURL=app/';
+  function decode(text) {
+    var bin = atob(text.replace(/-/g, '+').replace(/_/g, String.fromCharCode(47)));
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder('utf-8').decode(bytes);
+  }
+  function run(name, code) {
+    try {
+      (0, eval)(code + SOURCE + name);
+    } catch (err) {
+      if (!(err instanceof EvalError)) throw err;
+      var el = document.createElement('script');
+      el.text = code + SOURCE + name;
+      document.head.appendChild(el);
+    }
+  }
+  var failed = [];
+  for (var i = 0; i < MODULES.length; i++) {
+    try {
+      run(MODULES[i][0], decode(MODULES[i][1]));
+    } catch (err) {
+      failed.push(MODULES[i][0] + ': ' + err.message);
+    }
+  }
+  if (failed.length && window.__bootFailed) window.__bootFailed('Parts that did not load: ' + failed.join('; '));
+})();
+</script>`;
+
 export function appHtml() {
-  const scripts = APP_FILES.map(f => {
-    const code = readFileSync(join(REPO, f), 'utf8').trimEnd();
-    // Inlined, a script ends at the first "</script"; none of ours may say it.
-    if (/<\/?script/i.test(code)) throw new Error(`${f} contains "<script", which would break the inlined page`);
-    return `<script>\n// ${f}\n${code}\n</script>`;
-  }).join('\n');
-  return readFileSync(join(REPO, 'addon', 'app', 'index.html'), 'utf8').replace('<!-- scripts -->', () => scripts);
+  const modules = APP_FILES.map(f => [f, Buffer.from(readFileSync(join(REPO, f), 'utf8'), 'utf8').toString('base64url')]);
+  const loader = LOADER.replace('__MODULES__', () => JSON.stringify(modules));
+  for (const bad of ['//', '<!--', '</s']) {
+    const body = loader.slice('<script>'.length, -'</script>'.length);
+    if (body.includes(bad)) throw new Error(`the app's loader contains "${bad}"`);
+  }
+  return readFileSync(join(REPO, 'addon', 'app', 'index.html'), 'utf8').replace('<!-- scripts -->', () => loader);
 }
 
 const HEADER = `// The phone panel and phone app ${VERSION}: a Gmail add-on and a web app, in Apps Script.

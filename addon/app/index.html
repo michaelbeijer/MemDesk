@@ -10,22 +10,20 @@
 </style>
 </head>
 <body>
-<!-- Shown until the app starts: if it never does, this says why, instead
-     of leaving a blank page. -->
 <div id="boot" style="font: 16px/1.5 Roboto, Arial, sans-serif; color: #444746; padding: 24px;">Loading your notes&hellip;</div>
 <script>
   (function () {
+    var problems = [];
     function show(message, stack) {
       var boot = document.getElementById('boot');
       if (!boot) return;
+      problems.push(String(message) + (stack ? '\n' + String(stack).split('\n').slice(0, 6).join('\n') : ''));
       boot.style.color = '#b3261e';
-      boot.textContent = 'The notes app could not start: ' + message;
-      if (stack) {
-        var pre = document.createElement('pre');
-        pre.style.cssText = 'white-space: pre-wrap; font-size: 12px; color: #444746;';
-        pre.textContent = String(stack).split('\n').slice(0, 6).join('\n');
-        boot.appendChild(pre);
-      }
+      boot.textContent = 'The notes app could not start.';
+      var pre = document.createElement('pre');
+      pre.style.cssText = 'white-space: pre-wrap; font-size: 12px; color: #444746;';
+      pre.textContent = problems.join('\n\n');
+      boot.appendChild(pre);
     }
     window.addEventListener('error', function (e) {
       show((e.message || 'unknown error') + (e.lineno ? ' (line ' + e.lineno + ')' : ''), e.error && e.error.stack);

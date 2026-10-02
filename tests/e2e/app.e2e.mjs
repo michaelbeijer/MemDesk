@@ -31,6 +31,25 @@ const r = runner('app');
 const PAGE = join(screensDir(), 'app-page.html');
 writeFileSync(PAGE, appHtml());
 
+// The page as Apps Script may deliver it: HTML comments and anything that
+// looks like a "//" comment cut out of the text, and the scripts taken
+// out of the page and run afterwards by a loader that swallows errors.
+// The phone app came up blank in Apps Script until it could survive this.
+function roughly(html) {
+  const scripts = [];
+  const page = html
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<script>([\s\S]*?)<\/script>/g, (_, code) => { scripts.push(code.replace(/\/\/[^\n]*/g, '')); return ''; });
+  const loader = `<script>(${function load(list) {
+    document.addEventListener('DOMContentLoaded', () => {
+      for (const code of list) { try { (0, eval)(code); } catch (err) { console.warn(`swallowed: ${err.message}`); } }
+    });
+  }})(${JSON.stringify(scripts)});</script>`;
+  return page.replace('</body>', () => `${loader}</body>`);
+}
+const ROUGH = join(screensDir(), 'app-page-rough.html');
+writeFileSync(ROUGH, roughly(appHtml()));
+
 const browser = await chromium.launch({ executablePath: findChromium(), headless: true });
 
 // google.script.run and google.script.history, as Apps Script provides
@@ -69,7 +88,7 @@ function breakHistory() {
   window.google.script.history = { push: no, replace: no, setChangeHandler: no };
 }
 
-async function openApp({ search = '', colorScheme = 'light', brokenHistory = false } = {}) {
+async function openApp({ search = '', colorScheme = 'light', brokenHistory = false, file = PAGE } = {}) {
   const phone = new Phone({ search });
   const ctx = await browser.newContext({
     viewport: { width: 412, height: 860 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme,
@@ -79,7 +98,7 @@ async function openApp({ search = '', colorScheme = 'light', brokenHistory = fal
   await page.exposeFunction('__gas', (fn, args) => phone.server(fn, ...args));
   await page.addInitScript(installGoogle);
   if (brokenHistory) await page.addInitScript(breakHistory);
-  await page.goto(pathToFileURL(PAGE).href);
+  await page.goto(pathToFileURL(file).href);
   return { phone, page };
 }
 
@@ -206,12 +225,34 @@ await r.step('nothing on the page but the app once it has started; a broken hist
   await b.page.context().close();
 });
 
+await r.step('delivered the rough way Apps Script may deliver it, it still starts and works', async () => {
+  const rough = await openApp({ file: ROUGH });
+  await q(rough.page, '.note-item').first().waitFor();
+  assert.equal((await titles(rough.page)).length, 5);
+  await q(rough.page, '.note-item').filter({ hasText: 'Launch checklist' }).tap();
+  await q(rough.page, '.ne-body .blk').first().waitFor();
+  assert.equal(await rough.page.locator('#boot').count(), 0);
+  await rough.page.context().close();
+});
+
 await r.step('an error while starting is shown on the page, not a blank screen', async () => {
   const ctx = await browser.newContext({ viewport: { width: 412, height: 860 }, isMobile: true });
   const p = await ctx.newPage();
   await p.addInitScript(() => { Object.defineProperty(window, 'google', { get() { throw new Error('no google.script here'); } }); });
   await p.goto(pathToFileURL(PAGE).href);
-  await until(async () => /could not start: .*no google\.script here/.test(await p.locator('#boot').innerText()), 'the error shown');
+  await until(async () => /could not start[\s\S]*no google\.script here/.test(await p.locator('#boot').innerText()), 'the error shown');
+  await ctx.close();
+});
+
+await r.step('a part that fails to load is named on the page', async () => {
+  const broken = appHtml().replace(/(\["addon\/app\/remote\.js",")[A-Za-z0-9_-]+"/, (_, head) => `${head}${Buffer.from('this is { not code').toString('base64url')}"`);
+  const file = join(screensDir(), 'app-page-broken.html');
+  writeFileSync(file, broken);
+  const ctx = await browser.newContext({ viewport: { width: 412, height: 860 }, isMobile: true });
+  const p = await ctx.newPage();
+  await p.addInitScript(installGoogle);
+  await p.goto(pathToFileURL(file).href);
+  await until(async () => /Parts that did not load: addon\/app\/remote\.js: Unexpected/.test(await p.locator('#boot').innerText()), 'the part named');
   await ctx.close();
 });
 

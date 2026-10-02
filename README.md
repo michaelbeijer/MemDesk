@@ -17,7 +17,7 @@ open email in a column, ticks checklist items, adds lines to a note, files it
 in a folder and starts new notes from inside the Gmail app, and the **phone
 app** puts the notes themselves, with the full editor, on your home screen.
 
-Version 0.12.1. Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.12.2. Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -295,9 +295,12 @@ The address ends in `/dev`: it always runs the code last saved, and only you
 can open it.
 
 **How it works**: `doGet` in `Code.gs` serves the page, which is
-`addon/app/index.html` with the extension's own files inlined
+`addon/app/index.html` with the extension's own files packed into it
 (`src/content/notes.js`, `note-editor.js`, `ui.js`, `styles.js` and the shared
-note code), plus `addon/app/remote.js`, a notes store that asks the script
+note code). They go in as base64 inside one small loader script, which runs
+them in order and names any that fails: Apps Script takes a page's inline
+scripts out and runs them itself, and an app made of many plain scripts did
+not survive that (it came up blank). With them come `addon/app/remote.js`, a notes store that asks the script
 through `google.script.run` instead of asking the extension's background
 worker, and `addon/app/shell.js`, the full-screen frame and the phone layout.
 On the script's side, `addon/src/app-server.js` keeps the worker's rules: it

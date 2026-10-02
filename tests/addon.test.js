@@ -520,10 +520,22 @@ test('the app page: served by doGet, titled, sized for a phone, with the notes v
   assert.equal(out.title, 'Supermail notes');
   assert.deepEqual(out.meta, [['viewport', 'width=device-width, initial-scale=1, viewport-fit=cover']]);
   assert.match(out.html, /^<!DOCTYPE html>/);
+  // The modules are packed in base64url inside one loader script, in order,
+  // each exactly its source file.
+  const packed = JSON.parse(/var MODULES = (\[.*?\]);\n/.exec(out.html)[1]);
+  const names = packed.map(m => m[0]);
   for (const f of ['src/content/notes.js', 'src/content/note-editor.js', 'addon/app/remote.js', 'addon/app/shell.js']) {
-    assert.ok(out.html.includes(`// ${f}\n`), f);
+    const m = packed.find(x => x[0] === f);
+    assert.ok(m, f);
+    assert.equal(Buffer.from(m[1], 'base64url').toString('utf8'), fs.readFileSync(path.join(__dirname, '..', f), 'utf8'), f);
+    assert.match(m[1], /^[A-Za-z0-9_-]+$/, 'nothing but base64url');
   }
-  assert.ok(out.html.indexOf('// addon/app/remote.js') < out.html.indexOf('// src/content/notes.js'), 'the store before the view');
+  assert.ok(names.indexOf('addon/app/remote.js') < names.indexOf('src/content/notes.js'), 'the store before the view');
+  // Nothing a careless rewrite of the page could cut: no "//", "<!--" or
+  // "</" anywhere in the scripts.
+  for (const [, body] of out.html.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
+    for (const bad of ['//', '<!--', '</']) assert.ok(!body.includes(bad), `a script contains "${bad}"`);
+  }
   assert.match(out.html, /<div id="boot"[^>]*>Loading your notes/, 'something to see before the scripts run');
   const ping = p.addon.doGet({ parameter: { ping: '1' } }).output;
   assert.match(ping.html, new RegExp(`Supermail ${require('../manifest.json').version}: the script runs, and its page is ${out.html.length} characters long`));
