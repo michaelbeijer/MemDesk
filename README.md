@@ -17,7 +17,7 @@ open email in a column, ticks checklist items, adds lines to a note, files it
 in a folder and starts new notes from inside the Gmail app, and the **phone
 app** puts the notes themselves, with the full editor, on your home screen.
 
-Version 0.12.0. Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.12.1. Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 

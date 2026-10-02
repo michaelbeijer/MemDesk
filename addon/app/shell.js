@@ -62,9 +62,21 @@
 }
 `;
 
+  // Apps Script's history, if there is one, used so that nothing it does -
+  // or fails to do - can stop the app: the back gesture is a nicety.
+  function historyApi() {
+    const api = typeof google !== 'undefined' && google.script && google.script.history;
+    if (!api) return null;
+    const safe = fn => (...args) => {
+      try { return api[fn](...args); } catch (err) { console.warn(`google.script.history.${fn}: ${err.message}`); return undefined; }
+    };
+    return { push: safe('push'), replace: safe('replace'), setChangeHandler: safe('setChangeHandler') };
+  }
+
   function start() {
     const { root } = mountShadow('gkb-app-host', ns.styles.board + PHONE);
-    const history = typeof google !== 'undefined' && google.script && google.script.history;
+    const history = historyApi();
+    let noteOnHistory = false;
 
     const head = h('header', { class: 'app-head' },
       h('span', { class: 'app-title', text: 'Notes' }),
@@ -82,13 +94,21 @@
       barChanged() {},
       onViewChange(view) {
         app.dataset.view = view;
+        if (!history) return;
         // A note on the history, so Android's back gesture closes it.
-        if (view === 'note' && history) history.push({ note: 1 }, {}, '');
-        if (view === 'list' && history) history.replace({}, {}, '');
+        if (view === 'note') {
+          history.push({ note: 1 }, {}, '');
+          noteOnHistory = true;
+        } else if (noteOnHistory) {
+          history.replace({}, {}, '');
+          noteOnHistory = false;
+        }
       },
     });
     app.appendChild(ns.notes.element());
     root.appendChild(app);
+    const boot = document.getElementById('boot');
+    if (boot) boot.remove();
 
     if (history) {
       history.setChangeHandler(e => {
@@ -115,7 +135,16 @@
     ns.notes.load();
   }
 
+  function run() {
+    try {
+      start();
+    } catch (err) {
+      console.error(err);
+      if (window.__bootFailed) window.__bootFailed(err.message, err.stack);
+    }
+  }
+
   ns.phoneApp = { start };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
-  else start();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+  else run();
 })();

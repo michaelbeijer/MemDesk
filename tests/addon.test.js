@@ -524,6 +524,9 @@ test('the app page: served by doGet, titled, sized for a phone, with the notes v
     assert.ok(out.html.includes(`// ${f}\n`), f);
   }
   assert.ok(out.html.indexOf('// addon/app/remote.js') < out.html.indexOf('// src/content/notes.js'), 'the store before the view');
+  assert.match(out.html, /<div id="boot"[^>]*>Loading your notes/, 'something to see before the scripts run');
+  const ping = p.addon.doGet({ parameter: { ping: '1' } }).output;
+  assert.match(ping.html, new RegExp(`Supermail ${require('../manifest.json').version}: the script runs, and its page is ${out.html.length} characters long`));
 });
 
 test('appList: every note once, newest first, with its folder; stale versions tidied; a search brings content', () => {

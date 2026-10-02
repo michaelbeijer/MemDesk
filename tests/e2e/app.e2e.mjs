@@ -63,7 +63,13 @@ function installGoogle() {
   };
 }
 
-async function openApp({ search = '', colorScheme = 'light' } = {}) {
+// Apps Script's history refusing every call: the app must start anyway.
+function breakHistory() {
+  const no = () => { throw new Error('history is not available here'); };
+  window.google.script.history = { push: no, replace: no, setChangeHandler: no };
+}
+
+async function openApp({ search = '', colorScheme = 'light', brokenHistory = false } = {}) {
   const phone = new Phone({ search });
   const ctx = await browser.newContext({
     viewport: { width: 412, height: 860 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme,
@@ -72,6 +78,7 @@ async function openApp({ search = '', colorScheme = 'light' } = {}) {
   watchErrors(page, errors);
   await page.exposeFunction('__gas', (fn, args) => phone.server(fn, ...args));
   await page.addInitScript(installGoogle);
+  if (brokenHistory) await page.addInitScript(breakHistory);
   await page.goto(pathToFileURL(PAGE).href);
   return { phone, page };
 }
@@ -186,6 +193,26 @@ await r.step('switching away from the app saves at once', async () => {
   });
   await settled(page);
   await until(async () => /bread/.test(phone.fake.box.messageText(phone.fake.box.findMessageBySubject('Written on the train'))), 'saved on hide', 3000);
+});
+
+await r.step('nothing on the page but the app once it has started; a broken history does not stop it', async () => {
+  assert.equal(await page.locator('#boot').count(), 0, 'the loading line is gone');
+  const b = await openApp({ brokenHistory: true });
+  await q(b.page, '.note-item').first().waitFor();
+  await q(b.page, '.note-item').filter({ hasText: 'Launch checklist' }).tap();
+  await q(b.page, '.ne-body .blk').first().waitFor();
+  await q(b.page, '[data-key="note-back"]').tap();
+  await q(b.page, '.notes-list').waitFor();
+  await b.page.context().close();
+});
+
+await r.step('an error while starting is shown on the page, not a blank screen', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 412, height: 860 }, isMobile: true });
+  const p = await ctx.newPage();
+  await p.addInitScript(() => { Object.defineProperty(window, 'google', { get() { throw new Error('no google.script here'); } }); });
+  await p.goto(pathToFileURL(PAGE).href);
+  await until(async () => /could not start: .*no google\.script here/.test(await p.locator('#boot').innerText()), 'the error shown');
+  await ctx.close();
 });
 
 await r.step('dark mode', async () => {

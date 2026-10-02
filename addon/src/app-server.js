@@ -163,9 +163,16 @@
     return { folders: store.context().folders };
   }
 
-  // The page itself, built into Code.gs by tools/build-addon.mjs.
-  function page() {
-    return HtmlService.createHtmlOutput(globalThis.SUPERMAIL_APP_HTML || '<p>The app is not built into this Code.gs.</p>')
+  // The page itself, built into Code.gs by tools/build-addon.mjs. With
+  // ?ping=1, a line that says the script itself runs - to tell a problem
+  // here from one in the page.
+  function page(e) {
+    const html = globalThis.SUPERMAIL_APP_HTML || '';
+    if (e && e.parameter && e.parameter.ping) {
+      return HtmlService.createHtmlOutput(`<p style="font: 16px/1.5 Arial, sans-serif; padding: 24px">${ns.APP_NAME} ${globalThis.SUPERMAIL_VERSION || ''}: ` +
+        `the script runs, and its page is ${html.length} characters long.</p>`).setTitle(`${ns.APP_NAME} notes`);
+    }
+    return HtmlService.createHtmlOutput(html || '<p>The app is not built into this Code.gs.</p>')
       .setTitle(`${ns.APP_NAME} notes`)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
   }

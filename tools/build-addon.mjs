@@ -80,6 +80,8 @@ const HEADER = `// The phone panel and phone app ${VERSION}: a Gmail add-on and 
 var SUPERMAIL_NOTES_LABEL = '_Notes';
 var SUPERMAIL_BOARD_LABEL = '_Board';
 
+var SUPERMAIL_VERSION = '${VERSION}';
+
 // Apps Script has a global object but may not name it globalThis.
 var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
 `;
