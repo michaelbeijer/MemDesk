@@ -405,6 +405,67 @@ await r.step('tapping a card opens the conversation in Gmail; the app remembers 
   await scratchReady(page);
 });
 
+// A finger dragged sideways across the calendar's days.
+async function swipe(p, dx) {
+  await p.evaluate(d => {
+    const main = document.querySelector('#gkb-app-host').shadowRoot.querySelector('.cal-main');
+    const box = main.getBoundingClientRect();
+    const x = box.left + box.width / 2;
+    const y = box.top + 120;
+    const at = cx => new Touch({ identifier: 1, target: main, clientX: cx, clientY: y });
+    main.dispatchEvent(new TouchEvent('touchstart', { touches: [at(x)], changedTouches: [at(x)], bubbles: true }));
+    main.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [at(x + d)], bubbles: true }));
+  }, dx);
+}
+const calTitle = p => q(p, '.cal-title').innerText();
+const weekText = p => q(p, '.cal-week').innerText();
+
+await r.step('the calendar tab: the week as two columns of days, the month as the eighth tile', async () => {
+  await q(page, '[data-key="view:calendar"]').tap();
+  await q(page, '.cal .ev').first().waitFor();
+  assert.equal(await q(page, '.cal').getAttribute('data-narrow'), 'true');
+  assert.match(await calTitle(page), /^Week \d+ · /);
+  assert.equal(await visible(page, '.cal-views'), false, 'always the week, on a phone');
+  const days = q(page, '.cal-week > .day:not(.mini-tile)');
+  assert.equal(await days.count(), 7);
+  const [mon, tue, fri] = await Promise.all([0, 1, 4].map(i => days.nth(i).boundingBox()));
+  assert.ok(tue.y > mon.y && Math.abs(tue.x - mon.x) < 2, 'Tuesday under Monday');
+  assert.ok(Math.abs(fri.y - mon.y) < 2 && fri.x > mon.x, 'Friday beside Monday');
+  assert.equal(await visible(page, '.mini-tile'), true);
+  const text = await weekText(page);
+  for (const t of ['Lumenra glossary delivery', 'Quote for Ingrid', 'Grandma’s birthday']) assert.ok(text.includes(t), t);
+  assert.ok(!text.includes('Working from home'));
+  assert.match(await q(page, '.cal-tray').innerText(), /Renew the guild membership/);
+  // Three tabs and the refresh button fit the bar.
+  const refresh = await q(page, '.bar [aria-label="Refresh"]').boundingBox();
+  assert.ok(refresh.x + refresh.width <= 412, 'the bar fits the screen');
+  // Only reads went to the script's Google, all of them allowed ones.
+  const reads = phone.log.filter(l => l.service);
+  assert.ok(reads.length >= 6 && reads.every(l => l.method === 'GET'));
+  await page.screenshot({ path: join(SCREENS, 'app-calendar.png'), animations: 'disabled' });
+});
+
+await r.step('a chip hides a calendar, the phone remembers it; a swipe goes to the next week, Today back', async () => {
+  await q(page, '.src').filter({ hasText: 'Family' }).tap();
+  await until(async () => !(await weekText(page)).includes('Pub quiz'), 'Family hidden');
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('supermail.calendarSources'))['c_family@group.calendar.google.com']), false);
+  const thisWeek = await calTitle(page);
+  await swipe(page, -160);
+  await until(async () => (await weekText(page)).includes('Planning call with Grace'), 'the next week');
+  assert.notEqual(await calTitle(page), thisWeek);
+  await swipe(page, 20); // too short to count
+  await swipe(page, 160);
+  await until(async () => (await calTitle(page)) === thisWeek, 'and back');
+  await swipe(page, -160);
+  await until(async () => (await calTitle(page)) !== thisWeek, 'on again');
+  await q(page, '[data-key="cal-today"]').tap();
+  await until(async () => (await calTitle(page)) === thisWeek, 'Today');
+  await q(page, '.src').filter({ hasText: 'Family' }).tap();
+  await until(async () => (await weekText(page)).includes('Pub quiz'), 'Family back');
+  await q(page, '[data-key="view:notes"]').tap();
+  await scratchReady(page);
+});
+
 await r.step('nothing on the page but the app once it has started; a broken history does not stop it', async () => {
   assert.equal(await page.locator('#boot').count(), 0, 'the loading line is gone');
   const b = await openApp({ brokenHistory: true });

@@ -4,13 +4,17 @@
   "exceptionLogging": "STACKDRIVER",
   "dependencies": {
     "enabledAdvancedServices": [
-      { "userSymbol": "Gmail", "serviceId": "gmail", "version": "v1" }
+      { "userSymbol": "Gmail", "serviceId": "gmail", "version": "v1" },
+      { "userSymbol": "Calendar", "serviceId": "calendar", "version": "v3" },
+      { "userSymbol": "Tasks", "serviceId": "tasks", "version": "v1" }
     ]
   },
   "oauthScopes": [
     "https://www.googleapis.com/auth/gmail.addons.execute",
     "https://www.googleapis.com/auth/gmail.addons.current.message.metadata",
     "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/tasks.readonly",
     "https://www.googleapis.com/auth/script.external_request"
   ],
   "webapp": {
@@ -18,7 +22,9 @@
     "access": "MYSELF"
   },
   "urlFetchWhitelist": [
-    "https://gmail.googleapis.com/"
+    "https://gmail.googleapis.com/",
+    "https://www.googleapis.com/calendar/",
+    "https://tasks.googleapis.com/"
   ],
   "addOns": {
     "common": {

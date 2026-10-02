@@ -2,20 +2,22 @@
 // Background service worker: OAuth and the Gmail API proxy
 //
 // Content scripts never see a token. They send {type:'gmail', …} messages
-// and this worker attaches the bearer token, makes the call, and returns
-// plain JSON. That keeps the token out of the Gmail page entirely, and
-// gives one place to enforce what the extension is allowed to ask for.
+// (or {type:'google', …} for the calendar) and this worker attaches the
+// bearer token, makes the call, and returns plain JSON. That keeps the
+// token out of the Gmail page entirely, and gives one place to enforce
+// what the extension is allowed to ask for.
 //
 // Tokens come from the implicit grant via launchWebAuthFlow and are kept
 // in chrome.storage.session: memory-only, gone when the browser closes,
 // and not readable by content scripts at the default access level.
 // ─────────────────────────────────────────────────────────────────────
 
-importScripts('/src/shared/ns.js', '/src/lib/util.js', '/src/lib/notes-logic.js', '/src/lib/auth.js');
+importScripts('/src/shared/ns.js', '/src/lib/util.js', '/src/lib/notes-logic.js', '/src/lib/auth.js', '/src/lib/calendar-logic.js');
 
 const { KEYS } = self.gkb;
 const notesLogic = self.gkb.notesLogic;
 const auth = self.gkb.auth;
+const calendarLogic = self.gkb.calendarLogic;
 
 // After a silent renewal fails, further silent attempts for the same
 // account are skipped for a minute. Without this, every thread opened
@@ -39,40 +41,68 @@ function errorPayload(err) {
   return { code: 'internal', message: (err && err.message) || String(err) };
 }
 
+// ── Two sign-ins ─────────────────────────────────────────────────────
+//
+// Gmail's, for the board and the notes, and the calendar's, for Google
+// Calendar and Google Tasks. They are kept apart so that the board and
+// the notes never need a new "Allow" from someone who has not opened the
+// Calendar tab, and so that trouble with one never stops the other. Each
+// has its own token and its own error codes; the calendar's never put the
+// board's "Connect Gmail" panel up.
+
+const KINDS = {
+  gmail: {
+    scope: auth.SCOPE,
+    storageKey: KEYS.token,
+    verify: verifyGmailToken,
+    authCode: 'auth_required',
+    mismatchCode: 'account_mismatch',
+    signedOut: 'Gmail is not connected in this browser yet.',
+  },
+  calendar: {
+    scope: calendarLogic.SCOPES,
+    storageKey: KEYS.calendarToken,
+    verify: verifyCalendarToken,
+    authCode: 'calendar_auth_required',
+    mismatchCode: 'calendar_mismatch',
+    signedOut: 'Google Calendar is not connected in this browser yet.',
+  },
+};
+
 // ── Token cache ──────────────────────────────────────────────────────
 
-const memoryTokens = new Map();   // account → { accessToken, expiresAt }
-const inflight = new Map();       // account(+mode) → Promise<token>
-const silentFailedAt = new Map(); // account → ms
+const memoryTokens = new Map();   // kind|account → { accessToken, expiresAt }
+const inflight = new Map();       // kind|account|mode → Promise<token>
+const silentFailedAt = new Map(); // kind|account → ms
 
 function normEmail(e) { return String(e || '').trim().toLowerCase(); }
 
-async function readCachedToken(account) {
+async function readCachedToken(account, kind = 'gmail') {
   const now = Date.now();
-  const mem = memoryTokens.get(account);
+  const mem = memoryTokens.get(`${kind}|${account}`);
   if (mem && mem.expiresAt > now) return mem.accessToken;
 
   // The worker is torn down after ~30s idle, taking the Map with it.
   // Session storage outlives the worker but not the browser session.
-  const key = KEYS.token(account);
+  const key = KINDS[kind].storageKey(account);
   const got = await chrome.storage.session.get(key);
   const rec = got[key];
   if (rec && rec.accessToken && rec.expiresAt > now) {
-    memoryTokens.set(account, rec);
+    memoryTokens.set(`${kind}|${account}`, rec);
     return rec.accessToken;
   }
   return '';
 }
 
-async function storeToken(account, accessToken, expiresAt) {
+async function storeToken(account, accessToken, expiresAt, kind = 'gmail') {
   const rec = { accessToken, expiresAt };
-  memoryTokens.set(account, rec);
-  await chrome.storage.session.set({ [KEYS.token(account)]: rec });
+  memoryTokens.set(`${kind}|${account}`, rec);
+  await chrome.storage.session.set({ [KINDS[kind].storageKey(account)]: rec });
 }
 
-async function dropToken(account) {
-  memoryTokens.delete(account);
-  await chrome.storage.session.remove(KEYS.token(account));
+async function dropToken(account, kind = 'gmail') {
+  memoryTokens.delete(`${kind}|${account}`);
+  await chrome.storage.session.remove(KINDS[kind].storageKey(account));
 }
 
 // ── Auth flow ────────────────────────────────────────────────────────
@@ -92,7 +122,8 @@ function randomState() {
 // Runs one launchWebAuthFlow and returns { accessToken, expiresAt }.
 // `account` is used as login_hint; when empty (the options page's test
 // button) Google shows its account chooser instead.
-async function runAuthFlow(account, interactive) {
+async function runAuthFlow(account, interactive, kind = 'gmail') {
+  const k = KINDS[kind];
   const clientId = await getClientId();
   if (!clientId) {
     throw new ProxyError('not_configured', 'Add your OAuth client ID on the setup page first.');
@@ -105,6 +136,7 @@ async function runAuthFlow(account, interactive) {
     loginHint: account,
     silent: !interactive,
     state,
+    scope: k.scope,
   });
 
   const opts = interactive
@@ -117,67 +149,79 @@ async function runAuthFlow(account, interactive) {
   try {
     redirect = await chrome.identity.launchWebAuthFlow(opts);
   } catch (err) {
-    throw new ProxyError('auth_required', (err && err.message) || 'Sign-in did not complete.');
+    throw new ProxyError(k.authCode, (err && err.message) || 'Sign-in did not complete.');
   }
 
   const parsed = auth.parseAuthResponse(redirect);
   if (parsed.error) {
-    throw new ProxyError('auth_required', parsed.errorDescription || parsed.error);
+    throw new ProxyError(k.authCode, parsed.errorDescription || parsed.error);
   }
   if (parsed.state !== state) {
-    throw new ProxyError('auth_required', 'Sign-in response did not match the request.');
+    throw new ProxyError(k.authCode, 'Sign-in response did not match the request.');
   }
   return { accessToken: parsed.accessToken, expiresAt: auth.tokenExpiry(parsed.expiresIn) };
 }
 
-// A token is only trusted once Gmail itself confirms whose mailbox it
+// A token is only trusted once Google itself confirms whose account it
 // opens. login_hint is a hint, not a constraint: someone signed in to
 // two Google accounts can pick the other one in the chooser, and acting
 // on the wrong mailbox would be far worse than an error.
-async function verifyToken(accessToken, expected) {
+function checkAccount(actual, expected, code, what) {
+  if (expected && normEmail(actual) !== normEmail(expected)) {
+    throw new ProxyError(code, `Google signed in as ${normEmail(actual)}, but this Gmail tab is ${normEmail(expected)}.${what}`);
+  }
+  return normEmail(actual);
+}
+
+async function verifyGmailToken(accessToken, expected) {
   const res = await fetch(auth.buildApiUrl('profile'), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) throw await httpError(res);
   const profile = await res.json();
-  const actual = normEmail(profile.emailAddress);
-  if (expected && actual !== normEmail(expected)) {
-    throw new ProxyError(
-      'account_mismatch',
-      `Google signed in as ${actual}, but this Gmail tab is ${normEmail(expected)}.`
-    );
-  }
-  return actual;
+  return checkAccount(profile.emailAddress, expected, 'account_mismatch', '');
+}
+
+// The calendar's token cannot read Gmail; it says whose it is through
+// the "email" permission it asks for alongside.
+async function verifyCalendarToken(accessToken, expected) {
+  const res = await fetch(calendarLogic.USERINFO_URL, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw await httpError(res);
+  const info = await res.json();
+  return checkAccount(info.email, expected, 'calendar_mismatch', ' The calendar shown is always the one of the account open in this tab.');
 }
 
 // Returns a verified token for `account`, renewing silently if allowed.
-async function getToken(account, { interactive = false } = {}) {
+async function getToken(account, { interactive = false, kind = 'gmail' } = {}) {
+  const k = KINDS[kind];
   const acct = normEmail(account);
   if (!interactive && acct) {
-    const cached = await readCachedToken(acct);
+    const cached = await readCachedToken(acct, kind);
     if (cached) return { accessToken: cached, email: acct };
-    const failedAt = silentFailedAt.get(acct) || 0;
+    const failedAt = silentFailedAt.get(`${kind}|${acct}`) || 0;
     if (Date.now() - failedAt < SILENT_BACKOFF_MS) {
-      throw new ProxyError('auth_required', 'Gmail is not connected in this browser yet.');
+      throw new ProxyError(k.authCode, k.signedOut);
     }
   }
 
   // A board refresh fires several API calls at once. Without sharing the
   // in-flight promise each would launch its own auth flow.
-  const key = `${acct}|${interactive ? 'i' : 's'}`;
+  const key = `${kind}|${acct}|${interactive ? 'i' : 's'}`;
   if (inflight.has(key)) return inflight.get(key);
 
   const p = (async () => {
     let flow;
     try {
-      flow = await runAuthFlow(acct, interactive);
+      flow = await runAuthFlow(acct, interactive, kind);
     } catch (err) {
-      if (!interactive && acct && err.code === 'auth_required') silentFailedAt.set(acct, Date.now());
+      if (!interactive && acct && err.code === k.authCode) silentFailedAt.set(`${kind}|${acct}`, Date.now());
       throw err;
     }
-    const email = await verifyToken(flow.accessToken, acct);
-    await storeToken(email, flow.accessToken, flow.expiresAt);
-    silentFailedAt.delete(email);
+    const email = await k.verify(flow.accessToken, acct);
+    await storeToken(email, flow.accessToken, flow.expiresAt, kind);
+    silentFailedAt.delete(`${kind}|${email}`);
     return { accessToken: flow.accessToken, email };
   })().finally(() => inflight.delete(key));
 
@@ -277,13 +321,56 @@ async function callGmail(account, req) {
   return res.json();
 }
 
+// ── Calendar and Tasks proxy ─────────────────────────────────────────
+//
+// Read-only, with the calendar's own token: the calendar list, a
+// calendar's events, the task lists and a list's tasks - nothing else
+// (calendarLogic.isAllowedRequest), and the token could not change
+// anything if it tried.
+
+async function handleGoogle(msg) {
+  const service = String(msg.service || '');
+  const path = String(msg.path || '');
+  const account = normEmail(msg.account);
+  if (!calendarLogic.isAllowedRequest(service, 'GET', path)) {
+    throw new ProxyError('not_allowed', `GET ${service} ${path} is not something this extension does.`);
+  }
+  if (!account) {
+    throw new ProxyError('calendar_auth_required', 'Could not tell which Google account this tab belongs to.');
+  }
+  const url = calendarLogic.buildUrl(service, path, msg.query);
+  const send = token => fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+
+  let { accessToken } = await getToken(account, { kind: 'calendar' });
+  let res = await send(accessToken);
+  if (res.status === 401) {
+    await dropToken(account, 'calendar');
+    ({ accessToken } = await getToken(account, { kind: 'calendar' }));
+    res = await send(accessToken);
+    if (res.status === 401) {
+      await dropToken(account, 'calendar');
+      throw new ProxyError('calendar_auth_required', 'Google rejected the sign-in. Connect again.');
+    }
+  }
+  if (!res.ok) {
+    const err = await httpError(res);
+    // Google's consent screen lets people untick Calendar or Tasks.
+    if (res.status === 403 && /insufficient.*scope/i.test(err.message)) {
+      throw new ProxyError('calendar_scope', 'It was not allowed when you connected. Connect again, and tick it on Google’s page.');
+    }
+    throw err;
+  }
+  return res.json();
+}
+
 async function handleConnect(msg) {
   const account = normEmail(msg.account);
+  const kind = msg.kind === 'calendar' ? 'calendar' : 'gmail';
   if (account) {
-    await dropToken(account);
-    silentFailedAt.delete(account);
+    await dropToken(account, kind);
+    silentFailedAt.delete(`${kind}|${account}`);
   }
-  const { email } = await getToken(account, { interactive: true });
+  const { email } = await getToken(account, { interactive: true, kind });
   return { email };
 }
 
@@ -348,6 +435,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   switch (msg.type) {
     case 'gmail': return reply(handleGmail(msg));
+    case 'google': return reply(handleGoogle(msg));
     case 'connect': return reply(handleConnect(msg));
     case 'open-options': return reply(chrome.runtime.openOptionsPage());
     case 'hello': return reply(rememberGmailTab(sender.tab));

@@ -31,12 +31,14 @@
 
   const DRAG_TYPE = 'application/x-gkb-thread';
 
+  const VIEWS = ['board', 'notes', 'calendar'];
+
   // ── State ────────────────────────────────────────────────────────────
 
   const S = {
     mounted: false,
     open: false,
-    view: 'board',    // board | notes - the overlay's two tabs
+    view: 'board',    // board | notes | calendar - the overlay's three tabs
     viewLoaded: false,
     account: '',
     columns: [],
@@ -72,7 +74,8 @@
     els.updated = h('span', { class: 'updated' });
     els.refresh = h('button', {
       class: 'icon-btn', type: 'button', 'aria-label': 'Refresh', title: 'Refresh',
-      onclick: () => (S.view === 'notes' ? ns.notes.load({ force: true }) : refresh()),
+      onclick: () => (S.view === 'notes' ? ns.notes.load({ force: true })
+        : S.view === 'calendar' ? ns.calendar.load({ force: true }) : refresh()),
     }, icon('refresh'));
     els.settings = h('button', {
       class: 'icon-btn', type: 'button', 'aria-label': 'Column settings', title: 'Column settings',
@@ -88,7 +91,7 @@
       dataset: { key: `view:${view}`, view }, onclick: () => switchView(view),
     }, icon(iconName, 18), label);
     els.tabs = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'View' },
-      tab('board', 'Board', 'board'), tab('notes', 'Notes', 'note'));
+      tab('board', 'Board', 'board'), tab('notes', 'Notes', 'note'), tab('calendar', 'Calendar', 'calendar'));
 
     const bar = h('header', { class: 'bar' },
       h('h1', { class: 'brand' },
@@ -112,6 +115,16 @@
     root.appendChild(els.overlay);
     S.mounted = true;
 
+    // Small per-account preferences (folded folders, the calendar's view),
+    // on this computer.
+    const prefs = {
+      async get(name) {
+        const key = KEYS.pref(hooks.getAccount(), name);
+        return (await chrome.storage.local.get(key))[key];
+      },
+      set: (name, value) => chrome.storage.local.set({ [KEYS.pref(hooks.getAccount(), name)]: value }),
+    };
+
     ns.notes.init(Object.assign({
       root,
       // Account trouble found by the notes gets the same panel as the board's.
@@ -128,14 +141,27 @@
       closeBoard: close,
       barChanged: updateBar,
       // Which folders are folded, on this computer, for this account.
-      prefs: {
-        async get(name) {
-          const key = KEYS.pref(hooks.getAccount(), name);
-          return (await chrome.storage.local.get(key))[key];
-        },
-        set: (name, value) => chrome.storage.local.set({ [KEYS.pref(hooks.getAccount(), name)]: value }),
-      },
+      prefs,
     }, frame && frame.notes));
+
+    ns.calendar.init(Object.assign({
+      root,
+      // No client ID yet: the board's own setup panel. The calendar's
+      // own sign-in has a panel of its own, inside the calendar.
+      onStateError: err => {
+        S.status = err.code;
+        S.statusMessage = err.message;
+        render();
+      },
+      onLoaded: () => {
+        if (!PANEL_STATES.has(S.status)) return;
+        S.status = 'idle';
+        render();
+      },
+      barChanged: updateBar,
+      prefs,
+      connect: () => api.connectCalendar(),
+    }, frame && frame.calendar));
 
     // A move made from the dock (or another tab) makes what the board last
     // loaded wrong; the board's own moves are already reflected on screen.
@@ -166,7 +192,7 @@
       S.viewLoaded = true;
       try {
         const got = await chrome.storage.local.get(KEYS.view);
-        if (got[KEYS.view] === 'notes' || got[KEYS.view] === 'board') S.view = got[KEYS.view];
+        if (VIEWS.includes(got[KEYS.view])) S.view = got[KEYS.view];
         else if (frame && frame.view) S.view = frame.view;
       } catch { /* extension reloaded; handled just below */ }
     }
@@ -189,6 +215,7 @@
       return;
     }
     if (S.view === 'notes') showNotes();
+    else if (S.view === 'calendar') showCalendar();
     else showBoard();
   }
 
@@ -210,6 +237,14 @@
     if (!frame || frame.focus !== false) ns.notes.focusDefault();
   }
 
+  // The calendar needs nothing of Gmail's, so a Gmail panel is no reason
+  // to keep it hidden; only a missing client ID or account stands in its way.
+  function showCalendar() {
+    if (PANEL_STATES.has(S.status) && S.status !== 'not_configured' && S.status !== 'no_account') S.status = 'idle';
+    render();
+    ns.calendar.load();
+  }
+
   function switchView(view) {
     if (view === S.view || !S.open) return;
     if (S.view === 'notes') ns.notes.flush();
@@ -218,10 +253,11 @@
     S.view = view;
     chrome.storage.local.set({ [KEYS.view]: view }).catch(() => {});
     if (view === 'notes') showNotes();
+    else if (view === 'calendar') showCalendar();
     else showBoard();
   }
 
-  // The dock's two buttons: open on that tab, switch to it, or - when it
+  // The dock's buttons: open on that tab, switch to it, or - when it
   // is already showing - close.
   function toggleView(view) {
     if (S.open && S.view === view) close();
@@ -271,6 +307,7 @@
   // search, then board. Open menus handle their own Esc before it gets here.
   function onOverlayKey(e) {
     if (S.view === 'notes' && !S.editor && ns.notes.handleKey(e)) return;
+    if (S.view === 'calendar' && !S.editor && !S.drawer && !isMenuOpen(root) && ns.calendar.handleKey(e)) return;
     if (e.key === 'Escape') {
       if (isMenuOpen(root)) return;
       e.preventDefault();
@@ -405,16 +442,18 @@
     els.account.title = S.account ? `Gmail account: ${S.account}` : '';
     // The refresh button and "updated …" speak for whichever tab is open.
     const notes = S.view === 'notes';
-    const loading = notes ? ns.notes.isLoading() : !!S.loading;
-    const loadedAt = notes ? ns.notes.loadedAt() : S.loadedAt;
+    const calendar = S.view === 'calendar';
+    const loading = notes ? ns.notes.isLoading() : calendar ? ns.calendar.isLoading() : !!S.loading;
+    const loadedAt = notes ? ns.notes.loadedAt() : calendar ? ns.calendar.loadedAt() : S.loadedAt;
     els.updated.textContent = loading ? 'Updating…'
       : loadedAt ? `updated ${util.agoText(Date.now() - loadedAt)}` : '';
     els.refresh.classList.toggle('spinning', loading);
     els.refresh.disabled = loading || !S.account;
-    els.settings.hidden = notes;
+    els.settings.hidden = notes || calendar;
     els.settings.disabled = S.status !== 'ready';
     for (const t of els.tabs.children) t.setAttribute('aria-selected', String(t.dataset.view === S.view));
     if (notes) ns.notes.tick();
+    if (calendar) ns.calendar.tick();
   }
 
   function render() {
@@ -480,6 +519,7 @@
 
   function renderBody() {
     if (S.view === 'notes' && !PANEL_STATES.has(S.status)) return ns.notes.element();
+    if (S.view === 'calendar' && !PANEL_STATES.has(S.status)) return ns.calendar.element();
     switch (S.status) {
       case 'no_account':
         return panel('board', 'Which account is this?',

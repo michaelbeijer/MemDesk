@@ -1,12 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Supermail",
-  "version": "0.16.0",
-  "description": "A Kanban board and notes inside Gmail. Every card is a Gmail thread, every column a Gmail label, every note a message under its own label.",
+  "version": "0.17.0",
+  "description": "A Kanban board, notes and your calendar inside Gmail. Every card is a Gmail thread, every note a message in your own mailbox.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtDI+0Aw3262c4MbybBw4nWqjykfR+tsfK9DmJgHKBrsSJoMzFGlvsfhiOgZdfrjxGMPuqcdI8Z2hwo3s7pXZcMwVyx2XgYpPYzxIRTE8DBzaeNBhVbxbf4tlqatb5uPU2/8ZhePurxccoX6yzOP3PTD1vgtwmxJcWKrKWnzUjYpi8bsmepMC21B8VuKpA9kQIUkZ2vRvARsgb32BWNt+cufHCPOK0RSyT/Q9L+owZi/c+NO+5Ud+KTMnMgXt1L2zk9F+yo70ZWGI5PKnCKQPucnTEsXdNEcyCnTUR8IfXUuGTF+pQqHJddv3wwSX18O9+0rcu901vuCNvYuXCVaJcQIDAQAB",
   "minimum_chrome_version": "116",
   "permissions": ["identity", "storage"],
-  "host_permissions": ["https://gmail.googleapis.com/*"],
+  "host_permissions": [
+    "https://gmail.googleapis.com/*",
+    "https://www.googleapis.com/*",
+    "https://tasks.googleapis.com/*"
+  ],
   "background": {
     "service_worker": "src/background/sw.js"
   },
@@ -21,6 +25,7 @@
         "src/lib/notes-logic.js",
         "src/lib/note-format.js",
         "src/lib/search-logic.js",
+        "src/lib/calendar-logic.js",
         "src/content/gmail-hooks.js",
         "src/content/api.js",
         "src/content/store.js",
@@ -29,6 +34,8 @@
         "src/content/styles.js",
         "src/content/note-editor.js",
         "src/content/notes.js",
+        "src/content/calendar-store.js",
+        "src/content/calendar.js",
         "src/content/board.js",
         "src/content/dock.js",
         "src/content/main.js"

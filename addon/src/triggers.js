@@ -35,6 +35,7 @@ function appAccount() { return gkb.app.account(); }
 function appBoardGmail(method, path, query, body) { return gkb.app.boardGmail(method, path, query, body); }
 function appBoardGmailMany(list) { return gkb.app.boardGmailMany(list); }
 function appBoardColumns() { return gkb.app.boardColumns(); }
+function appGoogleMany(list) { return gkb.app.googleMany(list); }
 function appPrefsGet(keys) { return gkb.app.prefsGet(keys); }
 function appPrefsSet(items) { return gkb.app.prefsSet(items); }
 function appPrefsRemove(keys) { return gkb.app.prefsRemove(keys); }

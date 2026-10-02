@@ -22,7 +22,9 @@ Use a **new** project, not the one your own copy uses (that one is
 
 1. [Create a project](https://console.cloud.google.com/projectcreate) called
    "Supermail", and select it at the top of the console for the next steps.
-2. [Enable the Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com) in it.
+2. Enable [the Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com),
+   [the Google Calendar API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com)
+   and [the Google Tasks API](https://console.cloud.google.com/apis/library/tasks.googleapis.com) in it.
 3. Open [Google Auth Platform](https://console.cloud.google.com/auth/overview), **Get started**:
    - App name **Supermail**, user support email: yours.
    - Audience: **External**.
@@ -31,7 +33,10 @@ Use a **new** project, not the one your own copy uses (that one is
    page `https://github.com/michaelbeijer/Supermail`; privacy policy
    `https://github.com/michaelbeijer/Supermail/blob/main/PRIVACY.md`. Save.
 5. **Data access** → **Add or remove scopes**: add
-   `https://www.googleapis.com/auth/gmail.modify`. Save.
+   `https://www.googleapis.com/auth/gmail.modify`, and for the calendar
+   `https://www.googleapis.com/auth/calendar.readonly`,
+   `https://www.googleapis.com/auth/tasks.readonly` and
+   `https://www.googleapis.com/auth/userinfo.email`. Save.
 6. **Audience** → **Publish app** → **Confirm** (status "In production").
    No review starts unless you ask for one.
 7. **Clients** → **Create client**: type **Web application**, name
@@ -103,9 +108,12 @@ Give people the store link and the phone-app link, with
    `node tools/package-extension.mjs --client-id=…`.
 2. Store dashboard → the item → **Package → Upload new package**, then
    **Submit for review**. Chrome updates everyone by itself once it is through.
-3. Apps Script: paste the new `Code.gs`, **Ctrl+S**, then **Deploy → Manage
-   deployments** → the web app's pencil → **Version: New version** →
-   **Deploy**. The link stays the same.
+3. Apps Script: paste the new `Code.gs` (and `appsscript.json`, if it
+   changed), **Ctrl+S**, then **Deploy → Manage deployments** → the web
+   app's pencil → **Version: New version** → **Deploy**. The link stays the
+   same. When `appsscript.json` asks for more (0.17.0 added read-only
+   Calendar and Tasks), everyone is asked to allow it once more the next time
+   they open the app.
 
 ## Beyond 100 people: Google's verification
 
@@ -113,8 +121,10 @@ To lift the 100-person limit and the warning screen, Google has to verify
 the app: in Google Auth Platform → **Verification centre**, with a home page
 and privacy policy on a domain you own (supervertaler.com or beijer.uk
 would do), a short video showing the sign-in and what Supermail does with
-Gmail, and a reason for the `gmail.modify` permission. It is free but takes
-weeks. Apps whose Gmail data never leaves the user's device - the Chrome
+Gmail and with the calendar, and a reason for each permission: `gmail.modify`
+(restricted) for the board and the notes, `calendar.readonly` and
+`tasks.readonly` (sensitive, which need the review but no security
+assessment) for the Calendar tab. It is free but takes weeks. Apps whose Gmail data never leaves the user's device - the Chrome
 extension - can usually skip the paid security assessment that comes with
 Gmail access; the phone app, which runs on Apps Script, may not, which is a
 reason to move it to a plain web page first.

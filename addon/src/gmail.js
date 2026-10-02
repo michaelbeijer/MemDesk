@@ -44,14 +44,15 @@
     return req;
   }
 
-  function parse(res, method, path) {
+  function parse(res, method, path, who = 'Gmail') {
     const code = res.getResponseCode();
     const text = res.getContentText();
     if (code >= 200 && code < 300) return text ? JSON.parse(text) : {};
     let message = text;
     try { message = JSON.parse(text).error.message || text; } catch (e) { /* not JSON */ }
-    const err = new Error(`Gmail answered ${code} to ${method} ${path}: ${message}`);
+    const err = new Error(`${who} answered ${code} to ${method} ${path}: ${message}`);
     err.status = code;
+    err.detail = message;
     throw err;
   }
 
@@ -67,6 +68,20 @@
     return responses.map((res, i) => {
       try {
         return parse(res, list[i][0], list[i][1]);
+      } catch (err) {
+        return { error: err };
+      }
+    });
+  }
+
+  // Reads from Google's other APIs (the calendar's), each a whole URL
+  // that the caller has checked. Each result is the response, or { error }.
+  function getAll(urls) {
+    if (!urls.length) return [];
+    const responses = UrlFetchApp.fetchAll(urls.map(url => Object.assign({ url }, options('GET'))));
+    return responses.map((res, i) => {
+      try {
+        return parse(res, 'GET', urls[i].split('?')[0], 'Google');
       } catch (err) {
         return { error: err };
       }
@@ -109,5 +124,5 @@
     return call('POST', `messages/${encodeURIComponent(messageId)}/untrash`);
   }
 
-  ns.addonGmail = { call, callAll, insertNote, modifyLabels, modifyThread, trashNote, untrashNote, queryString };
+  ns.addonGmail = { call, callAll, getAll, insertNote, modifyLabels, modifyThread, trashNote, untrashNote, queryString };
 })();

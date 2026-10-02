@@ -1,12 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────
 // The phone app
 //
-// The extension's board and Notes view, full-screen, as the app itself:
-// the same Board and Notes tabs, columns, cards, notes, search, editor and
-// autosave, with the board's styles and a phone layout on top. On a phone
-// the board shows one column at a time, swiped sideways; the notes open
-// on the Scratchpad, under the search box; a folder or a search shows the
-// list instead, and a note opens full-screen. A first visit opens on the
+// The extension's board, Notes and Calendar, full-screen, as the app
+// itself: the same tabs, columns, cards, notes, search, editor, autosave
+// and calendar, with the board's styles and a phone layout on top. On a
+// phone the board shows one column at a time, swiped sideways; the notes
+// open on the Scratchpad, under the search box; a folder or a search
+// shows the list instead, and a note opens full-screen; the calendar is
+// the week as two columns of days, swiped to the next week. A first visit opens on the
 // notes; after that, on whichever tab was used last.
 //
 // A phone leaves pages without closing them, so whatever is pending is
@@ -26,11 +27,13 @@
 .overlay { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 
 @media (max-width: 760px) {
-  /* The header: the mark, the two tabs, refresh and the column settings;
-     gone while a note has the whole screen. */
+  /* The header: the mark, the three tabs, refresh and the column
+     settings; gone while a note has the whole screen. On a small phone
+     only the open tab says its name. */
   .bar { height: 56px; padding: 0 4px 0 12px; gap: 2px; }
   .brand > span:not(.logo), .account, .updated { display: none; }
-  .tabs { margin-left: 10px; }
+  .tabs { margin-left: 10px; min-width: 0; }
+  .tab { padding: 0 12px 0 10px; }
   :host([data-view="note"]) .bar { display: none; }
 
   /* The board: one column to a screen, swiped sideways. Cards move with
@@ -90,6 +93,9 @@
   .ne-body { padding: 10px 16px 40vh; font-size: 16px; }
   .ne-body[data-empty="1"]::before { left: 16px; }
 }
+@media (max-width: 480px) {
+  .tab[aria-selected="false"] { gap: 0; padding: 0 10px; font-size: 0; }
+}
 `;
 
   // Apps Script's history, if there is one, used so that nothing it does -
@@ -116,23 +122,28 @@
     let depth = 0;
     let stepping = false;
 
+    // Which folders are folded, which calendars show, on this phone. The
+    // page is only ever opened by its owner, so there is no account to
+    // key them by.
+    const prefs = {
+      get(name) {
+        try { return JSON.parse(localStorage.getItem(`supermail.${name}`) || 'null'); } catch (err) { return null; }
+      },
+      set(name, value) {
+        try { localStorage.setItem(`supermail.${name}`, JSON.stringify(value)); } catch (err) { /* storage off: not remembered */ }
+      },
+    };
+
     ns.boardFrame = {
       root,
       view: 'notes',
       // On a computer, typing goes straight into the Scratchpad. (A phone
       // would only pop its keyboard up over it, so there it waits for a tap.)
       focus: wide(),
+      // The script's own access covers the calendar: nothing to connect.
+      calendar: { prefs, connect: null },
       notes: {
-        // Which folders are folded, on this phone. The page is only ever
-        // opened by its owner, so there is no account to key it by.
-        prefs: {
-          get(name) {
-            try { return JSON.parse(localStorage.getItem(`supermail.${name}`) || 'null'); } catch (err) { return null; }
-          },
-          set(name, value) {
-            try { localStorage.setItem(`supermail.${name}`, JSON.stringify(value)); } catch (err) { /* storage off: not remembered */ }
-          },
-        },
+        prefs,
         // Each step in goes on the history, so the back gesture can undo it;
         // a step out taken in the app itself rewrites the top entry instead,
         // since nothing here can take an entry off.
@@ -171,6 +182,7 @@
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') ns.notes.flush();
       else if (ns.board.view() === 'notes') { if (ns.notes.isStale()) ns.notes.load(); }
+      else if (ns.board.view() === 'calendar') { if (ns.calendar.isStale()) ns.calendar.load(); }
       else ns.board.refreshIfStale();
     });
     window.addEventListener('pagehide', () => ns.notes.flush());

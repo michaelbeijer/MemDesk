@@ -34,12 +34,15 @@
   // symptom would be "Metadata scope does not support 'q' parameter" the
   // first time the column search ran. Asking for exactly one scope avoids
   // that whole class of surprise.
-  function buildAuthUrl({ clientId, redirectUri, loginHint, silent, state }) {
+  //
+  // scope is Gmail's unless another is asked for: the calendar has a
+  // sign-in of its own (see calendar-logic.js).
+  function buildAuthUrl({ clientId, redirectUri, loginHint, silent, state, scope }) {
     const p = new URLSearchParams();
     p.set('client_id', clientId);
     p.set('response_type', 'token');
     p.set('redirect_uri', redirectUri);
-    p.set('scope', SCOPE);
+    p.set('scope', [].concat(scope || SCOPE).join(' '));
     p.set('include_granted_scopes', 'false');
     if (loginHint) p.set('login_hint', loginHint);
     if (silent) p.set('prompt', 'none');
