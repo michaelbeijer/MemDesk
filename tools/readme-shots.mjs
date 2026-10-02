@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────────────
-// The README's pictures
+// The README's pictures, and the Chrome Web Store's
 //
 //   PLAYWRIGHT_CORE=/path/to/playwright-core node tools/readme-shots.mjs
 //
 // Screenshots of the real code - the board and notes in the dev preview,
 // the phone app as Code.gs serves it - running against the preview's fake
 // mailbox in its tidy "showcase" mode, then framed in a browser window and
-// phones by tools/readme-frames.mjs. Every name and address in them is
-// invented. Raw shots go to $SCREENS_DIR (default /tmp/readme-shots).
+// phones: the README's in images/, the store's screenshots and tile in
+// store/. Every name and address in them is invented. Raw shots go to
+// $SCREENS_DIR (default /tmp/readme-shots).
 // ─────────────────────────────────────────────────────────────────────
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -311,5 +312,40 @@ await compose('phone', 1200, 760, { cls: 'violet dots', html:
   at(phoneFrame('phone-note', { width: 300 }), 450, 30) +
   at(phoneFrame('phone-search-dark', { width: 300 }), 810, 70) });
 
+// ── The Chrome Web Store: 1280×800 screenshots, and the small tile ────
+//
+// JPEG, since the store takes no transparency.
+
+const STORE = join(REPO, 'store');
+mkdirSync(STORE, { recursive: true });
+// The store wants these at exactly their size: one pixel per pixel.
+const storePage = await browser.newPage({ deviceScaleFactor: 1, viewport: { width: 1280, height: 800 } });
+async function storeShot(name, width, height, cls, html) {
+  const file = join(RAW, `store-${name}.html`);
+  writeFileSync(file, `<!doctype html><meta charset="utf-8"><style>${CSS}
+.caption { position: absolute; left: 0; right: 0; top: 26px; text-align: center; font: 500 27px/1.2 Roboto, Arial, sans-serif; color: #2e1065; }
+.violet .caption { color: #fff; }</style><div class="canvas ${cls}" style="width:${width}px;height:${height}px">${html}</div>`);
+  await storePage.setViewportSize({ width, height });
+  await storePage.goto(pathToFileURL(file).href);
+  await storePage.waitForLoadState('load');
+  await storePage.screenshot({ path: join(STORE, `${name}.jpg`), type: 'jpeg', quality: 92 });
+}
+const caption = text => `<div class="caption">${text}</div>`;
+const APP_NAME = /APP_NAME = '([^']+)'/.exec(readFileSync(join(REPO, 'src', 'shared', 'ns.js'), 'utf8'))[1];
+const storeWindow = (img, opts = {}) => at(browserWindow(img, { width: 980, ...opts }), 150, 84);
+await storeShot('screenshot-1', 1280, 800, 'violet dots', caption('A Kanban board and a notebook, inside Gmail') +
+  at(browserWindow('board', { width: 930 }), 60, 92) + at(phoneFrame('phone-home', { width: 240 }), 950, 150));
+await storeShot('screenshot-2', 1280, 800, 'soft dots', caption('Every card is an email: drag it to the next column') + storeWindow('board'));
+await storeShot('screenshot-3', 1280, 800, 'soft dots', caption('Notes in your own mailbox, with folders and a Scratchpad') + storeWindow('notes-scratch'));
+await storeShot('screenshot-4', 1280, 800, 'soft dots', caption('Search shows you where the words are') + storeWindow('notes-search'));
+await storeShot('screenshot-5', 1280, 800, 'soft dots', caption('File the email you are reading, without leaving it') +
+  storeWindow('gmail-dock', { title: 'Termbase export won’t open', url: 'mail.google.com/mail/u/0/#inbox/18f2a3b4c5d6e025' }));
+await storeShot('promo-small', 440, 280, 'violet dots', `
+  <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#fff;font-family:Roboto,Arial,sans-serif">
+    <div style="width:92px;height:92px">${ICON}</div>
+    <div style="font-size:38px;font-weight:500;letter-spacing:.2px">${APP_NAME}</div>
+    <div style="font-size:16px;opacity:.92">A Kanban board and a notebook, inside Gmail</div>
+  </div>`);
+
 await browser.close();
-console.log(`Raw screenshots in ${RAW}; framed ones in images/`);
+console.log(`Raw screenshots in ${RAW}; framed ones in images/, the store's in store/`);

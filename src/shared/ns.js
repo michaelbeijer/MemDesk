@@ -50,7 +50,17 @@
     dock: 'gkb-dock-host',
   };
 
+  // The publisher's own OAuth client, for the build that goes to the
+  // Chrome Web Store: with it, a user just clicks "Connect Gmail" and needs
+  // no Google Cloud project of their own. Empty here, on purpose:
+  // tools/package-extension.mjs writes it into the store build only, so a
+  // copy loaded from this repository (or a fork) brings its own client,
+  // as SETUP.md describes, rather than using up the publisher's quota of
+  // users. A client ID saved on the setup page always wins.
+  const BUILT_IN_CLIENT_ID = '';
+
   ns.APP_NAME = APP_NAME;
+  ns.BUILT_IN_CLIENT_ID = BUILT_IN_CLIENT_ID;
   ns.KEYS = KEYS;
   ns.HOST_IDS = HOST_IDS;
 

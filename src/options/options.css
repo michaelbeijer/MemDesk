@@ -163,6 +163,11 @@ kbd { border: 1px solid var(--border-strong); border-bottom-width: 2px; }
 .status.muted { color: var(--fg-3); }
 
 .test-row { display: flex; align-items: center; gap: 16px; margin-top: 12px; }
+/* Your own Google Cloud project: the whole setup when there is no client
+   built in; tucked away under one line when there is. */
+.own-project { margin: 0; }
+.own-project > summary { cursor: pointer; margin: 4px 0 16px; padding: 6px 4px; color: var(--fg-2); font-weight: 500; }
+.own-project.plain > summary { display: none; }
 .test-row .status { margin: 0; }
 
 .radio-group { border: 0; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 24px; }

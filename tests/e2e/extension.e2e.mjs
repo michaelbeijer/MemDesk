@@ -23,8 +23,8 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -51,7 +51,7 @@ const FAKE_GMAIL = `<!doctype html>
   </div>
 </body></html>`;
 
-async function launch(userDataDir) {
+async function launch(userDataDir, extension = REPO) {
   return chromium.launchPersistentContext(userDataDir, {
     executablePath: findChromium(),
     headless: !HEADED,
@@ -59,8 +59,8 @@ async function launch(userDataDir) {
     // Playwright adds --disable-extensions by default.
     ignoreDefaultArgs: ['--disable-extensions'],
     args: [
-      `--disable-extensions-except=${REPO}`,
-      `--load-extension=${REPO}`,
+      `--disable-extensions-except=${extension}`,
+      `--load-extension=${extension}`,
       '--no-first-run',
     ],
   });
@@ -207,6 +207,35 @@ try {
     await until(() => gmail.locator('.dock').evaluate(e => e.classList.contains('right')), 'dock moved right live');
     await options.reload();
     assert.equal(await options.locator('#client-id').inputValue(), '123456789012-abcdef.apps.googleusercontent.com');
+  });
+
+  await r.step('the store build: one “Connect Gmail” button, your own project tucked away', async () => {
+    const { build } = await import('../../tools/package-extension.mjs');
+    const dir = mkdtempSync(join(tmpdir(), 'ext-store-'));
+    const prof = mkdtempSync(join(tmpdir(), 'ext-store-profile-'));
+    for (const { name, data } of build({ clientId: '123456789012-storebuild.apps.googleusercontent.com' }).entries) {
+      mkdirSync(dirname(join(dir, name)), { recursive: true });
+      writeFileSync(join(dir, name), data);
+    }
+    const store = await launch(prof, dir);
+    try {
+      let worker = store.serviceWorkers()[0] || await store.waitForEvent('serviceworker', { timeout: 15000 });
+      const id = new URL(worker.url()).host;
+      assert.notEqual(id, EXPECTED_ID, 'no key: an ID of its own');
+      const page = await store.newPage();
+      watchErrors(page, errors, '[store options] ');
+      await page.goto(`chrome-extension://${id}/src/options/options.html`);
+      await page.locator('#connect').waitFor();
+      assert.equal(await page.locator('#connect-card').isVisible(), true);
+      assert.equal(await page.locator('#own-project').evaluate(d => d.open), false, 'your own project, folded away');
+      assert.equal(await page.locator('#client-id').isVisible(), false);
+      assert.match(await page.locator('#connect-card').innerText(), /Go to Supermail/);
+      await page.screenshot({ path: join(SCREENS, 'options-store.png'), fullPage: true, animations: 'disabled' });
+    } finally {
+      await store.close().catch(() => {});
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(prof, { recursive: true, force: true });
+    }
   });
 
   await r.step('no console errors on the options page or in Gmail', async () => {
