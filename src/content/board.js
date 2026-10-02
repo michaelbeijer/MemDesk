@@ -12,7 +12,7 @@
   'use strict';
 
   const ns = (globalThis.gkb = globalThis.gkb || {});
-  const { h, icon, mountShadow, toast, openMenu, closeMenu, isMenuOpen } = ns.ui;
+  const { h, icon, logo, mountShadow, toast, openMenu, closeMenu, isMenuOpen } = ns.ui;
   const { util, logic, store, hooks, api, APP_NAME, HOST_IDS, KEYS } = ns;
 
   // States with a panel of their own, shown whichever tab is open: they
@@ -85,7 +85,7 @@
 
     const bar = h('header', { class: 'bar' },
       h('h1', { class: 'brand' },
-        h('span', { class: 'logo' }, icon('board', 26)),
+        h('span', { class: 'logo' }, logo(26)),
         h('span', { text: APP_NAME })),
       els.tabs,
       els.account,

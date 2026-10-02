@@ -519,6 +519,7 @@ test('the app page: served by doGet, titled, sized for a phone, with the notes v
   const out = p.addon.doGet({}).output;
   assert.equal(out.title, 'Supermail notes');
   assert.deepEqual(out.meta, [['viewport', 'width=device-width, initial-scale=1, viewport-fit=cover']]);
+  assert.equal(out.favicon, 'https://raw.githubusercontent.com/michaelbeijer/Supermail/main/icons/icon-192.png', 'our icon, not Apps Script\'s');
   assert.match(out.html, /^<!DOCTYPE html>/);
   // The modules are packed in base64url inside one loader script, in order,
   // each exactly its source file.

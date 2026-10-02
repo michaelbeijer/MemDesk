@@ -172,9 +172,17 @@
       return HtmlService.createHtmlOutput(`<p style="font: 16px/1.5 Arial, sans-serif; padding: 24px">${ns.APP_NAME} ${globalThis.SUPERMAIL_VERSION || ''}: ` +
         `the script runs, and its page is ${html.length} characters long.</p>`).setTitle(`${ns.APP_NAME} notes`);
     }
-    return HtmlService.createHtmlOutput(html || '<p>The app is not built into this Code.gs.</p>')
+    const out = HtmlService.createHtmlOutput(html || '<p>The app is not built into this Code.gs.</p>')
       .setTitle(`${ns.APP_NAME} notes`)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
+    // Our icon rather than Apps Script's, in the tab and on the home screen.
+    // Only a nicety: a refused address must not cost the page.
+    try {
+      if (globalThis.SUPERMAIL_ICON_URL) out.setFaviconUrl(globalThis.SUPERMAIL_ICON_URL);
+    } catch (err) {
+      console.warn(`The icon was not set: ${err.message}`);
+    }
+    return out;
   }
 
   ns.app = { page, list, body, save, retire, restore, move, createFolder, renameFolder, deleteFolder };

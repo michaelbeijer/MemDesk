@@ -15,12 +15,13 @@
   'use strict';
 
   const ns = (globalThis.gkb = globalThis.gkb || {});
-  const { h, icon, mountShadow, toast } = ns.ui;
+  const { h, icon, logo, mountShadow, toast } = ns.ui;
 
   const PHONE = `
 :host { position: fixed !important; inset: 0 !important; }
 .overlay { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 .app-head { display: flex; align-items: center; gap: 8px; padding: 8px 8px 4px 20px; flex: none; }
+.app-logo { display: flex; margin-right: 4px; }
 .app-title { flex: 1; font-size: 20px; color: var(--fg); }
 
 @media (max-width: 760px) {
@@ -88,6 +89,7 @@
     let noteOnHistory = false;
 
     const head = h('header', { class: 'app-head' },
+      h('span', { class: 'app-logo' }, logo(28)),
       h('span', { class: 'app-title', text: 'Notes' }),
       h('button', {
         class: 'icon-btn', type: 'button', title: 'Refresh', 'aria-label': 'Refresh', dataset: { key: 'app-refresh' },

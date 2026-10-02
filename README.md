@@ -1,4 +1,84 @@
-# Supermail
+<p align="center">
+  <img src="icons/icon.svg" width="112" height="112" alt="">
+</p>
+
+<h1 align="center">Supermail</h1>
+
+<p align="center">
+  <b>A Kanban board and a notebook, inside Gmail.</b><br>
+  Every card is an email. Every note is a message in your own mailbox.<br>
+  No server, no database, nothing to sign up for.
+</p>
+
+<p align="center">
+  <img alt="Version 0.13.0" src="https://img.shields.io/badge/version-0.13.0-6D28D9">
+  <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
+  <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
+  <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
+  <a href="LICENSE"><img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-A78BFA"></a>
+</p>
+
+<p align="center">
+  <a href="#what-it-does">What it does</a> ·
+  <a href="SETUP.md">Set it up</a> ·
+  <a href="#usage">How to use it</a> ·
+  <a href="#privacy">Privacy</a>
+</p>
+
+<p align="center">
+  <img src="images/hero.jpg" width="100%" alt="The board inside Gmail on a computer, with the notes app open on a phone in front of it">
+</p>
+
+## What it does
+
+### 📋 A board made of your email
+
+Columns are Gmail labels and cards are threads. Drag a card and its label
+moves with it; drop it on **Done** and it leaves the Inbox. Give a card your
+own title, a note and a colour without touching the email itself. Light or
+dark, as Chrome is.
+
+<img src="images/board.jpg" width="100%" alt="The board in Gmail: To do, Doing, Waiting and Done, half in light mode and half in dark">
+
+### ✉️ Right where you read
+
+While you read an email, one button at the bottom of Gmail says where it is on
+the board, and files it in a column without opening the board.
+
+<img src="images/gmail.jpg" width="100%" alt="An email open in Gmail, with the On board: Doing menu open below it">
+
+### 📝 Notes that live in Gmail
+
+Headings, bold and italics, lists, checklists you tick, links. Notes save as
+you type, and a paste from Word, Google Docs, a web page or Markdown arrives
+formatted. Folders nest as deep as you like, and fold away when the tree gets
+long.
+
+<img src="images/notes.jpg" width="100%" alt="The notes: nested folders on the left, the list in the middle, a checklist note open on the right">
+
+### 🔎 Search that shows you where
+
+The words you searched for are marked in the list and in the open note, with
+a find bar to step from one to the next.
+
+<img src="images/search.jpg" width="100%" alt="A search for termbase, marked in the results and in the open note">
+
+### 📱 And on your phone
+
+A panel in the Gmail app files the open email on the board, ticks your
+checklists and adds to a note. A home-screen app gives you the notes
+themselves, full-screen, with the same editor, folders and search.
+
+<img src="images/phone.jpg" width="100%" alt="Three phones: the folder tree, a checklist note, and search results in dark mode">
+
+### 🔒 Yours alone
+
+There is no Supermail server and no account to make. The board and the notes
+are views of your own mailbox, through Google's API, from your own browser.
+Supermail never sends mail and never deletes anything for good. See
+[Privacy](#privacy).
+
+## How it works
 
 A Kanban board and a notes system inside Gmail, for one person, backed
 entirely by Gmail itself.
@@ -396,6 +476,9 @@ The display name appears in exactly these places:
 5. `addon/appsscript.json`: `"addOns"."common"."name"`, the phone panel's name
    (its cards take theirs from `APP_NAME`; rebuild `addon/Code.gs` after a rename)
 6. The setup page title. It is set from `APP_NAME` at runtime, so no edit is needed.
+7. The icon's letters: `RUNS` in `tools/icon-svg.py`; then run it and
+   `tools/make-icons.mjs` again, and copy the new path into `LOGO` in
+   `src/content/ui.js` (a test says if they differ).
 
 Nothing internal carries the name: not the `gkb` namespace, the storage keys
 (`clientId`, `columns:<email>`, `order:<email>`), the CSS classes or the element
@@ -458,12 +541,23 @@ scripts against a fake `chrome.*` and an in-memory mailbox of about 25 invented
 threads. A strip at the top toggles an open thread, sends the shortcut, and
 switches between states: `?state=auth_required`, `?state=not_configured`,
 `?fail=modify`, `?fresh` (no labels yet), `?page=3` (truncated columns) and
-`?latency=600`.
+`?latency=600`. `?showcase` swaps the test notes for tidy ones in a deeper
+folder tree, for pictures.
 
 ### Icons
 
-`node tools/make-icons.mjs` redraws `icons/icon-*.png` from code, with a tiny
-PNG encoder and no image library.
+`icons/icon.svg` is the drawing: "Sm" on a violet circle, a member of the
+[Supervertaler](https://supervertaler.com) family of icons. `python3
+tools/icon-svg.py` draws it (the letters are turned into paths from Liberation
+Sans Bold, so it needs `fonttools`), and `node tools/make-icons.mjs` renders it
+with Chromium to `icons/icon-{16,32,48,128,192}.png`. The mark inside the app
+is the same drawing, kept in step by a test.
+
+### The README's pictures
+
+`node tools/readme-shots.mjs` takes them: the real board and notes in the dev
+preview, and the real phone app, against the fake mailbox in its tidy
+`?showcase` mode, framed in a browser window and phones, into `images/`.
 
 ## Layout
 
@@ -505,7 +599,11 @@ addon/                     the phone panel and phone app (Apps Script)
   app/shell.js             its full-screen frame and phone layout
 tests/                     unit tests; tests/e2e/ browser checks;
                            helpers/apps-script.js, a stand-in Apps Script
-tools/make-icons.mjs       icon generator
+icons/icon.svg             the icon; icon-*.png are rendered from it
+images/                    the README's pictures
+tools/icon-svg.py          draws icons/icon.svg
+tools/make-icons.mjs       renders the icon PNGs
+tools/readme-shots.mjs     takes the README's pictures
 tools/build-addon.mjs      builds addon/Code.gs
 SETUP.md                   step-by-step setup, for anyone
 LICENSE                    MIT

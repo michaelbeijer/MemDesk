@@ -121,6 +121,9 @@ const HEADER = `// The phone panel and phone app ${VERSION}: a Gmail add-on and 
 var SUPERMAIL_NOTES_LABEL = '_Notes';
 var SUPERMAIL_BOARD_LABEL = '_Board';
 
+// The phone app's icon, in the browser tab and on the home screen.
+var SUPERMAIL_ICON_URL = 'https://raw.githubusercontent.com/michaelbeijer/Supermail/main/icons/icon-192.png';
+
 var SUPERMAIL_VERSION = '${VERSION}';
 
 // Apps Script has a global object but may not name it globalThis.

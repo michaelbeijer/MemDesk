@@ -17,6 +17,8 @@
 //   ?fresh                 no _Board/* or _Notes labels yet, so they get created
 //   ?page=N                cap list pages at N threads (shows truncation)
 //   ?latency=MS            simulated round-trip time (default 120)
+//   ?showcase              tidy notes and a deeper folder tree instead of the
+//                          test notes, for the README's pictures
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -28,12 +30,13 @@
   const FAIL = params.get('fail') || '';
   const PAGE_CAP = Number(params.get('page') || 0);
   const FRESH = params.has('fresh');
-  const ACCOUNT = 'test@example.com';
+  const SHOWCASE = params.has('showcase');
+  const ACCOUNT = SHOWCASE ? 'sam@example.com' : 'test@example.com';
 
   // ── People ───────────────────────────────────────────────────────────
 
   const P = {
-    me: 'Sam Test <test@example.com>',
+    me: `${SHOWCASE ? 'Sam' : 'Sam Test'} <${ACCOUNT}>`,
     ingrid: 'Ingrid Vos <ingrid@halverson-vos.example>',
     tomas: 'Tomás Ferreira <tomas.ferreira@lumenra-bio.example>',
     brightwater: 'Brightwater Accounts <accounts@brightwater-language.example>',
@@ -268,7 +271,95 @@
     });
   }
 
-  if (!FRESH) {
+  // Written as the editor writes them: the HTML part is the record, the
+  // text part is for anything that cannot show HTML.
+  function seedRich(noteId, title, html, hoursAgo, labelIds) {
+    const text = html
+      .replace(/<span data-glyph="1">([^<]*)&nbsp;<\/span>/g, '$1 ')
+      .replace(/<\/(p|h2|h3|li)>/g, '\n').replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\n+$/, '');
+    return addMessageThread({
+      hoursAgo,
+      labelIds,
+      headers: [{ name: 'Subject', value: title }, { name: NOTE_HEADER, value: noteId }],
+      payload: {
+        mimeType: 'multipart/alternative',
+        parts: [
+          { mimeType: 'text/plain', headers: [{ name: 'Content-Type', value: 'text/plain; charset=UTF-8' }],
+            body: { data: b64url(toBinary(text.replace(/\n/g, '\r\n'))) } },
+          { mimeType: 'text/html', headers: [{ name: 'Content-Type', value: 'text/html; charset=UTF-8' }],
+            body: { data: b64url(toBinary(`<div data-gkb-note="1">${html}</div>`)) } },
+        ],
+      },
+      snippet: text.replace(/\s+/g, ' ').slice(0, 140),
+    });
+  }
+  const ck = (done, text, sub = '') =>
+    `<li data-checked="${done ? 1 : 0}"><span data-glyph="1">${done ? '\u2611' : '\u2610'}&nbsp;</span>${text}${sub}</li>`;
+  const checks = (...items) => `<ul data-check="1">${items.join('')}</ul>`;
+  const list = (tag, ...items) => `<${tag}>${items.map(i => `<li>${i}</li>`).join('')}</${tag}>`;
+
+  if (SHOWCASE) {
+    const root = addUserLabel('_Notes').id;
+    const f = name => addUserLabel(`_Notes/${name}`).id;
+    const work = f('Work');
+    f('Work/Clients');
+    const kestrel = f('Work/Clients/Kestrel Medical');
+    const lumenra = f('Work/Clients/Lumenra Biotech');
+    const admin = f('Work/Admin');
+    const ideas = f('Ideas');
+    const personal = f('Personal');
+    const recipes = f('Personal/Recipes');
+    seedRich('showcaseweek000001', 'This week',
+      '<h2>Before Friday</h2>' +
+      checks(
+        ck(true, 'Kestrel IFU – final proofread'),
+        ck(true, 'Send invoice 2026-131 to Lumenra'),
+        ck(false, 'Office action response, claims 1–12',
+          checks(ck(true, 'Check the examiner’s citations'), ck(false, 'Amended claims to Bram by the 9th'))),
+        ck(false, 'Quote for Ingrid: DE→EN patent, 14,200 words'),
+        ck(false, 'Renew the Guild membership')) +
+      '<p>The filing deadline moved to <b>Thursday 10:00</b> – see <a href="https://example.com/portal">the portal</a>.</p>',
+      0.6, [root, work]);
+    seedRich('showcasekestrel0002', 'Style decisions',
+      '<h2>Terminology</h2>' +
+      list('ul', '“coating” stays <b>coating</b>, never “layer”', '<i>IFU</i> = instructions for use, spelled out once',
+        'Decimal commas in every table', '“shall” for requirements, “must” for warnings') +
+      '<h2>Contacts</h2><p>Priya Raman, regulatory – prefers tracked changes, one file per language.</p>',
+      3, [root, kestrel]);
+    seedRich('showcaselumenra0003', 'Glossary to-dos',
+      checks(ck(true, 'Merge the two stent glossaries'), ck(false, 'Ask Tomás about “eluting” vs “releasing”'),
+        ck(false, 'Lock the termbase before batch 4')),
+      26, [root, lumenra]);
+    seedRich('showcaseideas000004', 'October newsletter',
+      '<p>Three pieces, about 600 words each:</p>' +
+      list('ol', 'Termbase hygiene in five minutes a week', 'Patent claims: why the commas matter', 'Reader question: CAT tools and Markdown') +
+      '<p><i>Send to Clara for a read-through by the 20th.</i></p>',
+      5, [root, ideas]);
+    seedRich('showcaserates00005', 'Rates for 2027',
+      list('ul', 'Translation DE/NL→EN: <b>€0.14</b> a word', 'Proofreading: <b>€0.05</b> a word', 'Rush, under 48 hours: <b>+30 %</b>', 'Minimum charge: <b>€45</b>') +
+      '<p>Revisit in December, after the Guild survey.</p>',
+      52, [root, admin]);
+    seedRich('showcasetalk000006', 'Conference talk – outline',
+      '<h2>Terminology that survives a project</h2>' +
+      list('ol', 'Why glossaries drift', 'Three checks that catch most of it', 'A live demo: from client list to termbase', 'Questions') +
+      '<p>20 minutes, slides by the 1st.</p>',
+      170, [root, ideas]);
+    seedRich('showcasestroop00007', 'Stroopwafels',
+      '<h2>Dough</h2>' + list('ul', '500 g flour', '250 g butter', '1 egg, 7 g yeast, a pinch of salt') +
+      '<h2>Filling</h2>' + list('ul', '200 g dark syrup', '150 g brown sugar', '50 g butter, a teaspoon of cinnamon') +
+      '<p>Press for <b>45 seconds</b>, split while hot.</p>',
+      100, [root, recipes]);
+    seedRich('showcaseshop000008', 'Shopping list',
+      checks(ck(true, 'Espresso beans'), ck(false, 'Oat milk'), ck(false, 'Printer paper'), ck(true, 'Stamps')),
+      28, [root, personal]);
+    seedRich('showcasebooks00009', 'Books to read',
+      list('ul', '<i>The Translator’s Invisibility</i> – Venuti', '<i>Is That a Fish in Your Ear?</i> – Bellos', '<i>Found in Translation</i> – Kelly &amp; Zetzsche'),
+      240, [root, personal]);
+    seedRich('showcaseideas000010', 'Quick ideas',
+      list('ul', 'Template reply for “can you start today?”', 'Colour-code the board by client?', 'Read the new ISO 17100 draft'),
+      400, [root]);
+  } else if (!FRESH) {
     const notesLabel = addUserLabel('_Notes').id;
     const work = addUserLabel('_Notes/Work').id;
     const clients = addUserLabel('_Notes/Work/Clients').id;

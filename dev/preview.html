@@ -93,7 +93,8 @@
   (function () {
     'use strict';
     const box = window.__fakeGmail;
-    document.title = 'Inbox (12) - test@example.com - Gmail';
+    const account = window.__mockChrome.account;
+    document.title = `Inbox (12) - ${account} - Gmail`;
 
     function el(tag, attrs, ...kids) {
       const n = document.createElement(tag);
@@ -129,7 +130,7 @@
       el('div', { class: 'logo' }, el('span', { class: 'env' }), 'Mail'),
       el('div', { class: 'searchbar' }, 'Search mail'),
       el('div', { class: 'spacer' }),
-      el('a', { class: 'avatar', href: '#', 'aria-label': 'Google Account: Sam Test  \n(test@example.com)' }, 'S'));
+      el('a', { class: 'avatar', href: '#', 'aria-label': `Google Account: Sam Test  \n(${account})` }, 'S'));
 
     const nav = el('nav', {});
     const main = el('main', { role: 'main' });

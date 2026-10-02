@@ -104,6 +104,31 @@
     return svg;
   }
 
+  // The app's mark: "Sm" on a violet circle, as icons/icon.svg draws
+  // it (a test keeps the two the same).
+  const LOGO = {
+    colours: ['#6D28D9', '#9F67FA'],
+    letters: 'M60.09 76.73Q60.09 82.98 55.45 86.29Q50.81 89.6 41.83 89.6Q33.64 89.6 28.99 86.7Q24.33 83.8 23 77.9L31.62 76.48Q32.49 79.87 35.03 81.4Q37.57 82.92 42.08 82.92Q51.42 82.92 51.42 77.24Q51.42 75.43 50.34 74.25Q49.27 73.07 47.32 72.28Q45.37 71.5 39.84 70.38Q35.06 69.26 33.19 68.58Q31.31 67.9 29.8 66.98Q28.29 66.05 27.23 64.75Q26.17 63.45 25.58 61.7Q25 59.95 25 57.68Q25 51.91 29.33 48.84Q33.67 45.77 41.96 45.77Q49.88 45.77 53.85 48.25Q57.83 50.73 58.98 56.44L50.33 57.62Q49.66 54.87 47.62 53.48Q45.58 52.09 41.77 52.09Q33.67 52.09 33.67 57.17Q33.67 58.83 34.53 59.89Q35.39 60.95 37.09 61.69Q38.78 62.43 43.95 63.54Q50.09 64.84 52.73 65.95Q55.38 67.05 56.92 68.52Q58.46 69.98 59.28 72.02Q60.09 74.07 60.09 76.73Z M82.08 89.92V74.69Q82.08 67.54 77.96 67.54Q75.83 67.54 74.49 69.73Q73.15 71.91 73.15 75.37V89.92H66.1V68.85Q66.1 66.67 66.04 65.28Q65.97 63.88 65.9 62.78H72.62Q72.7 63.26 72.82 65.33Q72.95 67.39 72.95 68.17H73.05Q74.35 65.06 76.29 63.66Q78.24 62.25 80.95 62.25Q87.17 62.25 88.5 68.17H88.65Q90.03 65.01 91.96 63.63Q93.89 62.25 96.87 62.25Q100.84 62.25 102.92 64.95Q105 67.65 105 72.69V89.92H98V74.69Q98 67.54 93.89 67.54Q91.83 67.54 90.52 69.54Q89.2 71.53 89.07 75.04V89.92Z',
+  };
+  let logoCount = 0;
+
+  function logo(size = 28) {
+    const el = (tag, attrs) => {
+      const n = document.createElementNS(SVG_NS, tag);
+      for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+      return n;
+    };
+    // Each copy its own gradient id: two marks in one page must not share.
+    const id = `gkb-logo-${++logoCount}`;
+    const grad = el('linearGradient', { id, x1: '0', y1: '0', x2: '1', y2: '1' });
+    grad.append(el('stop', { offset: '0', 'stop-color': LOGO.colours[0] }), el('stop', { offset: '1', 'stop-color': LOGO.colours[1] }));
+    const defs = el('defs', {});
+    defs.append(grad);
+    const svg = el('svg', { viewBox: '8 8 112 112', width: String(size), height: String(size), 'aria-hidden': 'true', focusable: 'false', class: 'logo-mark' });
+    svg.append(defs, el('circle', { cx: '64', cy: '64', r: '56', fill: `url(#${id})` }), el('path', { d: LOGO.letters, fill: '#fff' }));
+    return svg;
+  }
+
   // ── Shadow hosts ─────────────────────────────────────────────────────
 
   function adoptStyles(root, cssText) {
@@ -273,5 +298,5 @@
     return close;
   }
 
-  ns.ui = { h, append, icon, mountShadow, toast, openMenu, closeMenu, isMenuOpen };
+  ns.ui = { h, append, icon, logo, LOGO, mountShadow, toast, openMenu, closeMenu, isMenuOpen };
 })();

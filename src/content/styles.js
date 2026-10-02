@@ -294,7 +294,7 @@ button:disabled { cursor: default; }
   color: var(--fg);
   white-space: nowrap;
 }
-.brand .logo { color: var(--accent); }
+.brand .logo { display: flex; }
 .brand .dim { color: var(--fg-3); }
 .account {
   margin-left: 14px;
