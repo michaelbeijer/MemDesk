@@ -36,30 +36,27 @@
     <section class="card" aria-labelledby="setup-title">
       <h2 id="setup-title">One-time Google setup</h2>
       <p class="hint">
-        Use the Google Cloud project you already set up for your dashboard. Its Gmail API is
-        enabled and its consent screen is Internal, so all you need is one new OAuth client.
+        The extension talks to Gmail from this browser with your own Google Cloud project - free, and about
+        ten minutes, once. Nothing is sent anywhere else. The full guide, with pictures of each screen, is
+        <a href="https://github.com/michaelbeijer/Supermail/blob/main/SETUP.md" target="_blank" rel="noopener">SETUP.md</a>.
       </p>
       <ol class="steps">
         <li>
-          In <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">APIs &amp; Services → Credentials</a>,
-          choose <b>Create credentials → OAuth client ID</b>, application type <b>Web application</b>.
+          Create a project at <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">console.cloud.google.com</a>,
+          then turn on the <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank" rel="noopener">Gmail API</a> in it.
         </li>
-        <li>Under <b>Authorised redirect URIs</b>, add the redirect URI above, exactly as shown.</li>
-        <li>Create it, then paste the <b>Client ID</b> below. No client secret is needed.</li>
         <li>
-          Optional: under <b>Google Auth Platform → Data access</b>, add the
-          <code>…/auth/gmail.modify</code> scope, so the consent screen lists what this asks for.
+          Set up the <a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noopener">consent screen</a>:
+          audience <b>Internal</b> on a Google Workspace account; on an @gmail.com account, <b>External</b>, and then
+          <b>Publish app</b> (no review is needed for yourself, and it stops Google asking you to sign in again every week).
         </li>
+        <li>
+          In <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Credentials</a>,
+          choose <b>Create credentials → OAuth client ID</b>, application type <b>Web application</b>, and under
+          <b>Authorised redirect URIs</b> add the redirect URI above, exactly as shown.
+        </li>
+        <li>Create it, then paste the <b>Client ID</b> below. No client secret is needed.</li>
       </ol>
-      <details class="fallback">
-        <summary>Starting from a fresh Cloud project instead?</summary>
-        <ol>
-          <li>Create a project at <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a>.</li>
-          <li>APIs &amp; Services → Library → <b>Gmail API</b> → Enable.</li>
-          <li>Set up the OAuth consent screen with user type <b>Internal</b> (available on Google Workspace accounts; it avoids Google's review and the seven-day token limit of test mode).</li>
-          <li>Then follow the four steps above.</li>
-        </ol>
-      </details>
     </section>
 
     <section class="card" aria-labelledby="client-title">

@@ -25,11 +25,12 @@
   // ── Authorisation URL ────────────────────────────────────────────────
 
   // include_granted_scopes is deliberately false. Google treats every
-  // OAuth client in a Cloud project as one app, and this one shares a
-  // project with the dashboard, which holds a gmail.metadata grant. With
-  // incremental auth switched on, that grant would be folded into this
-  // token - and the Gmail API applies metadata-scope restrictions to any
-  // token carrying gmail.metadata, even alongside gmail.modify. The visible
+  // OAuth client in a Cloud project as one app, and the project may well
+  // hold other clients - another tool of your own with a gmail.metadata
+  // grant, say. With incremental auth switched on, such a grant would be
+  // folded into this token - and the Gmail API applies metadata-scope
+  // restrictions to any token carrying gmail.metadata, even alongside
+  // gmail.modify. The visible
   // symptom would be "Metadata scope does not support 'q' parameter" the
   // first time the column search ran. Asking for exactly one scope avoids
   // that whole class of surprise.
