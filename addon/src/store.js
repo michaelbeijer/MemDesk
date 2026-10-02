@@ -63,10 +63,19 @@
   }
 
   // Newest first, one entry per note: every note, one folder's, or what
-  // a Gmail search finds among them.
+  // a Gmail search finds among them. A search reads the notes in full -
+  // each with `doc`, its content - so the results can show where the
+  // words are.
   function list(ctx, { folderId = '', query = '', max = 20 } = {}) {
     const r = gmail.call('GET', 'messages', { labelIds: folderId || ctx.root.id, q: query || undefined, maxResults: max + 10 });
-    const notes = metadata(r.messages || []).map(m => describe(ctx, m));
+    const refs = r.messages || [];
+    const notes = query
+      ? gmail.callAll(refs.map(m => ['GET', `messages/${m.id}`, { format: 'full' }])).filter(m => m && !m.error).map(m => {
+        const n = describe(ctx, m);
+        n.doc = fmt.docFromParts(n.parts || {});
+        return n;
+      })
+      : metadata(refs).map(m => describe(ctx, m));
     const { live } = notesLogic.dedupeNotes(notes);
     return { notes: live.slice(0, max), more: live.length > max || !!r.nextPageToken };
   }

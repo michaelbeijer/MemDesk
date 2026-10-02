@@ -133,15 +133,24 @@
 
     const list = CardService.newCardSection().setHeader(query ? `${where}: “${query}”` : where);
     if (!notes.length) list.addWidget(greyText(query ? 'No notes match that search.' : 'No notes here yet.'));
+    const terms = query ? ns.searchLogic.queryTerms(query) : [];
     notes.forEach(n => {
       const item = CardService.newDecoratedText()
-        .setText(panel.esc(n.title))
         .setWrapText(true)
-        .setOnClickAction(action('onOpenNote', { messageId: n.messageId }));
-      const sub = panel.noteSubtitle(n, ctx.folders);
-      if (sub) item.setTopLabel(sub);
+        .setOnClickAction(action('onOpenNote', { messageId: n.messageId, q: query }));
+      let sub = panel.noteSubtitle(n, ctx.folders);
       const snippet = String(n.snippet || '').replace(/\s+/g, ' ').trim();
-      if (snippet) item.setBottomLabel(snippet.length > 90 ? `${snippet.slice(0, 89)}…` : snippet);
+      if (terms.length && n.doc) {
+        // A search result: where the words are, as in Chrome.
+        const r = panel.searchResult(n.title, n.doc, terms);
+        item.setText(r.excerpts.length ? `${r.titleHtml}<br>${r.excerpts.join('<br>')}` : r.titleHtml);
+        if (r.count) sub = [sub, panel.matchCount(r.count)].filter(Boolean).join(' \u00b7 ');
+        else if (snippet) item.setBottomLabel(snippet.length > 90 ? `${snippet.slice(0, 89)}…` : snippet);
+      } else {
+        item.setText(panel.esc(n.title));
+        if (snippet) item.setBottomLabel(snippet.length > 90 ? `${snippet.slice(0, 89)}…` : snippet);
+      }
+      if (sub) item.setTopLabel(sub);
       list.addWidget(item);
     });
     if (more) list.addWidget(greyText(`The newest ${LIST_SIZE} are shown. Search to find older notes.`));
@@ -159,13 +168,25 @@
 
   // ── One note ─────────────────────────────────────────────────────────
 
-  function noteCard(ctx, opened, { addText = '', addAs = '', notice = '' } = {}) {
+  // `query`: the search the note was opened from, whose words are marked.
+  function noteCard(ctx, opened, { addText = '', addAs = '', notice = '', query = '' } = {}) {
     const { note, doc } = opened;
-    const { items, hidden } = panel.cardItems(doc, { maxBlocks: MAX_BLOCKS });
+    const terms = query ? ns.searchLogic.queryTerms(query) : [];
+    const { items, hidden, hits } = panel.cardItems(doc, { maxBlocks: MAX_BLOCKS, terms });
     const checks = items.filter(it => it.kind === 'check').map(it => it.index);
 
     const body = CardService.newCardSection();
     if (notice) body.addWidget(html(`<font color="${GREY}"><i>${panel.esc(notice)}</i></font>`));
+    if (terms.length) {
+      // The title is the card's header, which cannot be marked, so it is
+      // only mentioned.
+      const inTitle = ns.searchLogic.findMatches(note.title, terms).length > 0;
+      const q = `\u201c${query}\u201d`;
+      let what = `${q} is not in the text itself`;
+      if (hits) what = `${panel.matchCount(hits)} for ${q}${inTitle ? ', and in the title' : ''}`;
+      else if (inTitle) what = `${q} is in the title only`;
+      body.addWidget(greyText(what));
+    }
     items.forEach(it => {
       if (it.kind === 'text') {
         body.addWidget(html(it.html));
@@ -203,7 +224,7 @@
       .addSection(add)
       .addSection(where)
       .setFixedFooter(CardService.newFixedFooter()
-        .setPrimaryButton(button('Save', 'onSaveNote', { messageId: note.messageId, checks: checks.join(',') }, true)))
+        .setPrimaryButton(button('Save', 'onSaveNote', { messageId: note.messageId, checks: checks.join(','), q: query }, true)))
       .build();
   }
 
@@ -298,8 +319,9 @@
 
   const onOpenNote = act(e => {
     const ctx = store.context();
-    const c = current(ctx, params(e).messageId);
-    return respond({ card: noteCard(ctx, c.opened, { notice: noticeFor(c) }), push: true });
+    const p = params(e);
+    const c = current(ctx, p.messageId);
+    return respond({ card: noteCard(ctx, c.opened, { notice: noticeFor(c), query: p.q || '' }), push: true });
   });
 
   const onAllNotes = act(() => respond({ card: homeCard(store.context()), push: true }));
@@ -345,7 +367,7 @@
     if (c.replaced) {
       return respond({
         card: noteCard(ctx, c.opened, {
-          addText, addAs,
+          addText, addAs, query: p.q || '',
           notice: 'This note was changed somewhere else in the meantime. Here is the latest version: tick again, then save.',
         }),
         notify: 'Not saved: the note had changed.',
@@ -369,7 +391,7 @@
       store.move(ctx, id, folderId);
       said = folderId ? `Moved to ${panel.folderName(folderId, ctx.folders)}.` : 'Taken out of its folder.';
     }
-    return respond({ card: noteCard(ctx, store.open(ctx, id)), notify: said, changed: true });
+    return respond({ card: noteCard(ctx, store.open(ctx, id), { query: p.q || '' }), notify: said, changed: true });
   });
 
   const onCreateNote = act(e => {

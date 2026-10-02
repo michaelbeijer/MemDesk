@@ -530,7 +530,8 @@
         list = list.filter(x => want.every(id => x.labelIds.includes(id)));
       }
       if (query.q) {
-        const words = String(query.q).match(/\S+/g) || [];
+        // Words only, near enough: quotes dropped, operators (from:, is:) skipped.
+        const words = (String(query.q).replace(/"/g, ' ').match(/\S+/g) || []).filter(w => !/^-?[a-z]+:/i.test(w));
         list = list.filter(x => {
           // Like Gmail: every part counts, the HTML one included.
           const hay = fold(`${header(x, 'Subject')} ${x.snippet} ${messagePart(x, '').replace(/<[^>]+>/g, ' ')}`);

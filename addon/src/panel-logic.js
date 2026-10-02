@@ -21,6 +21,7 @@
   const fmt = node ? require('../../src/lib/note-format.js') : ns.noteFormat;
   const util = node ? require('../../src/lib/util.js') : ns.util;
   const board = node ? require('../../src/lib/board-logic.js') : ns.logic;
+  const search = node ? require('../../src/lib/search-logic.js') : ns.searchLogic;
 
   const INDENT = '  '; // two em spaces a level, which cards do not collapse
   const GREY = '#5f6368';
@@ -29,15 +30,51 @@
 
   // ── Showing a note ───────────────────────────────────────────────────
 
-  // Runs as the HTML a card understands: <b>, <i>, <s> and <a>.
-  function runsHtml(runs) {
+  // A search match: cards cannot colour a background, so matches are
+  // bold and orange instead, which reads on light and dark alike.
+  const HIT_OPEN = '<font color="#e8710a"><b>';
+  const HIT_CLOSE = '</b></font>';
+
+  // Cuts runs where matches begin and end, so each piece is wholly inside
+  // a match or wholly outside one. `matches` are offsets into the text of
+  // all the runs together.
+  function splitRuns(runs, matches) {
+    if (!matches || !matches.length) return runs.map(r => Object.assign({}, r, { hit: false }));
+    const out = [];
+    let pos = 0;
+    for (const r of runs) {
+      const start = pos;
+      const end = pos + r.text.length;
+      const cuts = [start, end];
+      for (const m of matches) {
+        if (m.start > start && m.start < end) cuts.push(m.start);
+        if (m.end > start && m.end < end) cuts.push(m.end);
+      }
+      cuts.sort((x, y) => x - y);
+      for (let k = 0; k < cuts.length - 1; k++) {
+        const from = cuts[k];
+        const to = cuts[k + 1];
+        if (from === to) continue;
+        const hit = matches.some(m => m.start <= from && m.end >= to);
+        out.push(Object.assign({}, r, { text: r.text.slice(from - start, to - start), hit }));
+      }
+      pos = end;
+    }
+    return out;
+  }
+
+  // Runs as the HTML a card understands: <b>, <i>, <s> and <a>, with any
+  // search matches marked.
+  function runsHtml(runsIn, matches) {
+    const runs = splitRuns(runsIn, matches);
     let out = '';
     for (let i = 0; i < runs.length;) {
       const href = runs[i].href || '';
       let j = i;
       let inner = '';
       while (j < runs.length && (runs[j].href || '') === href) {
-        let t = esc(runs[j].text).replace(/ {2}/g, '  ');
+        let t = esc(runs[j].text).replace(/ {2}/g, ' \u00a0');
+        if (runs[j].hit) t = HIT_OPEN + t + HIT_CLOSE;
         if (runs[j].s) t = `<s>${t}</s>`;
         if (runs[j].i) t = `<i>${t}</i>`;
         if (runs[j].b) t = `<b>${t}</b>`;
@@ -50,14 +87,21 @@
     return out;
   }
 
+  // Plain text with its matches marked.
+  const highlight = (text, matches) => runsHtml([{ text: String(text || '') }], matches);
+
   const grey = text => `<font color="${GREY}">${esc(text)}</font>`;
 
   // The note as a column of card items: { kind: 'text', html } for a run
   // of ordinary lines, { kind: 'check', index, html, checked } for each
   // checklist item, `index` being its block's place in the note. Past
   // `maxBlocks` nothing is shown, and `hidden` says how much that was.
-  function cardItems(docIn, { maxBlocks = 80 } = {}) {
+  // With search `terms`, their matches are marked, and `hits` counts them
+  // in the whole note.
+  function cardItems(docIn, { maxBlocks = 80, terms = null } = {}) {
     const doc = fmt.normaliseDoc(docIn);
+    const matchesIn = b => (terms && terms.length ? search.findMatches(b.runs.map(r => r.text).join(''), terms) : []);
+    const hits = doc.reduce((n, b) => n + matchesIn(b).length, 0);
     const items = [];
     const counters = [0, 0, 0, 0];
     let lines = [];
@@ -71,7 +115,7 @@
     const shown = Math.min(doc.length, maxBlocks);
     for (let i = 0; i < shown; i++) {
       const b = doc[i];
-      const inner = runsHtml(b.runs);
+      const inner = runsHtml(b.runs, matchesIn(b));
       if (!fmt.LISTS.has(b.type)) {
         counters.fill(0);
         lines.push(/^h[123]$/.test(b.type) && inner ? `<b>${inner}</b>` : inner);
@@ -91,8 +135,25 @@
       }
     }
     flush();
-    return { items, hidden: doc.length - shown };
+    return { items, hidden: doc.length - shown, hits };
   }
+
+  // ── Search results ───────────────────────────────────────────────────
+
+  // One note in a list of search results: its title and up to `max`
+  // stretches of its text around the matches, all with the matches
+  // marked, and how many matches there are. Gmail finds a note by words
+  // anywhere in it, so a note can come back with nothing to mark.
+  function searchResult(title, docIn, terms, { context = 40, max = 2 } = {}) {
+    const text = fmt.docText(fmt.normaliseDoc(docIn));
+    const inTitle = search.findMatches(title, terms);
+    const inText = search.findMatches(text, terms);
+    const excerpts = search.excerpts(text, inText, { context, max })
+      .map(e => `${e.cutBefore ? '\u2026' : ''}${highlight(e.text, e.marks)}${e.cutAfter ? '\u2026' : ''}`);
+    return { titleHtml: highlight(title, inTitle), excerpts, count: inTitle.length + inText.length };
+  }
+
+  const matchCount = n => `${n} match${n === 1 ? '' : 'es'}`;
 
   // ── Changing a note ──────────────────────────────────────────────────
 
@@ -244,7 +305,7 @@
   }
 
   const api = {
-    esc, runsHtml, cardItems, applyTicks, linesToBlocks, appendBlocks, docsEqual,
+    esc, runsHtml, highlight, cardItems, searchResult, matchCount, applyTicks, linesToBlocks, appendBlocks, docsEqual,
     folderName, folderOptions, noteSubtitle, apiMessageId,
     boardColumns, currentColumn, boardDiff, boardOptions,
   };

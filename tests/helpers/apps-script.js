@@ -363,7 +363,7 @@ class Phone {
     if (card.fixedFooter) buttons.push(card.fixedFooter.primaryButton, card.fixedFooter.secondaryButton);
     const b = buttons.find(x => x && x.text === label);
     if (b) return this.run(b.onClickAction);
-    const item = widgets(card).find(w => w.kind === 'DecoratedText' && w.onClickAction && stripTags(w.text) === label);
+    const item = widgets(card).find(w => w.kind === 'DecoratedText' && w.onClickAction && stripTags(w.text).split('\n')[0] === label);
     if (item) return this.run(item.onClickAction);
     throw new Error(`Nothing called “${label}” on the card “${card.header ? card.header.title : card.name}”`);
   }
@@ -418,8 +418,27 @@ class Phone {
     return c.name;
   }
 
+  // A list item's first line is its title; search results have excerpts below.
   listTitles() {
-    return widgets(this.card).filter(w => w.kind === 'DecoratedText' && w.onClickAction).map(w => stripTags(w.text));
+    return this.listItems().map(i => i.title);
+  }
+
+  listItems() {
+    return widgets(this.card).filter(w => w.kind === 'DecoratedText' && w.onClickAction).map(w => {
+      const [title, ...rest] = w.text.split('<br>');
+      return { title: stripTags(title), excerpts: rest.map(stripTags), titleHtml: title, excerptHtml: rest, topLabel: w.topLabel || '', bottomLabel: w.bottomLabel || '' };
+    });
+  }
+
+  // The words marked as search matches on the card, in order.
+  marked() {
+    const out = [];
+    const re = /<font color="#e8710a"><b>(.*?)<\/b><\/font>/g;
+    for (const w of widgets(this.card)) {
+      let m;
+      while ((m = re.exec(w.text || ''))) out.push(stripTags(m[1]));
+    }
+    return out;
   }
 
   writes() {

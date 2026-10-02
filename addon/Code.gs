@@ -1,4 +1,4 @@
-// The phone panel 0.9.0: a Google Workspace add-on for Gmail.
+// The phone panel 0.10.0: a Google Workspace add-on for Gmail.
 //
 // Paste this whole file over Code.gs in the Apps Script editor, and
 // addon/appsscript.json over appsscript.json. The setup steps are in the
@@ -12,6 +12,7 @@
 //   src/lib/notes-logic.js
 //   src/lib/note-format.js
 //   src/lib/board-logic.js
+//   src/lib/search-logic.js
 //   addon/src/panel-logic.js
 //   addon/src/gmail.js
 //   addon/src/store.js
@@ -2023,6 +2024,160 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
   if (typeof module === 'object' && module.exports) module.exports = api;
 })();
 
+// ════ src/lib/search-logic.js ═════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────
+// Search highlighting (pure)
+//
+// Gmail does the searching; this only shows where the words are. It takes
+// the words out of a Gmail query - leaving out operators such as from: or
+// before:, and anything excluded with a minus - and finds them in a
+// note's text the way a person would read a match: ignoring case and
+// accents ("cafe" finds "Café"), at the start of a word ("gloss" finds
+// "glossary", not "xgloss"), and phrases in quotes as phrases.
+//
+// From those matches come the excerpts shown in the results list, with
+// their offsets, so the list can mark them without parsing any HTML.
+// ─────────────────────────────────────────────────────────────────────
+
+(function () {
+  'use strict';
+
+  const ns = (globalThis.gkb = globalThis.gkb || {});
+
+  // Operators whose value is a word to look for in the note itself.
+  const TEXT_OPS = new Set(['subject', 'intitle']);
+  const KEYWORDS = new Set(['or', 'and', 'around']);
+
+  // ── The words in a query ─────────────────────────────────────────────
+
+  // Returns [{ words: ['stent', 'coating'] }, …]: one entry per term, a
+  // phrase being several words in a row.
+  function queryTerms(query) {
+    const out = [];
+    const seen = new Set();
+    const add = text => {
+      const words = String(text).split(/[\s"()[\]{}<>]+/).map(w => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')).filter(Boolean);
+      if (!words.length) return;
+      if (words.length === 1 && words[0].length < 2 && /^[\p{L}\p{N}]$/u.test(words[0]) && /[a-z0-9]/i.test(words[0])) return;
+      const key = words.join(' ').toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ words });
+    };
+    const tokens = String(query || '').match(/-?[\p{L}\p{N}_]+:\([^)]*\)|-?[\p{L}\p{N}_]+:"[^"]*"|-?"[^"]*"|\S+/gu) || [];
+    for (const raw of tokens) {
+      if (raw.startsWith('-')) continue; // excluded: not in the note
+      const op = /^([\p{L}\p{N}_]+):(.*)$/u.exec(raw);
+      if (op) {
+        if (TEXT_OPS.has(op[1].toLowerCase())) {
+          const v = op[2].replace(/^[("]|[)"]$/g, '');
+          if (/^\(/.test(op[2])) v.split(/\s+/).forEach(add);
+          else add(v);
+        }
+        continue;
+      }
+      if (raw.startsWith('"')) { add(raw.replace(/"/g, '')); continue; }
+      const word = raw.replace(/^[+(){}]+|[(){}]+$/g, '');
+      if (KEYWORDS.has(word.toLowerCase())) continue;
+      add(word);
+    }
+    return out;
+  }
+
+  // ── Finding them ─────────────────────────────────────────────────────
+
+  // Lower case, accents off - one character at a time, with a map back to
+  // where each folded character came from, so a match in the folded text
+  // is a match at known offsets in the real one.
+  function fold(text) {
+    let folded = '';
+    const map = [];
+    const s = String(text || '');
+    for (let i = 0; i < s.length;) {
+      const cp = s.codePointAt(i);
+      const ch = String.fromCodePoint(cp);
+      const f = ch.normalize('NFD').replace(/\p{M}+/gu, '').toLowerCase();
+      for (let k = 0; k < f.length; k++) map.push(i);
+      folded += f;
+      i += ch.length;
+    }
+    map.push(s.length);
+    return { folded, map };
+  }
+
+  const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // Every place the terms occur, as [start, end) offsets into `text`,
+  // in order, with overlaps merged.
+  function findMatches(text, terms) {
+    if (!terms || !terms.length || !text) return [];
+    const { folded, map } = fold(text);
+    const found = [];
+    for (const t of terms) {
+      const pattern = t.words.map(w => escapeRe(fold(w).folded)).join('[\\s\\u00a0]+');
+      if (!pattern) continue;
+      const re = new RegExp(`(?<![\\p{L}\\p{N}])${pattern}`, 'gu');
+      let m;
+      while ((m = re.exec(folded))) {
+        found.push([map[m.index], map[m.index + m[0].length]]);
+        if (m[0].length === 0) re.lastIndex++;
+      }
+    }
+    found.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const merged = [];
+    for (const [s, e] of found) {
+      const last = merged[merged.length - 1];
+      if (last && s <= last.end) last.end = Math.max(last.end, e);
+      else merged.push({ start: s, end: e });
+    }
+    return merged;
+  }
+
+  // ── Excerpts ─────────────────────────────────────────────────────────
+
+  // Up to `max` stretches of text around the matches, each with the
+  // matches inside it at offsets relative to the stretch. Stretches start
+  // and end on a space where one is near, and say whether text was cut.
+  function excerpts(text, matches, { context = 50, max = 3 } = {}) {
+    const s = String(text || '');
+    const out = [];
+    let i = 0;
+    while (i < matches.length && out.length < max) {
+      let start = Math.max(0, matches[i].start - context);
+      let end = Math.min(s.length, matches[i].end + context);
+      // Matches close enough share an excerpt.
+      let j = i + 1;
+      while (j < matches.length && matches[j].start < end) {
+        end = Math.min(s.length, Math.max(end, matches[j].end + Math.floor(context / 2)));
+        j++;
+      }
+      if (start > 0) {
+        const sp = s.slice(start, matches[i].start).search(/\s/);
+        if (sp >= 0) start += sp + 1;
+      }
+      if (end < s.length) {
+        const tail = s.slice(matches[j - 1].end, end);
+        const sp = tail.search(/\s\S*$/);
+        if (sp > 0) end = matches[j - 1].end + sp;
+      }
+      out.push({
+        text: s.slice(start, end).replace(/\s/g, ' '),
+        marks: matches.slice(i, j).map(m => ({ start: Math.max(m.start, start) - start, end: Math.min(m.end, end) - start })),
+        cutBefore: start > 0,
+        cutAfter: end < s.length,
+      });
+      i = j;
+    }
+    return out;
+  }
+
+  const api = { queryTerms, fold, findMatches, excerpts };
+
+  ns.searchLogic = api;
+  if (typeof module === 'object' && module.exports) module.exports = api;
+})();
+
 // ════ addon/src/panel-logic.js ════════════════════════════════════════
 
 // ─────────────────────────────────────────────────────────────────────
@@ -2048,6 +2203,7 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
   const fmt = node ? require('../../src/lib/note-format.js') : ns.noteFormat;
   const util = node ? require('../../src/lib/util.js') : ns.util;
   const board = node ? require('../../src/lib/board-logic.js') : ns.logic;
+  const search = node ? require('../../src/lib/search-logic.js') : ns.searchLogic;
 
   const INDENT = '  '; // two em spaces a level, which cards do not collapse
   const GREY = '#5f6368';
@@ -2056,15 +2212,51 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
 
   // ── Showing a note ───────────────────────────────────────────────────
 
-  // Runs as the HTML a card understands: <b>, <i>, <s> and <a>.
-  function runsHtml(runs) {
+  // A search match: cards cannot colour a background, so matches are
+  // bold and orange instead, which reads on light and dark alike.
+  const HIT_OPEN = '<font color="#e8710a"><b>';
+  const HIT_CLOSE = '</b></font>';
+
+  // Cuts runs where matches begin and end, so each piece is wholly inside
+  // a match or wholly outside one. `matches` are offsets into the text of
+  // all the runs together.
+  function splitRuns(runs, matches) {
+    if (!matches || !matches.length) return runs.map(r => Object.assign({}, r, { hit: false }));
+    const out = [];
+    let pos = 0;
+    for (const r of runs) {
+      const start = pos;
+      const end = pos + r.text.length;
+      const cuts = [start, end];
+      for (const m of matches) {
+        if (m.start > start && m.start < end) cuts.push(m.start);
+        if (m.end > start && m.end < end) cuts.push(m.end);
+      }
+      cuts.sort((x, y) => x - y);
+      for (let k = 0; k < cuts.length - 1; k++) {
+        const from = cuts[k];
+        const to = cuts[k + 1];
+        if (from === to) continue;
+        const hit = matches.some(m => m.start <= from && m.end >= to);
+        out.push(Object.assign({}, r, { text: r.text.slice(from - start, to - start), hit }));
+      }
+      pos = end;
+    }
+    return out;
+  }
+
+  // Runs as the HTML a card understands: <b>, <i>, <s> and <a>, with any
+  // search matches marked.
+  function runsHtml(runsIn, matches) {
+    const runs = splitRuns(runsIn, matches);
     let out = '';
     for (let i = 0; i < runs.length;) {
       const href = runs[i].href || '';
       let j = i;
       let inner = '';
       while (j < runs.length && (runs[j].href || '') === href) {
-        let t = esc(runs[j].text).replace(/ {2}/g, '  ');
+        let t = esc(runs[j].text).replace(/ {2}/g, ' \u00a0');
+        if (runs[j].hit) t = HIT_OPEN + t + HIT_CLOSE;
         if (runs[j].s) t = `<s>${t}</s>`;
         if (runs[j].i) t = `<i>${t}</i>`;
         if (runs[j].b) t = `<b>${t}</b>`;
@@ -2077,14 +2269,21 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
     return out;
   }
 
+  // Plain text with its matches marked.
+  const highlight = (text, matches) => runsHtml([{ text: String(text || '') }], matches);
+
   const grey = text => `<font color="${GREY}">${esc(text)}</font>`;
 
   // The note as a column of card items: { kind: 'text', html } for a run
   // of ordinary lines, { kind: 'check', index, html, checked } for each
   // checklist item, `index` being its block's place in the note. Past
   // `maxBlocks` nothing is shown, and `hidden` says how much that was.
-  function cardItems(docIn, { maxBlocks = 80 } = {}) {
+  // With search `terms`, their matches are marked, and `hits` counts them
+  // in the whole note.
+  function cardItems(docIn, { maxBlocks = 80, terms = null } = {}) {
     const doc = fmt.normaliseDoc(docIn);
+    const matchesIn = b => (terms && terms.length ? search.findMatches(b.runs.map(r => r.text).join(''), terms) : []);
+    const hits = doc.reduce((n, b) => n + matchesIn(b).length, 0);
     const items = [];
     const counters = [0, 0, 0, 0];
     let lines = [];
@@ -2098,7 +2297,7 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
     const shown = Math.min(doc.length, maxBlocks);
     for (let i = 0; i < shown; i++) {
       const b = doc[i];
-      const inner = runsHtml(b.runs);
+      const inner = runsHtml(b.runs, matchesIn(b));
       if (!fmt.LISTS.has(b.type)) {
         counters.fill(0);
         lines.push(/^h[123]$/.test(b.type) && inner ? `<b>${inner}</b>` : inner);
@@ -2118,8 +2317,25 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
       }
     }
     flush();
-    return { items, hidden: doc.length - shown };
+    return { items, hidden: doc.length - shown, hits };
   }
+
+  // ── Search results ───────────────────────────────────────────────────
+
+  // One note in a list of search results: its title and up to `max`
+  // stretches of its text around the matches, all with the matches
+  // marked, and how many matches there are. Gmail finds a note by words
+  // anywhere in it, so a note can come back with nothing to mark.
+  function searchResult(title, docIn, terms, { context = 40, max = 2 } = {}) {
+    const text = fmt.docText(fmt.normaliseDoc(docIn));
+    const inTitle = search.findMatches(title, terms);
+    const inText = search.findMatches(text, terms);
+    const excerpts = search.excerpts(text, inText, { context, max })
+      .map(e => `${e.cutBefore ? '\u2026' : ''}${highlight(e.text, e.marks)}${e.cutAfter ? '\u2026' : ''}`);
+    return { titleHtml: highlight(title, inTitle), excerpts, count: inTitle.length + inText.length };
+  }
+
+  const matchCount = n => `${n} match${n === 1 ? '' : 'es'}`;
 
   // ── Changing a note ──────────────────────────────────────────────────
 
@@ -2271,7 +2487,7 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
   }
 
   const api = {
-    esc, runsHtml, cardItems, applyTicks, linesToBlocks, appendBlocks, docsEqual,
+    esc, runsHtml, highlight, cardItems, searchResult, matchCount, applyTicks, linesToBlocks, appendBlocks, docsEqual,
     folderName, folderOptions, noteSubtitle, apiMessageId,
     boardColumns, currentColumn, boardDiff, boardOptions,
   };
@@ -2456,10 +2672,19 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
   }
 
   // Newest first, one entry per note: every note, one folder's, or what
-  // a Gmail search finds among them.
+  // a Gmail search finds among them. A search reads the notes in full -
+  // each with `doc`, its content - so the results can show where the
+  // words are.
   function list(ctx, { folderId = '', query = '', max = 20 } = {}) {
     const r = gmail.call('GET', 'messages', { labelIds: folderId || ctx.root.id, q: query || undefined, maxResults: max + 10 });
-    const notes = metadata(r.messages || []).map(m => describe(ctx, m));
+    const refs = r.messages || [];
+    const notes = query
+      ? gmail.callAll(refs.map(m => ['GET', `messages/${m.id}`, { format: 'full' }])).filter(m => m && !m.error).map(m => {
+        const n = describe(ctx, m);
+        n.doc = fmt.docFromParts(n.parts || {});
+        return n;
+      })
+      : metadata(refs).map(m => describe(ctx, m));
     const { live } = notesLogic.dedupeNotes(notes);
     return { notes: live.slice(0, max), more: live.length > max || !!r.nextPageToken };
   }
@@ -2676,15 +2901,24 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
 
     const list = CardService.newCardSection().setHeader(query ? `${where}: “${query}”` : where);
     if (!notes.length) list.addWidget(greyText(query ? 'No notes match that search.' : 'No notes here yet.'));
+    const terms = query ? ns.searchLogic.queryTerms(query) : [];
     notes.forEach(n => {
       const item = CardService.newDecoratedText()
-        .setText(panel.esc(n.title))
         .setWrapText(true)
-        .setOnClickAction(action('onOpenNote', { messageId: n.messageId }));
-      const sub = panel.noteSubtitle(n, ctx.folders);
-      if (sub) item.setTopLabel(sub);
+        .setOnClickAction(action('onOpenNote', { messageId: n.messageId, q: query }));
+      let sub = panel.noteSubtitle(n, ctx.folders);
       const snippet = String(n.snippet || '').replace(/\s+/g, ' ').trim();
-      if (snippet) item.setBottomLabel(snippet.length > 90 ? `${snippet.slice(0, 89)}…` : snippet);
+      if (terms.length && n.doc) {
+        // A search result: where the words are, as in Chrome.
+        const r = panel.searchResult(n.title, n.doc, terms);
+        item.setText(r.excerpts.length ? `${r.titleHtml}<br>${r.excerpts.join('<br>')}` : r.titleHtml);
+        if (r.count) sub = [sub, panel.matchCount(r.count)].filter(Boolean).join(' \u00b7 ');
+        else if (snippet) item.setBottomLabel(snippet.length > 90 ? `${snippet.slice(0, 89)}…` : snippet);
+      } else {
+        item.setText(panel.esc(n.title));
+        if (snippet) item.setBottomLabel(snippet.length > 90 ? `${snippet.slice(0, 89)}…` : snippet);
+      }
+      if (sub) item.setTopLabel(sub);
       list.addWidget(item);
     });
     if (more) list.addWidget(greyText(`The newest ${LIST_SIZE} are shown. Search to find older notes.`));
@@ -2702,13 +2936,25 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
 
   // ── One note ─────────────────────────────────────────────────────────
 
-  function noteCard(ctx, opened, { addText = '', addAs = '', notice = '' } = {}) {
+  // `query`: the search the note was opened from, whose words are marked.
+  function noteCard(ctx, opened, { addText = '', addAs = '', notice = '', query = '' } = {}) {
     const { note, doc } = opened;
-    const { items, hidden } = panel.cardItems(doc, { maxBlocks: MAX_BLOCKS });
+    const terms = query ? ns.searchLogic.queryTerms(query) : [];
+    const { items, hidden, hits } = panel.cardItems(doc, { maxBlocks: MAX_BLOCKS, terms });
     const checks = items.filter(it => it.kind === 'check').map(it => it.index);
 
     const body = CardService.newCardSection();
     if (notice) body.addWidget(html(`<font color="${GREY}"><i>${panel.esc(notice)}</i></font>`));
+    if (terms.length) {
+      // The title is the card's header, which cannot be marked, so it is
+      // only mentioned.
+      const inTitle = ns.searchLogic.findMatches(note.title, terms).length > 0;
+      const q = `\u201c${query}\u201d`;
+      let what = `${q} is not in the text itself`;
+      if (hits) what = `${panel.matchCount(hits)} for ${q}${inTitle ? ', and in the title' : ''}`;
+      else if (inTitle) what = `${q} is in the title only`;
+      body.addWidget(greyText(what));
+    }
     items.forEach(it => {
       if (it.kind === 'text') {
         body.addWidget(html(it.html));
@@ -2746,7 +2992,7 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
       .addSection(add)
       .addSection(where)
       .setFixedFooter(CardService.newFixedFooter()
-        .setPrimaryButton(button('Save', 'onSaveNote', { messageId: note.messageId, checks: checks.join(',') }, true)))
+        .setPrimaryButton(button('Save', 'onSaveNote', { messageId: note.messageId, checks: checks.join(','), q: query }, true)))
       .build();
   }
 
@@ -2841,8 +3087,9 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
 
   const onOpenNote = act(e => {
     const ctx = store.context();
-    const c = current(ctx, params(e).messageId);
-    return respond({ card: noteCard(ctx, c.opened, { notice: noticeFor(c) }), push: true });
+    const p = params(e);
+    const c = current(ctx, p.messageId);
+    return respond({ card: noteCard(ctx, c.opened, { notice: noticeFor(c), query: p.q || '' }), push: true });
   });
 
   const onAllNotes = act(() => respond({ card: homeCard(store.context()), push: true }));
@@ -2888,7 +3135,7 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
     if (c.replaced) {
       return respond({
         card: noteCard(ctx, c.opened, {
-          addText, addAs,
+          addText, addAs, query: p.q || '',
           notice: 'This note was changed somewhere else in the meantime. Here is the latest version: tick again, then save.',
         }),
         notify: 'Not saved: the note had changed.',
@@ -2912,7 +3159,7 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
       store.move(ctx, id, folderId);
       said = folderId ? `Moved to ${panel.folderName(folderId, ctx.folders)}.` : 'Taken out of its folder.';
     }
-    return respond({ card: noteCard(ctx, store.open(ctx, id)), notify: said, changed: true });
+    return respond({ card: noteCard(ctx, store.open(ctx, id), { query: p.q || '' }), notify: said, changed: true });
   });
 
   const onCreateNote = act(e => {

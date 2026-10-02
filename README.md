@@ -16,7 +16,7 @@ panel** (a small Gmail add-on you install for yourself, see below) puts the
 open email in a column, ticks checklist items, adds lines to a note, files it
 in a folder and starts new notes from inside the Gmail app.
 
-Version 0.9.0. Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.10.0. Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -248,6 +248,13 @@ as the extension.
 - Below that, the panel lists your newest notes, with a search box (Gmail
   search, as in the extension), a folder filter, and **New note**. Tap a note
   to open it.
+- **Search results show where the words are**, as in Chrome: each note with
+  up to two short excerpts around its matches and a match count, the words in
+  bold orange (cards cannot colour a background). A note opened from the
+  results has every match marked and says how many there are, or that the
+  words are only in its title. Operators such as `from:` or `before:` narrow
+  the search but are not marked. There is no stepping from match to match: a
+  card cannot scroll itself.
 - **New note** takes a title, some lines (as text, a checklist or bullets) and a
   folder. From a folder's list or from a note, it starts in that folder.
 - **All notes** and **New note** are also on the panel's own menu (⋮).

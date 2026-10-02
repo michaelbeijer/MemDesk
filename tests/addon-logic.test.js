@@ -179,3 +179,43 @@ test('moves: one column only, Done out of the Inbox, off the board touches nothi
     [['Not on the board', 'none', false], ['To do', 'L1', false], ['Doing', 'L2', true], ['Done', 'L4', false]]);
   assert.equal(panel.boardOptions(cols, '')[0].selected, true);
 });
+
+// ── Search matches ───────────────────────────────────────────────────
+
+test('matches are marked inside bold, italic and links, split where they cross a run', () => {
+  const search = require('../src/lib/search-logic.js');
+  const runs = [T('see the '), T('Kestrel', { b: true }), T(' port'), T('al now', { href: 'https://example.com/' })];
+  const text = runs.map(r => r.text).join('');
+  const html = panel.runsHtml(runs, search.findMatches(text, search.queryTerms('kestrel portal')));
+  assert.equal(html, 'see the <b><font color="#e8710a"><b>Kestrel</b></font></b> <font color="#e8710a"><b>port</b></font>' +
+    '<a href="https://example.com/"><font color="#e8710a"><b>al</b></font> now</a>');
+  assert.equal(panel.runsHtml(runs), panel.runsHtml(runs, []), 'no matches, nothing marked');
+  assert.equal(panel.highlight('Café <x>', search.findMatches('Café <x>', search.queryTerms('cafe'))),
+    '<font color="#e8710a"><b>Café</b></font> &lt;x&gt;');
+});
+
+test('card items with search terms: marks in every kind of line, and a count over the whole note', () => {
+  const search = require('../src/lib/search-logic.js');
+  const doc = [B('h2', [T('Invoice plan')]), B('check', [T('Send the invoice')]), B('ul', [T('invoices, two')]), B('p', [T('invoice')])];
+  const { items, hits } = panel.cardItems(doc, { terms: search.queryTerms('invoice'), maxBlocks: 3 });
+  assert.equal(hits, 4, 'the hidden last line counts too');
+  assert.deepEqual(items.map(i => i.html), [
+    '<b><font color="#e8710a"><b>Invoice</b></font> plan</b>',
+    'Send the <font color="#e8710a"><b>invoice</b></font>',
+    '• <font color="#e8710a"><b>invoice</b></font>s, two',
+  ]);
+  assert.equal(panel.cardItems(doc).hits, 0);
+});
+
+test('a search result: marked title, up to two excerpts, a count', () => {
+  const search = require('../src/lib/search-logic.js');
+  const doc = fmt.fromPlain(`${'filler '.repeat(20)}the glossary is ready\n${'more '.repeat(30)}glossary two\n${'x '.repeat(40)}glossary three`);
+  const r = panel.searchResult('Glossary notes', doc, search.queryTerms('glossary'));
+  assert.equal(r.count, 4);
+  assert.equal(r.titleHtml, '<font color="#e8710a"><b>Glossary</b></font> notes');
+  assert.equal(r.excerpts.length, 2);
+  assert.match(r.excerpts[0], /^….*the <font color="#e8710a"><b>glossary<\/b><\/font> is ready.*…$/);
+  assert.equal(panel.matchCount(1), '1 match');
+  assert.equal(panel.matchCount(3), '3 matches');
+  assert.deepEqual(panel.searchResult('Untitled', doc, search.queryTerms('absent')), { titleHtml: 'Untitled', excerpts: [], count: 0 });
+});

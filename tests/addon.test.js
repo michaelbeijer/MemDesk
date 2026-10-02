@@ -326,6 +326,59 @@ test('a long note shows its first 80 lines, and the boxes after them keep their 
   assert.match(text, /☐ item 89\n☑ item 90[\s\S]*☑ item 99$/);
 });
 
+test('search results show where the words are, marked, with a count per note', () => {
+  const p = new Phone();
+  p.openHome();
+  p.fill('q', 'kestrel');
+  p.press('Search');
+  const items = p.listItems();
+  assert.deepEqual(items.map(i => i.title), ['Launch checklist', 'Kestrel glossary decisions']);
+  const launch = items[0];
+  assert.match(launch.topLabel, /· 1 match$/);
+  assert.equal(launch.excerpts.length, 1);
+  assert.match(launch.excerpts[0], /Deliver to Kestrel by noon/);
+  assert.match(launch.excerptHtml[0], /<font color="#e8710a"><b>Kestrel<\/b><\/font>/, 'marked, inside the bold it already had');
+  const kestrel = items[1];
+  assert.match(kestrel.titleHtml, /^<font color="#e8710a"><b>Kestrel<\/b><\/font> glossary decisions$/, 'the title too');
+  assert.match(kestrel.topLabel, /1 match$/);
+  assert.deepEqual(p.marked(), ['Kestrel', 'Kestrel']);
+});
+
+test('a note opened from a search marks every match and says how many; saving keeps them marked', () => {
+  const p = new Phone();
+  p.openHome();
+  p.fill('q', '"send the invoice" proofread');
+  p.press('Search');
+  p.press('Launch checklist');
+  assert.equal(p.lines()[0], '2 matches for “"send the invoice" proofread”');
+  assert.deepEqual(p.marked(), ['Proofread', 'Send the invoice']);
+  p.tick(p.boxFor('Send the invoice'));
+  p.press('Save');
+  assert.equal(p.toast, 'Saved.');
+  assert.deepEqual(p.marked(), ['Proofread', 'Send the invoice']);
+  p.back();
+  assert.throws(() => p.press('Rate schedule 2027 – draft'), /Nothing called/, 'only what was found is listed');
+});
+
+test('operators are not marked; a match in the title only is said; no search, no marks', () => {
+  const p = new Phone();
+  p.openHome();
+  p.fill('q', 'from:anyone coating');
+  p.press('Search');
+  p.press('Kestrel glossary decisions');
+  assert.equal(p.lines()[0], '3 matches for “from:anyone coating”');
+  assert.deepEqual(p.marked(), ['coating', 'coating', 'coating'], 'from: is an operator, not a word');
+  p.back();
+  p.fill('q', 'kestrel glossary');
+  p.press('Search');
+  p.press('Kestrel glossary decisions');
+  assert.equal(p.lines()[0], '“kestrel glossary” is in the title only');
+  p.back();
+  p.openMessage(idOf(p, 'launchchecklist0004'));
+  assert.deepEqual(p.marked(), []);
+  assert.doesNotMatch(p.lines().join('\n'), /match/);
+});
+
 // ── The board ────────────────────────────────────────────────────────
 
 test('an email on the board shows its column first, and choosing another moves it at once', () => {
