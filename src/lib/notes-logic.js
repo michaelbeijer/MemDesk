@@ -46,6 +46,19 @@
     return Array.from(rand(12), b => b.toString(36).padStart(2, '0').slice(-2)).join('').slice(0, 20);
   }
 
+  // The scratchpad: one note with a fixed id, so that every computer and
+  // phone finds - and saves into - the same one.
+  const SCRATCHPAD_ID = 'scratchpad000000';
+  const SCRATCHPAD_TITLE = 'Scratchpad';
+
+  // The id a save writes under: the note's own, once it has one; for a
+  // first save, the scratchpad's if that is what is being saved, and
+  // otherwise a new one. No other id can be asked for.
+  function noteIdFor(previous, wanted) {
+    if (previous && previous.own && ID_RE.test(String(previous.noteId || ''))) return previous.noteId;
+    return wanted === SCRATCHPAD_ID ? SCRATCHPAD_ID : newNoteId();
+  }
+
   // ── Encoding ─────────────────────────────────────────────────────────
 
   function bytesToBinary(bytes) {
@@ -405,7 +418,7 @@
   const api = {
     NOTE_HEADER, NOTE_SENDER, DEFAULT_LABEL, MAX_BODY, MAX_TITLE, FORBIDDEN_INSERT_LABELS, FOLDER_NAME_MAX,
     folderTree, folderOf, moveFolderDiff, validateFolderTitle, renamePlan, isDeletableFolder,
-    newNoteId, encodeHeaderText, decodeHeaderText, base64UrlEncode, base64UrlDecode,
+    SCRATCHPAD_ID, SCRATCHPAD_TITLE, newNoteId, noteIdFor, encodeHeaderText, decodeHeaderText, base64UrlEncode, base64UrlDecode,
     titleFor, buildNoteRaw, noteIdOfRaw, isNoteInsert,
     htmlToText, extractText, messageParts, noteFromMessage, dedupeNotes,
   };

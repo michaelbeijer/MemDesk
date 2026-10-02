@@ -63,6 +63,10 @@
   --mark: #fde293;
   --mark-current: #f9ab00;
   --on-mark-current: #1f1f1f;
+  /* The scratchpad: paper of its own colour. */
+  --scratch: #fff8dc;
+  --scratch-edge: #f0e1a0;
+  --scratch-ink: #9a6b00;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -103,6 +107,9 @@
     --mark: #6b5800;
     --mark-current: #fdd663;
     --on-mark-current: #1f1f1f;
+    --scratch: #2a2617;
+    --scratch-edge: #4a4122;
+    --scratch-ink: #fdd663;
   }
 }
 
@@ -860,6 +867,19 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
   counter-reset: ol0 ol1 ol2 ol3;
 }
 .ne-title::placeholder { color: var(--fg-3); }
+/* The scratchpad: its own colour, a fixed name, and pinned in the list. */
+.note-editor.scratch { background: var(--scratch); box-shadow: inset 0 0 0 1px var(--scratch-edge), var(--shadow-1); }
+.note-editor.scratch .ne-toolbar { background: color-mix(in srgb, var(--scratch-edge) 45%, transparent); }
+.note-editor.scratch .ne-bar:empty { display: none; }
+.scratch-title { display: flex; align-items: center; gap: 10px; margin: 0; padding-top: 18px; font-weight: 400; }
+.scratch-title .st-name { flex: 1; min-width: 0; }
+.scratch-title .ne-status { font-size: 12px; }
+.scratch-title .icon { color: var(--scratch-ink); }
+.scratch-item { margin-bottom: 4px; background: var(--scratch); box-shadow: inset 0 0 0 1px var(--scratch-edge); }
+.scratch-item:hover { background: color-mix(in srgb, var(--scratch) 85%, var(--scratch-edge)); }
+.scratch-item[aria-current="true"] { background: var(--scratch); box-shadow: inset 0 0 0 2px var(--scratch-edge), var(--shadow-1); }
+.scratch-item .ni-title { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.scratch-item .ni-title .icon { flex: none; color: var(--scratch-ink); }
 .ne-title:focus-visible { outline: none; }
 .ne-title:disabled, .ne-body[aria-disabled="true"] { opacity: .6; }
 .ne-body[data-empty="1"]::before {
@@ -993,19 +1013,6 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .ne-linkbar .btn { height: 34px; }
 .link-error { flex-basis: 100%; color: var(--danger); font-size: 12px; }
 .link-error:empty { display: none; }
-.notes-intro { margin: auto; max-width: 440px; padding: 32px; text-align: center; }
-.notes-intro .panel-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: var(--accent-soft);
-  color: var(--on-accent-soft);
-}
-.notes-intro h2 { margin: 16px 0 8px; font-size: 22px; font-weight: 400; }
-.notes-intro p { margin: 0 0 20px; color: var(--fg-2); line-height: 1.5; }
 
 /* ── Column settings drawer ── */
 

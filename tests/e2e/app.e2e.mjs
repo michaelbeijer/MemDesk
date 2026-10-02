@@ -88,8 +88,9 @@ function breakHistory() {
   window.google.script.history = { push: no, replace: no, setChangeHandler: no };
 }
 
-async function openApp({ search = '', colorScheme = 'light', brokenHistory = false, file = PAGE } = {}) {
-  const phone = new Phone({ search });
+async function openApp({ search = '', colorScheme = 'light', brokenHistory = false, file = PAGE, phone: given = null } = {}) {
+  // Another phone on the same mailbox, or a mailbox of its own.
+  const phone = given ? new Phone({ fake: given.fake }) : new Phone({ search });
   const ctx = await browser.newContext({
     viewport: { width: 412, height: 860 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme,
   });
@@ -106,7 +107,11 @@ const host = '#gkb-app-host';
 const q = (page, sel) => page.locator(`${host} >> ${sel}`);
 const visible = (page, sel) => q(page, sel).first().isVisible();
 const settled = page => until(async () => (await page.evaluate(() => window.__calls || 0)) === 0, 'server calls settled', 8000);
-const titles = page => q(page, '.note-item .ni-title').allInnerTexts();
+// The notes listed, the pinned scratchpad aside.
+const titles = page => q(page, '.note-item:not(.scratch-item) .ni-title').allInnerTexts();
+const view = page => page.evaluate(() => document.querySelector('#gkb-app-host').shadowRoot.querySelector('.notes').dataset.view);
+const scratchReady = page => q(page, '.note-editor.scratch .ne-body[contenteditable="true"]').waitFor();
+const SCRATCH = 'scratchpad000000';
 const live = (phone, noteId) => plain(phone.fake.box.notesWithId(noteId)).filter(n => !n.labels.includes('TRASH'));
 
 const { phone, page } = await openApp();
@@ -118,14 +123,49 @@ async function pickFolder(p, title) {
 }
 const toggleText = async p => (await q(p, '[data-key="folders-toggle"]').innerText()).replace(/\s+/g, ' ').trim();
 
-await r.step('the list: every note, newest first, the folders folded away behind one button', async () => {
-  await q(page, '.note-item').first().waitFor();
+await r.step('it opens on the scratchpad, under the search box, ready to type into - and no list', async () => {
+  await scratchReady(page);
+  assert.equal(await view(page), 'home');
+  assert.equal(await visible(page, '[data-key="notes-search"]'), true);
+  assert.equal(await visible(page, '[data-key="note-new"]'), true);
+  assert.equal(await q(page, '[data-key="scratch-title"] .st-name').innerText(), 'Scratchpad');
+  assert.equal(await visible(page, '.notes-items'), false, 'the notes stay out of the way');
+  assert.equal(await visible(page, '.folder-items'), false, 'the tree is folded away');
+  assert.equal(await visible(page, '[data-key="note-delete"]'), false, 'nothing to delete or move it with');
+  assert.equal(await visible(page, '[data-key="note-folder"]'), false);
+  await until(async () => (await toggleText(page)) === 'All notes 5', 'says where you are');
+  await page.screenshot({ path: join(SCREENS, 'app-home.png'), animations: 'disabled' });
+
+  await q(page, '.ne-body').tap();
+  await page.keyboard.type('Ring the garage about the tyres');
+  await until(async () => /^Saved/.test(await q(page, '.scratch-title .ne-status').innerText()), 'saved by itself', 10000);
+  await settled(page);
+  const saved = live(phone, SCRATCH);
+  assert.equal(saved.length, 1, 'one note, under the fixed id');
+  assert.equal(saved[0].text, 'Ring the garage about the tyres');
+  assert.equal(saved[0].subject, 'Scratchpad');
+  assert.deepEqual(saved[0].labels, ['_Notes'], 'in no folder, and not in the Inbox');
+  await until(async () => (await toggleText(page)) === 'All notes 6', 'counted');
+  assert.deepEqual(await page.evaluate(() => window.__history), [], 'nothing on the history yet');
+});
+
+await r.step('the list: a folder - "All notes" too - shows it, with the scratchpad pinned on top', async () => {
+  await pickFolder(page, 'All notes');
+  assert.equal(await view(page), 'list');
+  assert.equal(await visible(page, '.note-editor'), false, 'one pane at a time');
   assert.equal((await titles(page)).length, 5);
   assert.equal((await titles(page))[0], 'Ideas for the October newsletter');
-  assert.equal(await visible(page, '.note-editor'), false, 'one pane at a time');
-  assert.equal(await visible(page, '.folder-items'), false, 'the tree is folded away');
-  await until(async () => (await toggleText(page)) === 'All notes 5', 'says where you are');
+  assert.match(await q(page, '.note-item').first().innerText(), /^Scratchpad[\s\S]*Ring the garage/, 'pinned first');
+  assert.deepEqual(await page.evaluate(() => window.__history), [{ depth: 1 }], 'on the history, for the back gesture');
   await page.screenshot({ path: join(SCREENS, 'app-list.png'), animations: 'disabled' });
+  // The back gesture: to the scratchpad.
+  await page.evaluate(() => window.__historyHandler({ state: {} }));
+  await until(async () => (await view(page)) === 'home', 'home again');
+  // And tapping the pinned scratchpad does the same.
+  await pickFolder(page, 'All notes');
+  await q(page, '.scratch-item').tap();
+  assert.equal(await view(page), 'home');
+  await pickFolder(page, 'All notes');
 });
 
 await r.step('the folder tree: nested as on a computer, with counts and a ⋯ menu; picking one folds it away', async () => {
@@ -162,7 +202,7 @@ await r.step('a folder with subfolders folds them away with its arrow, and the p
 
   // Opened again later: still folded.
   await page.reload();
-  await q(page, '.note-item').first().waitFor();
+  await scratchReady(page);
   await q(page, '[data-key="folders-toggle"]').tap();
   assert.deepEqual(await q(page, '.folder-row .folder-title').allInnerTexts(), ['All notes', 'Empty', 'Personal', 'Work'], 'remembered');
   assert.equal(await twisty(page).getAttribute('aria-expanded'), 'false');
@@ -181,10 +221,11 @@ await r.step('tapping a note opens it full-screen; Back returns to the list', as
   assert.equal(await visible(page, '.app-head'), false, 'the note has the whole screen');
   assert.equal(await visible(page, '[data-key="note-back"]'), true);
   assert.equal(await q(page, '.ne-body .blk[data-type="check"][data-checked="1"]').count(), 1);
-  assert.deepEqual(await page.evaluate(() => window.__history), [{ note: 1 }], 'on the history, for the back gesture');
+  assert.deepEqual(await page.evaluate(() => window.__history), [{ depth: 1 }, { depth: 2 }], 'on the history, for the back gesture');
   await page.screenshot({ path: join(SCREENS, 'app-note.png'), animations: 'disabled' });
   await q(page, '[data-key="note-back"]').tap();
   await q(page, '.notes-list').waitFor();
+  assert.equal(await view(page), 'list', 'back to the list it was opened from');
   assert.equal(await visible(page, '.note-editor'), false);
 });
 
@@ -211,8 +252,9 @@ await r.step('ticking a box by tapping it; the back gesture saves and closes', a
   const at = await box.boundingBox();
   await page.touchscreen.tap(at.x + 10, at.y + at.height / 2);
   assert.equal(await box.getAttribute('data-checked'), '1');
-  await page.evaluate(() => window.__historyHandler({ state: {} }));
-  await q(page, '.notes-list').waitFor();
+  // The gesture lands on the list's entry.
+  await page.evaluate(() => window.__historyHandler({ state: { depth: 1 } }));
+  await until(async () => (await view(page)) === 'list', 'back on the list');
   await settled(page);
   assert.match(live(phone, 'launchchecklist0004')[0].text, /☑ Send the invoice/, 'saved on the way out, without waiting');
 });
@@ -250,7 +292,32 @@ await r.step('a new note in the folder being looked at', async () => {
   assert.deepEqual(await titles(page), ['Written on the train', 'Ideas for the October newsletter']);
 });
 
+await r.step('a note opened from the scratchpad goes back to it; another phone finds the same scratchpad', async () => {
+  await page.evaluate(() => window.__historyHandler({ state: {} }));
+  await until(async () => (await view(page)) === 'home', 'home');
+  assert.equal(await q(page, '[data-key="notes-search"]').inputValue(), '', 'the search cleared');
+  await q(page, '[data-key="note-new"]').tap();
+  assert.equal(await view(page), 'note');
+  await page.evaluate(() => window.__historyHandler({ state: {} }));
+  await until(async () => (await view(page)) === 'home', 'straight back to the scratchpad');
+  await scratchReady(page);
+  assert.match(await q(page, '.note-editor.scratch .ne-body').innerText(), /Ring the garage/);
+
+  const other = await openApp({ phone });
+  await scratchReady(other.page);
+  assert.match(await q(other.page, '.ne-body').innerText(), /Ring the garage about the tyres/, 'the same note');
+  await q(other.page, '.ne-body').tap();
+  await other.page.keyboard.press('End');
+  await other.page.keyboard.type(', and the MOT');
+  await until(async () => /^Saved/.test(await q(other.page, '.scratch-title .ne-status').innerText()), 'saved', 10000);
+  await settled(other.page);
+  assert.equal(live(phone, SCRATCH).length, 1, 'still one scratchpad, its old version in Trash');
+  assert.equal(live(phone, SCRATCH)[0].text, 'Ring the garage about the tyres, and the MOT');
+  await other.page.context().close();
+});
+
 await r.step('switching away from the app saves at once', async () => {
+  await pickFolder(page, 'All notes');
   await q(page, '.note-item').filter({ hasText: 'Written on the train' }).tap();
   await q(page, '.ne-body .blk').first().waitFor();
   await q(page, '.ne-body .blk').last().tap();
@@ -267,7 +334,8 @@ await r.step('switching away from the app saves at once', async () => {
 await r.step('nothing on the page but the app once it has started; a broken history does not stop it', async () => {
   assert.equal(await page.locator('#boot').count(), 0, 'the loading line is gone');
   const b = await openApp({ brokenHistory: true });
-  await q(b.page, '.note-item').first().waitFor();
+  await scratchReady(b.page);
+  await pickFolder(b.page, 'All notes');
   await q(b.page, '.note-item').filter({ hasText: 'Launch checklist' }).tap();
   await q(b.page, '.ne-body .blk').first().waitFor();
   await q(b.page, '[data-key="note-back"]').tap();
@@ -277,7 +345,8 @@ await r.step('nothing on the page but the app once it has started; a broken hist
 
 await r.step('delivered the rough way Apps Script may deliver it, it still starts and works', async () => {
   const rough = await openApp({ file: ROUGH });
-  await q(rough.page, '.note-item').first().waitFor();
+  await scratchReady(rough.page);
+  await pickFolder(rough.page, 'All notes');
   assert.equal((await titles(rough.page)).length, 5);
   await q(rough.page, '.note-item').filter({ hasText: 'Launch checklist' }).tap();
   await q(rough.page, '.ne-body .blk').first().waitFor();
@@ -308,7 +377,9 @@ await r.step('a part that fails to load is named on the page', async () => {
 
 await r.step('dark mode', async () => {
   const dark = await openApp({ colorScheme: 'dark' });
-  await q(dark.page, '.note-item').first().waitFor();
+  await scratchReady(dark.page);
+  await dark.page.screenshot({ path: join(SCREENS, 'app-home-dark.png'), animations: 'disabled' });
+  await pickFolder(dark.page, 'All notes');
   await q(dark.page, '.note-item').filter({ hasText: 'Launch checklist' }).tap();
   await q(dark.page, '.ne-body .blk').first().waitFor();
   await dark.page.screenshot({ path: join(SCREENS, 'app-note-dark.png'), animations: 'disabled' });

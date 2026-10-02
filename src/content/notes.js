@@ -12,11 +12,17 @@
 // is showing. Its element is built once and kept, so that a board redraw
 // never pulls the text box out from under someone who is typing.
 //
+// The scratchpad is the note that is open whenever no other one is: one
+// note with a fixed id, shared by every computer and phone, there to type
+// into the moment the notes appear. It is pinned at the top of the list,
+// and cannot be renamed, moved or deleted.
+//
 // The phone app (addon/app) runs this same view full-screen on a phone,
-// with a different way to Gmail behind notesStore. A phone shows one pane
-// at a time - the list, or the open note - so the element says which
-// (data-view) and the note has a Back button, which only the phone's
-// stylesheet shows.
+// with a different way to Gmail behind notesStore. A phone shows one
+// thing at a time, and the element says which (data-view): "home", the
+// search box and the scratchpad; "list", the notes in a folder or a
+// search; or "note", a note full-screen. The note's Back button and the
+// folder tree's button only show in the phone's stylesheet.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -37,6 +43,8 @@
   const AUTOSAVE_MS = 2500;
   const STALE_MS = 60 * 1000;
 
+  const SCRATCH_KEY = `n:${notesLogic.SCRATCHPAD_ID}`;
+
   const N = {
     ctx: null,          // { root, onStateError, onLoaded, closeBoard, barChanged }
     notes: [],          // live notes, newest first (metadata only)
@@ -46,7 +54,11 @@
     error: '',
     loadedAt: 0,
     loading: null,
-    current: null,      // the note being edited - see newCurrent()
+    current: null,      // the note being edited - see newCurrent(); the scratchpad when no other is
+    scratchNote: null,  // the scratchpad's message, once listed (null: never saved yet)
+    scratchKnown: false, // whether the listing has said if there is one
+    browsing: false,    // a phone: the list is showing, rather than the scratchpad
+    wantFocus: false,   // put the cursor in the scratchpad once it is ready
     chain: Promise.resolve(), // saves and moves run one after another
     folders: [],        // notesLogic.folderTree(), from the last listing
     folder: '',         // the folder shown; '' for all notes
@@ -88,6 +100,8 @@
       dataset: { key: 'notes-search' },
       oninput: e => {
         N.query = e.target.value;
+        // On a phone, a search shows the list in place of the scratchpad.
+        if (N.query.trim() && !N.browsing) { N.browsing = true; setView(); }
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => load({ force: true }), 400);
       },
@@ -129,6 +143,7 @@
 
     els.editor = h('section', { class: 'note-editor', 'aria-label': 'Note' });
     els.wrap = h('div', { class: 'notes', dataset: { folders: 'closed' } }, els.foldersPane, els.list, els.editor);
+    if (!N.current) N.current = pendingScratch();
     drawFolders();
     drawList();
     drawEditor();
@@ -154,6 +169,18 @@
         const r = await notesStore.list(hooks.getAccount(), query);
         if (folded) await folded;
         if (query !== N.query) return; // a newer search has started
+        let scratch = r.notes.find(n => n.key === SCRATCH_KEY) || null;
+        // Not among the newest hundred: ask Gmail for it by name, rather
+        // than start a second one that would push the first into Trash.
+        if (!scratch && !query && r.truncated) {
+          const found = await notesStore.list(hooks.getAccount(), notesLogic.SCRATCHPAD_TITLE);
+          scratch = found.notes.find(n => n.key === SCRATCH_KEY) || null;
+          if (query !== N.query) return;
+        }
+        if (scratch || !query) {
+          N.scratchNote = scratch;
+          N.scratchKnown = true;
+        }
         N.notes = r.notes;
         N.truncated = r.truncated;
         N.folders = r.folders || [];
@@ -166,6 +193,8 @@
         N.error = '';
         N.loadedAt = Date.now();
         catchUpCurrent();
+        // The scratchpad was waiting for the list to say whether it exists.
+        if (N.current && N.current.scratch && N.current.bodyState !== 'ready' && N.scratchKnown) showScratch();
         N.ctx.onLoaded();
       } catch (err) {
         if (api.STATE_CODES.has(err.code)) {
@@ -175,6 +204,12 @@
         }
         N.status = N.notes.length ? 'ready' : 'error';
         N.error = err.message;
+        const c = N.current;
+        if (c && c.scratch && c.bodyState === 'loading' && !N.scratchKnown) {
+          c.bodyState = 'error';
+          c.error = err.message;
+          drawEditor();
+        }
         if (N.notes.length) toast(N.ctx.root, `Couldn’t load notes: ${err.message}`, { kind: 'error' });
       } finally {
         N.loading = null;
@@ -197,7 +232,10 @@
   // show the newer text, unless there are edits here that would be lost.
   function catchUpCurrent() {
     const c = N.current;
-    if (!c || !c.note || c.dirty || c.saving) return;
+    if (!c || c.dirty || c.saving) return;
+    // A scratchpad never saved here, which another computer has since started.
+    if (c.scratch && !c.note && c.bodyState === 'ready' && N.scratchNote) { openNote(N.scratchNote, { force: true }); return; }
+    if (!c.note) return;
     const fresh = N.notes.find(n => n.key === c.key);
     if (fresh && fresh.messageId !== c.note.messageId) openNote(fresh, { force: true });
   }
@@ -242,14 +280,19 @@
           h('button', { class: 'btn btn-text', type: 'button', text: 'Try again', onclick: () => load({ force: true }) })));
       return;
     }
-    if (!shown.length) {
+    // The scratchpad first: in "All notes", always, saved yet or not;
+    // elsewhere, where it is listed (a search that finds it).
+    const scratch = shown.find(n => n.key === SCRATCH_KEY) || (!N.folder && !searching && N.scratchKnown && !N.scratchNote ? 'new' : null);
+    const rest = shown.filter(n => n.key !== SCRATCH_KEY);
+    const pinned = scratch ? [scratchItem(scratch === 'new' ? null : scratch, curKey)] : [];
+    if (!rest.length) {
       let text = searching ? 'No notes match.' : 'No notes yet.';
       if (N.folder) text = searching ? 'No notes in this folder match.' : 'No notes in this folder yet.';
-      els.items.replaceChildren(h('div', { class: 'notes-empty', text }));
+      els.items.replaceChildren(...pinned, h('div', { class: 'notes-empty', text }));
       return;
     }
 
-    els.items.replaceChildren(...shown.map(n => {
+    els.items.replaceChildren(...pinned, ...rest.map(n => {
       const item = h('button', {
         class: 'note-item', type: 'button', role: 'listitem', draggable: 'true',
         'aria-current': n.key === curKey ? 'true' : null,
@@ -277,6 +320,27 @@
       });
       return item;
     }));
+  }
+
+  // The scratchpad's entry: pinned, not draggable, and on a phone it goes
+  // back to the scratchpad rather than opening it full-screen.
+  function scratchItem(n, curKey) {
+    return h('button', {
+      class: 'note-item scratch-item', type: 'button', role: 'listitem',
+      'aria-current': curKey === SCRATCH_KEY ? 'true' : null,
+      dataset: { key: 'note:scratchpad', note: SCRATCH_KEY },
+      onclick: () => {
+        N.browsing = false;
+        if (n) openNote(n);
+        else showScratch();
+        setView();
+      },
+    },
+      h('span', { class: 'ni-top' },
+        h('span', { class: 'ni-title' }, icon('edit', 16), h('span', {}, marked(notesLogic.SCRATCHPAD_TITLE))),
+        n ? h('span', { class: 'date', text: util.relativeDate(n.updated), title: util.fullDate(n.updated) }) : null),
+      n ? itemPreview(n) : h('span', { class: 'ni-snippet', text: 'Empty – write something down' }),
+      n ? h('span', { class: 'ni-meta' }, hitCount(n)) : null);
   }
 
   // ── Search results ───────────────────────────────────────────────────
@@ -488,6 +552,8 @@
 
   function selectFolder(id) {
     setFoldersOpen(false);
+    // On a phone, choosing a folder - "All notes" too - shows its list.
+    if (!N.browsing) { N.browsing = true; setView(); }
     if (N.folder === id) return;
     N.folder = id;
     drawFolders();
@@ -761,6 +827,40 @@
     };
   }
 
+  // The scratchpad, as the note being edited: its saved message, or null
+  // when there is none yet. It keeps its name and stays out of folders.
+  function scratchCurrent(note) {
+    return Object.assign(newCurrent(note), {
+      scratch: true, key: SCRATCH_KEY, title: notesLogic.SCRATCHPAD_TITLE, folderId: '',
+    });
+  }
+
+  // Before the list is in, nobody knows yet whether there is one.
+  function pendingScratch() {
+    return Object.assign(scratchCurrent(null), { doc: null, bodyState: 'loading' });
+  }
+
+  // Whenever no other note is open: the scratchpad.
+  function showScratch() {
+    const c = N.current;
+    if (c && c.scratch && c.bodyState === 'ready') return;
+    if (N.scratchNote) { openNote(N.scratchNote, { force: true }); return; }
+    flush();
+    N.current = N.scratchKnown ? scratchCurrent(null) : pendingScratch();
+    drawList();
+    drawEditor();
+    scratchReady();
+  }
+
+  // The cursor goes into the scratchpad once it can take typing, if it
+  // was asked for before then.
+  function scratchReady() {
+    const c = N.current;
+    if (!N.wantFocus || !c || !c.scratch || c.bodyState !== 'ready') return;
+    N.wantFocus = false;
+    focusField('note-body');
+  }
+
   function newNote() {
     flush();
     N.current = newCurrent(null);
@@ -772,7 +872,7 @@
   function openNote(note, { force = false } = {}) {
     if (!force && N.current && N.current.key === note.key) return;
     flush();
-    const c = newCurrent(note);
+    const c = note.key === SCRATCH_KEY ? scratchCurrent(note) : newCurrent(note);
     N.current = c;
     N.findIndex = 0;
     drawList();
@@ -783,6 +883,7 @@
       c.bodyState = 'ready';
       drawEditor();
       applyHighlights();
+      scratchReady();
     }, err => {
       if (N.current !== c) return;
       c.bodyState = 'error';
@@ -798,9 +899,9 @@
     if (el) el.focus();
   }
 
-  // Which pane a phone shows: the list, or the open note.
+  // What a phone shows: the scratchpad, the list, or a note.
   function setView() {
-    const view = N.current ? 'note' : 'list';
+    const view = N.current && !N.current.scratch ? 'note' : N.browsing ? 'list' : 'home';
     if (els.wrap) els.wrap.dataset.view = view;
     if (view !== N.view) {
       N.view = view;
@@ -813,38 +914,46 @@
   // leaving the edits behind.
   async function closeNote() {
     const c = N.current;
-    if (!c) return;
+    if (!c || c.scratch) return;
     await flush();
     if (N.current !== c) return;
     if (c.dirty) {
       toast(N.ctx.root, 'Not saved yet, so the note stays open. Try again in a moment.', { kind: 'error' });
       return;
     }
-    N.current = null;
-    drawEditor();
-    drawList();
+    showScratch();
+  }
+
+  // A phone's Back: a note back to where it was opened from, and the list
+  // back to the scratchpad, with the search and the folder cleared.
+  async function back() {
+    if (N.current && !N.current.scratch) return closeNote();
+    if (!N.browsing) return;
+    N.browsing = false;
+    setFoldersOpen(false);
+    if (N.folder) { N.folder = ''; drawFolders(); drawList(); }
+    if (N.query) clearSearch();
+    setView();
+  }
+
+  // How far from the scratchpad: 0 there, 1 in the list or a note opened
+  // from the scratchpad, 2 in a note opened from the list.
+  function depth() {
+    const inNote = !!(N.current && !N.current.scratch);
+    return (N.browsing ? 1 : 0) + (inNote ? 1 : 0);
   }
 
   function drawEditor() {
     if (!els.editor) return;
     setView();
     const c = N.current;
-    if (!c) {
-      if (els.ed) { els.ed.destroy(); els.ed = null; }
-      els.editor.replaceChildren(h('div', { class: 'notes-intro' },
-        h('span', { class: 'panel-icon' }, icon('note', 28)),
-        h('h2', { text: 'Notes, kept in Gmail' }),
-        h('p', {
-          text: `Each note is saved as a message under “${notesStore.labelName()}”, out of your Inbox. ` +
-            'Gmail’s search finds it, your phone shows it, and every earlier version waits in Gmail’s Trash for 30 days.',
-        }),
-        h('button', { class: 'btn btn-primary', type: 'button', text: 'New note', dataset: { key: 'note-new-intro' }, onclick: () => newNote() })));
-      return;
-    }
+    if (!c) return;
+    els.editor.classList.toggle('scratch', !!c.scratch);
 
     els.bar = h('div', { class: 'ne-bar' });
     els.bannerSlot = h('div', { class: 'ne-banner-slot' });
-    const title = h('input', {
+    const title = c.scratch ? h('h2', { class: 'ne-title scratch-title', dataset: { key: 'scratch-title' } },
+      icon('edit', 22), h('span', { class: 'st-name', text: notesLogic.SCRATCHPAD_TITLE })) : h('input', {
       class: 'ne-title', type: 'text', placeholder: 'Title', 'aria-label': 'Title',
       value: c.title, maxlength: String(notesLogic.MAX_TITLE), dataset: { key: 'note-title' },
       disabled: c.bodyState !== 'ready',
@@ -860,7 +969,8 @@
     els.ed = ed;
     ed.setDoc(c.doc || fmt.emptyDoc());
     ed.setEditable(c.bodyState === 'ready',
-      c.bodyState === 'loading' ? 'Loading…' : c.bodyState === 'error' ? 'Couldn’t load this note.' : 'Write here…');
+      c.bodyState === 'loading' ? 'Loading…' : c.bodyState === 'error' ? 'Couldn’t load this note.'
+        : c.scratch ? `Jot anything down. It saves as you type, as a note in Gmail under “${notesStore.labelName()}”.` : 'Write here…');
 
     els.findSlot = h('div', { class: 'ne-find-slot' });
     els.editor.replaceChildren(els.bar, els.bannerSlot, els.findSlot, title, ed.toolbar, ed.linkbar, ed.element);
@@ -877,6 +987,18 @@
     if (!c || !els.bar) return;
     const foreign = !!(c.note && !c.note.own);
     els.status = h('span', { class: 'ne-status', 'aria-live': 'polite' });
+    // The scratchpad's status sits on its title line: there is nothing
+    // else for a bar to hold.
+    if (c.scratch) {
+      els.bar.replaceChildren();
+      els.bannerSlot.replaceChildren('');
+      const line = els.editor.querySelector('.scratch-title');
+      const old = line && line.querySelector('.ne-status');
+      if (old) old.replaceWith(els.status);
+      else if (line) line.append(els.status);
+      drawStatus();
+      return;
+    }
     els.bar.replaceChildren(
       h('button', {
         class: 'icon-btn ne-back', type: 'button', 'aria-label': 'Back to the list', title: 'Back to the list',
@@ -915,7 +1037,7 @@
     else if (c.dirty) text = 'Unsaved changes';
     else if (c.savedAt) text = `Saved ${util.agoText(Date.now() - c.savedAt)}`;
     else if (c.note) text = `Last saved ${util.relativeDate(c.note.updated)}`;
-    else text = 'New note';
+    else text = c.scratch ? '' : 'New note';
     els.status.textContent = text;
     els.status.classList.toggle('error', !!(c.error && !c.saving && c.bodyState === 'ready'));
     els.status.title = c.note ? util.fullDate(c.note.updated) : '';
@@ -942,9 +1064,11 @@
     N.chain = N.chain.then(async () => {
       if (!c.dirty) return;
       // An untouched new note is not worth a message.
-      if (!c.note && !c.title.trim() && fmt.isEmpty(c.doc)) { c.dirty = false; return; }
-      const snap = { title: c.title, doc: c.doc, folderId: c.folderId };
-      const before = c.note;
+      if (!c.note && (c.scratch || !c.title.trim()) && fmt.isEmpty(c.doc)) { c.dirty = false; return; }
+      const snap = { title: c.title, doc: c.doc, folderId: c.folderId, noteId: c.scratch ? notesLogic.SCRATCHPAD_ID : '' };
+      // A scratchpad started here while another computer started one too:
+      // the other's version is retired, as any older version is.
+      const before = c.note || (c.scratch ? N.scratchNote : null);
       c.dirty = false;
       c.saving = true;
       drawStatus();
@@ -955,8 +1079,11 @@
         c.note = saved;
         c.key = saved.key;
         c.savedAt = Date.now();
+        if (c.scratch) { N.scratchNote = saved; N.scratchKnown = true; }
         c.error = '';
         N.notes = [saved, ...N.notes.filter(n => n.key !== oldKey && n.key !== saved.key)];
+        // A first save is one more note: the counts by the folders change.
+        if (!before) drawFolders();
         if (!wasOurs && N.current === c) drawBar();
       } catch (err) {
         c.dirty = true;
@@ -990,11 +1117,11 @@
 
   async function deleteCurrent() {
     const c = N.current;
-    if (!c) return;
+    if (!c || c.scratch) return;
     clearTimeout(saveTimer);
     await N.chain;
     N.current = null;
-    drawEditor();
+    showScratch();
     const note = c.note;
     if (!note) { drawList(); return; } // never saved: nothing in Gmail
 
@@ -1047,14 +1174,21 @@
     drawStatus();
   }
 
+  // Typing goes straight into the scratchpad - or, with another note
+  // open, into that.
   function focusDefault() {
-    if (N.current) focusField(N.current.bodyState === 'ready' && N.current.title ? 'note-body' : 'note-title');
+    const c = N.current;
+    if (c && c.scratch) {
+      N.wantFocus = true;
+      scratchReady();
+    } else if (c) focusField(c.bodyState === 'ready' && c.title ? 'note-body' : 'note-title');
     else if (els.search) els.search.focus();
   }
 
   ns.notes = {
-    init, element, load, isStale, flush, handleKey, tick, focusDefault, closeNote,
-    isOpen: () => !!N.current,
+    init, element, load, isStale, flush, handleKey, tick, focusDefault, closeNote, back, depth,
+    // A note other than the scratchpad.
+    isOpen: () => !!(N.current && !N.current.scratch),
     loadedAt: () => N.loadedAt,
     isLoading: () => !!N.loading,
   };

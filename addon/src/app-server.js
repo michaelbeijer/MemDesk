@@ -85,7 +85,7 @@
     const previous = previousId ? store.peek(ctx, previousId) : null;
     const s = snap || {};
     const folderId = ctx.folders.some(f => f.id === s.folderId) ? s.folderId : '';
-    const id = store.save(ctx, previous, { title: String(s.title || ''), doc: s.doc, folderId });
+    const id = store.save(ctx, previous, { title: String(s.title || ''), doc: s.doc, folderId, noteId: String(s.noteId || '') });
     return { note: plainNote(store.peek(ctx, id)) };
   }
 

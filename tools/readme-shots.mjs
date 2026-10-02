@@ -129,20 +129,21 @@ async function phone(colorScheme) {
   await page.exposeFunction('__gas', (fn, args) => fake.server(fn, ...args));
   await page.addInitScript(installGoogle);
   await page.goto(pathToFileURL(APP).href);
-  await page.locator('#gkb-app-host >> .note-item').first().waitFor();
+  await page.locator('#gkb-app-host >> .note-editor.scratch .ne-body[contenteditable="true"]').waitFor();
   return page;
 }
 const q = (page, sel) => page.locator(`#gkb-app-host >> ${sel}`);
 
 {
+  // It opens on the scratchpad.
   const page = await phone('light');
-  await pause(200);
-  await phoneShot(page, 'phone-list');
+  await pause(300);
+  await phoneShot(page, 'phone-home');
   await q(page, '[data-key="folders-toggle"]').tap();
   await pause(200);
   await phoneShot(page, 'phone-folders');
-  await q(page, '[data-key="folders-toggle"]').tap();
-  await q(page, '.note-item', ).filter({ hasText: 'This week' }).tap();
+  await q(page, '[data-key="folder:all"]').tap();
+  await q(page, '.note-item').filter({ hasText: 'This week' }).tap();
   await q(page, '.ne-body .blk').first().waitFor();
   await pause(300);
   await phoneShot(page, 'phone-note');
@@ -278,7 +279,7 @@ const at = (html, left, top) => `<div style="position:absolute;left:${left}px;to
 // The top of the README: Gmail with the board, the phone app in front.
 await compose('hero', 1200, 660, { cls: 'violet dots', html:
   at(browserWindow('board', { width: 900 }), 64, 64) +
-  at(phoneFrame('phone-note', { width: 252 }), 892, 128) });
+  at(phoneFrame('phone-home', { width: 252 }), 892, 128) });
 
 // One window each, on the soft backdrop.
 const single = (img, opts = {}) => ({ cls: 'soft dots', html: at(browserWindow(img, { width: 1088, ...opts }), 56, 56) });
