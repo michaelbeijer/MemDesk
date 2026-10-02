@@ -154,6 +154,15 @@ try {
     assert.equal(noteTrash.error.code, 'not_configured');
     const labels = await ask({ type: 'gmail', account: 'test@example.com', method: 'GET', path: 'labels' });
     assert.equal(labels.error.code, 'not_configured', 'an allowed call gets as far as the missing client ID');
+
+    // The calendar: four reads, nothing else.
+    for (const [service, path] of [['calendar', 'calendars/primary/acl'], ['calendar', 'calendars/primary/events/ev1'],
+      ['tasks', 'lists/abc/tasks/clear'], ['gmail', 'profile'], ['calendar', 'calendars/../events']]) {
+      const res = await ask({ type: 'google', account: 'test@example.com', service, path });
+      assert.equal(res.error.code, 'not_allowed', `${service} ${path}`);
+    }
+    const events = await ask({ type: 'google', account: 'test@example.com', service: 'calendar', path: 'users/me/calendarList' });
+    assert.equal(events.error.code, 'not_configured', 'an allowed calendar read gets as far as the missing client ID');
   });
 
   let gmail;
@@ -171,6 +180,7 @@ try {
     await boardBtn.waitFor({ timeout: 10000 });
     const pill = gmail.locator('[data-action="thread-menu"]');
     await until(async () => /Add to board/.test(await pill.innerText()), 'thread pill for the open conversation');
+    await gmail.locator('[data-action="toggle-calendar"]').waitFor();
     await boardBtn.click();
     await gmail.locator('.panel', { hasText: 'Finish setting up' }).waitFor();
     assert.match(await gmail.locator('.brand').innerText(), /Supermail/);

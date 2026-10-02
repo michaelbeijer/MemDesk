@@ -5,8 +5,8 @@
 Supermail is a Chrome extension, a phone panel in the Gmail app and a
 phone app, made by Michael Beijer. This policy says what they do with your
 data. The short version: **there is no Supermail server.** Your board and
-your notes live in your own Gmail, and the publisher never receives any of
-your data.
+your notes live in your own Gmail, your calendar stays in Google Calendar and
+Google Tasks, and the publisher never receives any of your data.
 
 ## What Supermail can see, and why
 
@@ -24,7 +24,22 @@ To work, Supermail asks Google for permission to read and change your Gmail
   `_Notes`.
 - **To tell accounts apart:** reads your email address.
 
-The permission Google grants is broader than this. Supermail **never sends
+For the Calendar tab, and only once you allow it there, Supermail asks
+Google for read-only access to Google Calendar and Google Tasks
+(`calendar.readonly` and `tasks.readonly`), and for your email address. With
+them, it:
+
+- **Reads** the list of your calendars and task lists, the events in the days
+  on screen, and your tasks (title, due date, whether it is done, and the
+  link to the email a task was made from), to show them.
+- **Reads your email address**, to check that the calendar is the one of the
+  account open in the tab.
+
+It cannot change, add or delete anything in your calendars or tasks: the
+permissions are read-only. Nothing from them is stored; they are read again
+when the calendar is shown.
+
+The Gmail permission Google grants is broader than what Supermail does. Supermail **never sends
 mail, never deletes anything for good**, never touches Spam, and moves
 nothing to Trash but its own notes. In the Chrome extension, a gatekeeper in
 its background worker refuses any other kind of request before it reaches
@@ -36,17 +51,22 @@ Google.
   notes (as messages under `_Notes`).
 - **In Chrome:** the board's column layout and your own card titles, notes
   and colours, in Chrome's sync storage (so they follow your Chrome profile);
-  card order and a few view settings in this browser only.
-- **The access token** that lets the extension talk to Gmail is kept in
-  memory for the browser session only, and is gone when Chrome closes.
+  card order and a few view settings (including which calendars to show) in
+  this browser only.
+- **The access tokens** that let the extension talk to Gmail, and to Calendar
+  and Tasks, are kept in memory for the browser session only, and are gone
+  when Chrome closes.
 - **The phone panel and the phone app** run in Google Apps Script, on
   Google's servers, as you: they read and write your Gmail on your behalf,
-  under the same rules, and keep nothing of their own except which folders
-  you have folded, in your phone's browser.
+  under the same rules (the calendar read-only), and keep nothing of their
+  own except which folders you have folded and which calendars you show, in
+  your phone's browser, and the board's layout and card edits, in the
+  script's settings for your account.
 
 ## Who your data is shared with
 
-**Nobody.** Supermail talks only to Google's Gmail service. It has no
+**Nobody.** Supermail talks only to Google: Gmail, and for the calendar,
+Google Calendar and Google Tasks. It has no
 analytics, no advertising, no tracking, and sends nothing to the publisher or
 anyone else. Nothing is sold.
 

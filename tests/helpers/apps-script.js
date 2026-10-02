@@ -36,13 +36,20 @@ function fakeGmail(search = '') {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  for (const f of ['src/lib/util.js', 'src/lib/notes-logic.js', 'dev/mock-chrome.js']) vm.runInContext(read(f), ctx, { filename: f });
-  return { box: ctx.__fakeGmail, route: ctx.__mockChrome.route };
+  for (const f of ['src/lib/util.js', 'src/lib/notes-logic.js', 'src/lib/calendar-logic.js', 'dev/mock-chrome.js']) vm.runInContext(read(f), ctx, { filename: f });
+  return { box: ctx.__fakeGmail, route: ctx.__mockChrome.route, googleRoute: ctx.__mockChrome.googleRoute, calendar: ctx.__fakeCalendar };
 }
 
 // ── UrlFetchApp ──────────────────────────────────────────────────────
 
 const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me/';
+// The calendar's APIs, answered by the fake Calendar and Tasks; and what
+// the manifest lets UrlFetchApp reach at all.
+const GOOGLE = {
+  calendar: 'https://www.googleapis.com/calendar/v3/',
+  tasks: 'https://tasks.googleapis.com/tasks/v1/',
+};
+const WHITELIST = JSON.parse(read('addon/appsscript.json')).urlFetchWhitelist;
 const TOKEN = 'token-for-tests';
 const FETCH_OPTIONS = new Set(['method', 'headers', 'contentType', 'payload', 'muteHttpExceptions']);
 
@@ -51,8 +58,11 @@ function urlFetch(fake, log) {
   function send(url, opts) {
     for (const k of Object.keys(opts)) if (!FETCH_OPTIONS.has(k)) throw new Error(`UrlFetchApp: unexpected option ${k}`);
     if (!opts.muteHttpExceptions) throw new Error('UrlFetchApp: without muteHttpExceptions a Gmail error would throw');
-    if (!url.startsWith(BASE)) throw new Error(`UrlFetchApp: ${url} is not on the whitelist`);
+    if (!WHITELIST.some(w => url.startsWith(w))) throw new Error(`UrlFetchApp: ${url} is not on the manifest's whitelist`);
     if (!opts.headers || opts.headers.Authorization !== `Bearer ${TOKEN}`) return response(401, '{"error":{"message":"no token"}}');
+    const service = Object.keys(GOOGLE).find(k => url.startsWith(GOOGLE[k]));
+    if (service) return sendGoogle(service, url, opts);
+    if (!url.startsWith(BASE)) throw new Error(`UrlFetchApp: ${url} is not Gmail, Calendar or Tasks`);
     const u = new URL(url);
     const apiPath = decodeURIComponent(u.pathname.slice(new URL(BASE).pathname.length));
     const query = {};
@@ -71,6 +81,27 @@ function urlFetch(fake, log) {
       return response(status, JSON.stringify({ error: { code: status, message: err.message } }));
     }
   }
+  function sendGoogle(service, url, opts) {
+    const u = new URL(url);
+    const apiPath = u.pathname.slice(new URL(GOOGLE[service]).pathname.length);
+    const query = {};
+    for (const key of new Set(u.searchParams.keys())) {
+      const all = u.searchParams.getAll(key);
+      query[key] = all.length > 1 ? all : all[0];
+    }
+    const method = String(opts.method || 'get').toUpperCase();
+    log.push({ service, method, path: apiPath, query });
+    if (method !== 'GET') return response(403, JSON.stringify({ error: { code: 403, message: 'Request had insufficient authentication scopes.' } }));
+    try {
+      return response(200, JSON.stringify(fake.googleRoute(service, apiPath, query)));
+    } catch (err) {
+      if (err.code === 'calendar_scope') return response(403, JSON.stringify({ error: { code: 403, message: 'Request had insufficient authentication scopes.' } }));
+      const m = /^http_(\d+)$/.exec(err.code || '');
+      const status = m ? Number(m[1]) : err.code === 'not_allowed' ? 400 : 500;
+      return response(status, JSON.stringify({ error: { code: status, message: err.message } }));
+    }
+  }
+
   return {
     fetch(url, opts = {}) {
       if ('url' in opts) throw new Error('UrlFetchApp.fetch: the url goes first, not in the options');

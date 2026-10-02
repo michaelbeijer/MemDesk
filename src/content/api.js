@@ -55,6 +55,21 @@
     return send({ type: 'connect', account: ns.hooks.getAccount() });
   }
 
+  // The calendar: Google Calendar and Google Tasks, read-only, with a
+  // sign-in of its own. Same shapes as gmail() and gmailMany(), each
+  // request being [service, path, query].
+  function google(service, path, query) {
+    return send({ type: 'google', account: ns.hooks.getAccount(), service, path, query });
+  }
+
+  function googleMany(list) {
+    return ns.util.mapPool(list, 6, ([service, path, query]) => google(service, path, query).catch(error => ({ error })));
+  }
+
+  function connectCalendar() {
+    return send({ type: 'connect', kind: 'calendar', account: ns.hooks.getAccount() });
+  }
+
   function openOptions() {
     return send({ type: 'open-options' });
   }
@@ -63,5 +78,5 @@
     return send({ type: 'hello' }).catch(() => {});
   }
 
-  ns.api = { ApiError, STATE_CODES, gmail, gmailMany, connect, openOptions, hello };
+  ns.api = { ApiError, STATE_CODES, gmail, gmailMany, connect, google, googleMany, connectCalendar, openOptions, hello };
 })();

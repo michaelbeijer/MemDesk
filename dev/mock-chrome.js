@@ -19,6 +19,8 @@
 //   ?latency=MS            simulated round-trip time (default 120)
 //   ?showcase              tidy notes and a deeper folder tree instead of the
 //                          test notes, for the README's pictures
+//   ?calendar=signin       the calendar asks to connect first
+//   ?calendar=notasks      Google Tasks was not allowed when connecting
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -32,6 +34,7 @@
   const FRESH = params.has('fresh');
   const SHOWCASE = params.has('showcase');
   const ACCOUNT = SHOWCASE ? 'sam@example.com' : 'test@example.com';
+  const CALENDAR = params.get('calendar') || '';
 
   // ── People ───────────────────────────────────────────────────────────
 
@@ -803,9 +806,130 @@
     throw err;
   }
 
+  // ── Google Calendar and Google Tasks ─────────────────────────────────
+  //
+  // A week of the same invented working life, around whatever week it is
+  // now, so the calendar always has something to show: dates are days
+  // from this week's Monday.
+
+  const fakeCalendar = (() => {
+    const now = new Date();
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (now.getDay() + 6) % 7);
+    const pad = n => String(n).padStart(2, '0');
+    const day = off => {
+      const d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + off);
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    };
+    const at = (off, hh, mm = 0) => new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + off, hh, mm).toISOString();
+
+    const HOLIDAYS = 'en.uk#holiday@group.v.calendar.google.com';
+    const calendars = [
+      { id: 'c_jobs@group.calendar.google.com', summary: 'Jobs', backgroundColor: '#0b8043', selected: true, accessRole: 'owner' },
+      { id: ACCOUNT, summary: ACCOUNT, backgroundColor: '#7986cb', selected: true, primary: true, accessRole: 'owner' },
+      { id: 'c_family@group.calendar.google.com', summary: 'Family', backgroundColor: '#f4511e', selected: true, accessRole: 'writer' },
+      { id: HOLIDAYS, summary: 'Holidays in the United Kingdom', backgroundColor: '#16a765', selected: false, accessRole: 'reader' },
+    ];
+    let n = 0;
+    const ev = (calendarId, summary, start, end, extra = {}) => Object.assign({
+      calendarId, id: `ev${++n}`, status: 'confirmed', summary, eventType: 'default',
+      htmlLink: `https://www.google.com/calendar/event?eid=ev${n}`,
+      start: /T/.test(start) ? { dateTime: start } : { date: start },
+      end: /T/.test(end) ? { dateTime: end } : { date: end },
+    }, extra);
+    const [JOBS, ME, FAMILY] = calendars.map(c => c.id);
+    const events = [
+      ev(ME, 'Dentist', at(-5, 8, 30), at(-5, 9, 15)),
+      ev(ME, 'Kestrel Medical: kick-off call', at(1, 9, 30), at(1, 10, 15), { location: 'Google Meet' }),
+      ev(FAMILY, 'Choir rehearsal', at(1, 19, 30), at(1, 21, 30)),
+      ev(JOBS, 'Call Bram about the office action', at(2, 11), at(2, 11, 30)),
+      ev(JOBS, 'Lumenra glossary delivery', at(3, 14), at(3, 15)),
+      ev(FAMILY, 'Pub quiz', at(3, 19, 30), at(3, 22)),
+      ev(ME, 'Working from home', day(0), day(5), { eventType: 'workingLocation' }),
+      ev(JOBS, 'Cancelled: weekly sync', at(4, 9), at(4, 9, 30), { status: 'cancelled' }),
+      ev(FAMILY, 'Grandma’s birthday', day(6), day(7)),
+      ev(ME, 'Planning call with Grace', at(7, 10), at(7, 10, 45)),
+      ev(JOBS, 'MedTech translators’ conference', day(9), day(11), { colorId: '3' }),
+      ev(HOLIDAYS, 'Bank holiday', day(14), day(15)),
+    ];
+
+    const lists = [{ id: 'MTAxMjM0NTY3ODk', title: 'My Tasks' }, { id: 'QWRtaW4xMjM0NTY', title: 'Admin' }];
+    const due = off => `${day(off)}T00:00:00.000Z`;
+    let t = 0;
+    const task = (list, title, extra = {}) => Object.assign({
+      list, id: `task${++t}`, title, status: 'needsAction',
+      webViewLink: `https://tasks.google.com/task/task${t}`,
+    }, extra);
+    const [MINE, ADMIN] = lists.map(l => l.id);
+    const tasks = [
+      task(MINE, 'Send invoice 2026-131', { due: due(0) }),
+      // Ticked in Google's own apps, which also hides it.
+      task(MINE, 'Proofread the IFU', { due: due(4), status: 'completed', hidden: true }),
+      task(MINE, 'Quote for Ingrid', {
+        due: due(4),
+        links: [{ type: 'email', description: 'Quote request: DE→EN patent, 14,200 words', link: 'https://mail.google.com/mail/#all/quote-request' }],
+      }),
+      task(MINE, 'Renew the guild membership'),
+      task(MINE, 'Order printer toner'),
+      task(MINE, 'Ask Tomás about “eluting”'),
+      task(MINE, 'Old and deleted', { due: due(2), deleted: true }),
+      task(ADMIN, 'File the VAT return', { due: due(9) }),
+      task(ADMIN, 'Back up the TMs', { due: due(-10) }),
+    ];
+
+    const strip = ({ calendarId, list, ...rest }) => rest;
+    const startMs = e => (e.start.dateTime ? Date.parse(e.start.dateTime) : new Date(`${e.start.date}T00:00:00`).getTime());
+    const endMs = e => (e.end.dateTime ? Date.parse(e.end.dateTime) : new Date(`${e.end.date}T00:00:00`).getTime());
+    const fail = (status, message) => { const err = new Error(message); err.code = `http_${status}`; throw err; };
+
+    function route(service, path, query = {}) {
+      const logic = window.gkb && window.gkb.calendarLogic;
+      if (logic && !logic.isAllowedRequest(service, 'GET', path)) {
+        const err = new Error(`GET ${service} ${path} is not something this extension does.`);
+        err.code = 'not_allowed';
+        throw err;
+      }
+      let mm;
+      if (service === 'calendar' && path === 'users/me/calendarList') return { items: calendars };
+      if (service === 'calendar' && (mm = /^calendars\/([^/]+)\/events$/.exec(path))) {
+        const id = decodeURIComponent(mm[1]);
+        if (!calendars.some(c => c.id === id)) fail(404, 'Not Found');
+        const from = Date.parse(query.timeMin);
+        const to = Date.parse(query.timeMax);
+        return {
+          items: events.filter(e => e.calendarId === id && startMs(e) < to && endMs(e) > from)
+            .sort((a, b) => startMs(a) - startMs(b)).map(strip),
+        };
+      }
+      if (service === 'tasks' && path === 'users/@me/lists') return { items: lists.map(l => Object.assign({ kind: 'tasks#taskList' }, l)) };
+      if (service === 'tasks' && (mm = /^lists\/([^/]+)\/tasks$/.exec(path))) {
+        const id = decodeURIComponent(mm[1]);
+        if (!lists.some(l => l.id === id)) fail(404, 'Not Found');
+        if (CALENDAR === 'notasks') {
+          const err = new Error('It was not allowed when you connected. Connect again, and tick it on Google’s page.');
+          err.code = 'calendar_scope';
+          throw err;
+        }
+        return {
+          items: tasks.filter(x => x.list === id && !x.deleted)
+            .filter(x => query.showCompleted !== 'false' || x.status !== 'completed')
+            .filter(x => query.showHidden === 'true' || !x.hidden)
+            .filter(x => !query.dueMin || (x.due && x.due >= query.dueMin))
+            .filter(x => !query.dueMax || (x.due && x.due < query.dueMax))
+            .map(strip),
+        };
+      }
+      const err = new Error(`GET ${service} ${path} is not something this extension does.`);
+      err.code = 'not_allowed';
+      throw err;
+    }
+
+    return { route, calendars, events, lists, tasks, day };
+  })();
+
   // ── chrome.runtime ───────────────────────────────────────────────────
 
   let connected = STATE !== 'auth_required';
+  let calendarConnected = CALENDAR !== 'signin';
   const log = [];
   const listeners = [];
 
@@ -814,7 +938,7 @@
   }
 
   async function handle(msg) {
-    log.push({ type: msg.type, method: msg.method, path: msg.path, at: Date.now() });
+    log.push({ type: msg.type, method: msg.method, service: msg.service, path: msg.path, query: msg.type === 'google' ? msg.query : undefined, at: Date.now() });
     switch (msg.type) {
       case 'gmail': {
         if (STATE === 'not_configured') return fail('not_configured', 'Add your OAuth client ID on the setup page first.');
@@ -829,9 +953,20 @@
           return fail(err.code || 'internal', err.message);
         }
       }
+      case 'google': {
+        if (STATE === 'not_configured') return fail('not_configured', 'Add your OAuth client ID on the setup page first.');
+        if (!calendarConnected) return fail('calendar_auth_required', 'Google Calendar is not connected in this browser yet.');
+        try {
+          const data = fakeCalendar.route(String(msg.service || ''), String(msg.path || ''), msg.query || {});
+          return { ok: true, data: JSON.parse(JSON.stringify(data)) };
+        } catch (err) {
+          return fail(err.code || 'internal', err.message);
+        }
+      }
       case 'connect':
         if (STATE === 'not_configured') return fail('not_configured', 'Add your OAuth client ID on the setup page first.');
-        connected = true;
+        if (msg.kind === 'calendar') calendarConnected = true;
+        else connected = true;
         return { ok: true, data: { email: ACCOUNT } };
       case 'open-options':
         window.dispatchEvent(new CustomEvent('mock:open-options'));
@@ -918,5 +1053,7 @@
 
   window.__fakeGmail = box;
   // route: the Gmail API itself, for the phone panel's tests in Node.
-  window.__mockChrome = { log, dispatchToTab, account: ACCOUNT, route };
+  // googleRoute: Calendar and Tasks, likewise, for the phone app's.
+  window.__fakeCalendar = fakeCalendar;
+  window.__mockChrome = { log, dispatchToTab, account: ACCOUNT, route, googleRoute: fakeCalendar.route };
 })();

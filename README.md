@@ -5,13 +5,13 @@
 <h1 align="center">Supermail</h1>
 
 <p align="center">
-  <b>A Kanban board and a notebook, inside Gmail.</b><br>
+  <b>A Kanban board, a notebook and your week, inside Gmail.</b><br>
   Every card is an email. Every note is a message in your own mailbox.<br>
-  No server, no database, nothing to sign up for.
+  Your calendar with your tasks in it. No server, no database, nothing to sign up for.
 </p>
 
 <p align="center">
-  <img alt="Version 0.16.0" src="https://img.shields.io/badge/version-0.16.0-6D28D9">
+  <img alt="Version 0.17.0" src="https://img.shields.io/badge/version-0.17.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -73,21 +73,35 @@ a find bar to step from one to the next.
 
 <img src="images/search.jpg" width="100%" alt="A search for termbase, marked in the results and in the open note">
 
+### 📅 Your week, tasks and all
+
+A third tab: your Google Calendar with Google Tasks woven into it. The week
+as seven columns, the month, or the next four weeks as one list. A task with
+a date sits in its day, ready to tick; the ones without a date, and any that
+are overdue, wait at the side; a task made from an email opens the email.
+Every calendar and task list shows or hides with one click. On the phone it is
+the week as two columns of days, with the month as the eighth, swiped to the
+next week. It only reads, for now: ticking tasks off, due dates on cards and
+adding events are next.
+
+<img src="images/calendar.jpg" width="100%" alt="The calendar in Gmail: a week of events and tasks beside a small month, the calendars and the tasks with no date; on a phone, the same week as two columns of days">
+
 ### 📱 And on your phone
 
-A home-screen app with the board and the notes: the board one column to a
-screen, swiped sideways; the notes opening straight onto your Scratchpad,
-ready to type, with the same editor, folders and search as in Chrome. And a
-panel in the Gmail app files the open email on the board, ticks your
-checklists and adds to a note.
+A home-screen app with the board, the notes and the calendar: the board one
+column to a screen, swiped sideways; the notes opening straight onto your
+Scratchpad, ready to type, with the same editor, folders and search as in
+Chrome; your week as two columns of days. And a panel in the Gmail app files
+the open email on the board, ticks your checklists and adds to a note.
 
 <img src="images/phone.jpg" width="100%" alt="Three phones: the board, the Scratchpad, and search results in dark mode">
 
 ### 🔒 Yours alone
 
 There is no Supermail server and no account to make. The board and the notes
-are views of your own mailbox, through Google's API, from your own browser.
-Supermail never sends mail and never deletes anything for good. See
+are views of your own mailbox, and the calendar of your own Google Calendar
+and Tasks, through Google's API, from your own browser. Supermail never sends
+mail, never deletes anything for good, and only reads your calendar. See
 [Privacy](#privacy).
 
 ## How it works
@@ -109,7 +123,11 @@ open email in a column, ticks checklist items, adds lines to a note, files it
 in a folder and starts new notes from inside the Gmail app, and the **phone
 app** puts the notes themselves, with the full editor, on your home screen.
 
-Version 0.16.0. Plain JavaScript, Manifest V3, no build step and no runtime
+The **Calendar** tab reads Google Calendar and Google Tasks with a sign-in of
+its own (read-only), asked for the first time you open it, so the board and
+the notes never depend on it.
+
+Version 0.17.0. Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -288,6 +306,39 @@ Editing it saves a new note in its place and takes the email off the list
 Like the columns, the notes label is followed by id, so you can rename `_Notes`
 in Gmail and the notes follow.
 
+### Calendar
+
+- **Open it** with the **Calendar** tab next to **Notes**, or the **Calendar**
+  button at the bottom left of Gmail.
+- **The first time**, it asks to connect: **Connect Google Calendar**, then
+  allow it on Google's page. It asks for read-only access to Google Calendar
+  and Google Tasks, and for your address, to check that the calendar is the
+  one of the account open in the tab. This is a sign-in of its own: the board
+  and the notes never needed it, and keep working whatever you answer.
+- **Week, Month, Agenda** at the top right. The week is seven columns, without
+  an hour grid: the times are on the items. The month shows a few things a day
+  and "+2 more"; click a day's number to see its week. The agenda is the next
+  four weeks as one list, skipping empty days.
+- **Today**, **‹** and **›** move about; so do the keys Google Calendar uses:
+  **t** for today, **j** or **n** for next, **k** or **p** for previous, and **w**,
+  **m** and **a** for the views. The small month on the left goes to the day you
+  click.
+- **What is on a day**: all-day events first, then the rest by time, then the
+  tasks due that day, open ones before ticked ones. An event opens in Google
+  Calendar, a task in Google Tasks; a task made from an email in Gmail (with
+  an envelope) opens that email.
+- **The calendars and task lists** on the left show or hide with a click.
+  Until you click, they are as Google Calendar has them (a calendar unticked
+  there starts hidden here); after that, this computer remembers.
+- **Tasks with no date**, and open tasks whose day has gone by, are listed
+  under the calendars.
+- **On a phone**, or in a narrow window, it is always the week: two columns
+  of days, Monday to Thursday and then Friday to Sunday, with the month as the
+  eighth; the calendars are a row of chips above, and the tasks with no date
+  below. Swipe sideways for the next or previous week.
+- It only reads, for now. Ticking tasks off, due dates on cards and adding
+  events are the next steps.
+
 ### Storage
 
 Chrome's sync storage is small: 100 KB in all, and at most 512 entries. Each
@@ -361,8 +412,10 @@ line of `Code.gs` says which version it is.
 **What it is allowed to do**: read and change your mail's labels and insert
 messages (`gmail.modify`, the same as the extension), run as a Gmail add-on and
 see which message is open (`gmail.addons.execute`,
-`gmail.addons.current.message.metadata`), and call the Gmail API
-(`script.external_request`, only to `gmail.googleapis.com`). It keeps the
+`gmail.addons.current.message.metadata`), read your calendars and tasks for
+the phone app's calendar (`calendar.readonly`, `tasks.readonly`), and call
+Google's APIs (`script.external_request`, only to `gmail.googleapis.com` and
+the Calendar and Tasks APIs). It keeps the
 extension's rules in its own code: it inserts only notes, moves to Trash only
 messages it has itself checked are notes, never adds Trash, Spam or Inbox to
 anything, and never sends. It runs in Google's Apps Script under your account;
@@ -412,6 +465,10 @@ notes as in Gmail, in a tab of their own.)
   close pages.
 - **Search** marks the words in the results and in the open note, with the
   arrows to step from one match to the next.
+- **The calendar**, the week as two columns of days with the month as the
+  eighth: swipe sideways for the next week, and tap a chip to show or hide a
+  calendar or task list (the phone remembers). It reads Calendar and Tasks
+  with the script's own access, so there is nothing to connect.
 
 **Setting it up** is one more step in the phone panel's project: **Deploy →
 Test deployments → Web app**, open its address in Chrome on the phone, and
@@ -421,8 +478,8 @@ can open it.
 
 **How it works**: `doGet` in `Code.gs` serves the page, which is
 `addon/app/index.html` with the extension's own files packed into it
-(`src/content/board.js`, `store.js`, `notes.js`, `note-editor.js`, `ui.js`,
-`styles.js` and the shared code). They go in as base64 inside one small loader script, which runs
+(`src/content/board.js`, `store.js`, `notes.js`, `note-editor.js`,
+`calendar.js`, `ui.js`, `styles.js` and the shared code). They go in as base64 inside one small loader script, which runs
 them in order and names any that fails: Apps Script takes a page's inline
 scripts out and runs them itself, and an app made of many plain scripts did
 not survive that (it came up blank). With them come `addon/app/remote.js`, which gives the notes a store, and
@@ -438,17 +495,22 @@ checked are notes, takes an email kept as a note off the list without
 touching it otherwise, and deletes a folder only when Gmail says it is empty;
 for the board it reads labels and threads, makes and renames labels, and
 changes the labels on a conversation - never Trash, Spam or the Inbox, never
-anything sent or deleted. The app's column layout and card edits are kept in
-the script's user properties. It runs as you, under the phone panel's
-permissions; nothing new is asked.
+anything sent or deleted; for the calendar it makes the same four reads as
+the extension (the calendar list, a calendar's events, the task lists, a
+list's tasks) and nothing else. The app's column layout and card edits are
+kept in the script's user properties. It runs as you, under the phone panel's
+permissions, which since 0.17.0 include read-only access to Calendar and
+Tasks: Google asks once more, the first time after the update.
 
 ## Privacy
 
 The privacy policy is [PRIVACY.md](PRIVACY.md). In detail:
 
-- **There is no server.** The extension talks only to `gmail.googleapis.com`,
-  from your browser. The phone panel runs in Google's Apps Script, under your
-  own account, and also talks only to `gmail.googleapis.com` (see
+- **There is no server.** The extension talks only to Google: to
+  `gmail.googleapis.com`, and, for the calendar, to the Calendar and Tasks
+  APIs (`www.googleapis.com/calendar`, `tasks.googleapis.com`) and Google's
+  userinfo endpoint - from your browser. The phone panel runs in Google's Apps
+  Script, under your own account, and talks only to the same APIs (see
   [The phone panel](#the-phone-panel) for what it may do).
 - **The access token lives only in this browser's session storage**
   (`chrome.storage.session`). It is held in memory, is not readable by the Gmail
@@ -486,6 +548,15 @@ The privacy policy is [PRIVACY.md](PRIVACY.md). In detail:
 - Every token is checked against Gmail's own profile before use. If Google
   signs in a different account from the one in the Gmail tab, the token is
   discarded and the board says so, rather than acting on the wrong mailbox.
+- **The calendar has a token of its own**, asked for separately and only when
+  the Calendar tab is opened: `calendar.readonly`, `tasks.readonly` and
+  `email` (to check, through Google's userinfo endpoint, that it is the account
+  in the tab - the calendar's token cannot read Gmail's profile). Read-only
+  scopes, so it could not change a calendar or a task if it tried, and the
+  worker lets through only four kinds of `GET`: the calendar list, a calendar's
+  events, the task lists, and a list's tasks. It lives in session storage like
+  Gmail's, and the two never mix (`include_granted_scopes=false` on both).
+  Events and tasks are shown, never stored.
 
 ## Known fragile points
 
@@ -543,8 +614,10 @@ Unit tests (Node 18 or later, no installs):
 npm test                      # same as: node --test tests/*.test.js
 ```
 
-These cover auth URL building and redirect parsing, the proxy's allow-list,
-order merging, the label arithmetic for moves, entity decoding, address parsing,
+These cover auth URL building and redirect parsing, the proxy's allow-list
+(Gmail's and the calendar's), the calendar's dates, weeks and views and how
+events and tasks become day items (in a time zone with summer time), order
+merging, the label arithmetic for moves, entity decoding, address parsing,
 account-from-title detection, relative dates, and static checks on the source:
 no HTML-string sinks, the name only in the rename spots, and the preview's
 script list matching the manifest. Node 22's runner does not accept a bare
@@ -571,16 +644,20 @@ npm run test:app              # (c) the phone app at a phone's size
 - (a) loads `dev/preview.html` under Trusted Types and drives it: drag between
   and within columns, the ⋯ menu, search-add, column settings, Esc, the dock
   button, dark mode, the connect and setup states, a failing move, and label
-  creation. It checks the fake mailbox's labels after each step.
+  creation. It checks the fake mailbox's labels after each step. And the
+  calendar, against a fake Calendar and Tasks: the week, month and agenda,
+  the keys, showing and hiding sources, connecting it, Tasks not allowed, and
+  the narrow week.
 - (b) starts Chromium with `--load-extension`. It tries new headless first and
   falls back to `xvfb-run` if the service worker does not appear. It checks the
-  worker, the extension ID, the setup page, the allow-list, and that the content
+  worker, the extension ID, the setup page, the allow-lists, and that the content
   scripts inject into a stand-in `mail.google.com` page and reach the worker.
 - (c) opens the phone app's page at a phone's size, with touch, its
   `google.script.run` wired to the real `Code.gs` running in the Apps Script
   stand-in against the fake Gmail: the list and folder chips, opening a note,
   typing and formatting with autosave, ticking a box, the back gesture,
-  search, a new note, saving on switching away, and dark mode.
+  search, a new note, saving on switching away, the board, the calendar's
+  phone week with its chips and swipes, and dark mode.
 
 ### Dev preview
 
@@ -590,7 +667,10 @@ threads. A strip at the top toggles an open thread, sends the shortcut, and
 switches between states: `?state=auth_required`, `?state=not_configured`,
 `?fail=modify`, `?fresh` (no labels yet), `?page=3` (truncated columns) and
 `?latency=600`. `?showcase` swaps the test notes for tidy ones in a deeper
-folder tree, for pictures.
+folder tree, for pictures. The calendar has a fake Calendar and Tasks of its
+own, a week of invented events and tasks around the current one;
+`?calendar=signin` makes it ask to connect first, and `?calendar=notasks`
+answers as if Tasks had not been allowed.
 
 ### Icons
 
@@ -615,12 +695,15 @@ src/shared/ns.js           namespace, APP_NAME, storage keys
 src/lib/                   pure logic, shared by content scripts, worker and tests
   util.js                  entities, addresses, account detection, dates, pool
   auth.js                  auth URL, redirect parsing, API allow-list
+  calendar-logic.js        the calendar: dates and weeks, views, events and tasks
+                           as day items, what may be asked of Calendar and Tasks
   board-logic.js           columns, order merge, move label diffs, summaries, card edits
   notes-logic.js           building and reading note messages, what may be inserted
   note-format.js           the formatting model: HTML out and back in, plain text,
                            Markdown and pasted HTML in
   search-logic.js          the words in a query, where they occur, excerpts
-src/background/sw.js       OAuth (launchWebAuthFlow) and the Gmail API proxy
+src/background/sw.js       OAuth (launchWebAuthFlow), the Gmail API proxy, and the
+                           calendar's own sign-in and read-only proxy
 src/content/               classic scripts, in manifest order
   gmail-hooks.js           every assumption about Gmail's page
   api.js, store.js         messaging and the shared data layer
@@ -629,9 +712,11 @@ src/content/               classic scripts, in manifest order
   board.js, dock.js        the overlay (header, tabs, board) and the corner buttons
   note-editor.js           the formatted editor and its toolbar
   notes.js                 the Notes tab: list, editor, autosave
+  calendar-store.js        Calendar and Tasks: sources, and what is on in a range
+  calendar.js              the Calendar tab: week, month, agenda, phone week
   main.js                  wiring
 src/options/               setup page
-dev/                       preview page and fake Gmail
+dev/                       preview page, fake Gmail, fake Calendar and Tasks
 addon/                     the phone panel and phone app (Apps Script)
   appsscript.json          its manifest
   Code.gs                  generated: shared note code + addon/src + the app's page
@@ -640,7 +725,8 @@ addon/                     the phone panel and phone app (Apps Script)
                            board columns from labels
   src/gmail.js, store.js   Gmail over UrlFetchApp, and the notes on it
   src/cards.js             the cards and what their buttons do
-  src/app-server.js        the phone app's server side: notes, folders, the page
+  src/app-server.js        the phone app's server side: notes, folders, board,
+                           calendar reads, the page
   src/triggers.js          the top-level functions Apps Script calls
   app/index.html           the phone app's page, filled in by the build
   app/remote.js            its notes store, over google.script.run
@@ -664,6 +750,11 @@ LICENSE                    MIT
 
 ## Roadmap
 
+- **The calendar, step 2.** Tick tasks off from the calendar; give a card a due
+  date from its ⋯ menu, which makes a Google Task linked to the email, so it
+  shows on its day here and in Google's own apps.
+- **The calendar, step 3.** The **+** on a day: "Dentist 14:30" becomes an
+  event, "Pay the invoice" a task.
 - **A to-do view.** One flat list across all columns, oldest first, for days when
   a board is too much.
 - **A "Needs reply" column**, computed rather than labelled: threads whose

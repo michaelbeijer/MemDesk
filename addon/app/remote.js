@@ -6,7 +6,8 @@
 // `chrome.storage`. In the extension those reach Gmail through the
 // background worker; here they ask the script that served this page,
 // through google.script.run, which asks Gmail. Same shapes, same answers,
-// so the views run unchanged. Also `hooks`: the account, and opening a
+// so the views run unchanged. The calendar, likewise, through
+// `api.googleMany`. Also `hooks`: the account, and opening a
 // conversation in Gmail.
 // ─────────────────────────────────────────────────────────────────────
 
@@ -134,7 +135,23 @@
     return results.map(r => (r && r.error ? { error: gmailError(r.error.message, r.error.status) } : r));
   }
 
-  ns.api = { STATE_CODES: new Set(), gmail, gmailMany };
+  // ── The calendar's Google ────────────────────────────────────────────
+  //
+  // Calendar and Tasks reads, in one round trip, as the extension's
+  // worker answers them: each the response, or { error } with a code.
+
+  function googleError(e) {
+    const err = new Error(String(e.message || 'Google did not answer.'));
+    err.code = e.code || (e.status ? `http_${e.status}` : 'google');
+    return err;
+  }
+
+  async function googleMany(list) {
+    const results = await call('appGoogleMany', list);
+    return results.map(r => (r && r.error ? { error: googleError(r.error) } : r));
+  }
+
+  ns.api = { STATE_CODES: new Set(), gmail, gmailMany, googleMany };
   ns.appRemote = { call, loadAccount };
 
   // ── chrome.storage, as the board uses it ─────────────────────────────

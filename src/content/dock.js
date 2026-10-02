@@ -41,6 +41,12 @@
       onclick: () => ns.board.toggleView('notes'),
     }, icon('note', 20), h('span', { class: 'pill-label', text: 'Notes' }));
 
+    els.calendar = h('button', {
+      class: ['pill', 'pill-compact'], type: 'button', title: `Open the ${APP_NAME} calendar`,
+      dataset: { action: 'toggle-calendar' },
+      onclick: () => ns.board.toggleView('calendar'),
+    }, icon('calendar', 20), h('span', { class: 'pill-label', text: 'Calendar' }));
+
     els.thread = h('button', {
       class: 'pill', type: 'button', hidden: true,
       'aria-haspopup': 'menu', 'aria-expanded': 'false',
@@ -48,7 +54,7 @@
       onclick: toggleThreadMenu,
     });
 
-    els.dock = h('div', { class: 'dock', role: 'group', 'aria-label': APP_NAME }, els.board, els.notes, els.thread);
+    els.dock = h('div', { class: 'dock', role: 'group', 'aria-label': APP_NAME }, els.board, els.notes, els.calendar, els.thread);
     root.appendChild(els.dock);
   }
 

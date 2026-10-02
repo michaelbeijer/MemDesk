@@ -73,10 +73,11 @@ test('the preview loads exactly the manifest’s content scripts, in order', () 
 
 test('manifest: version, permissions and a key whose ID the README reports', () => {
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '0.16.0');
+  assert.equal(manifest.version, '0.17.0');
   assert.ok(read('README.md').includes(`badge/version-${manifest.version}-`), 'the README\'s version badge is current');
   assert.deepEqual(manifest.permissions.sort(), ['identity', 'storage']);
-  assert.deepEqual(manifest.host_permissions, ['https://gmail.googleapis.com/*']);
+  // Gmail; and Calendar, Tasks and the address check for the calendar.
+  assert.deepEqual(manifest.host_permissions, ['https://gmail.googleapis.com/*', 'https://www.googleapis.com/*', 'https://tasks.googleapis.com/*']);
   assert.equal(manifest.commands['toggle-board'].suggested_key.default, 'Alt+Shift+K');
   for (const size of ['16', '32', '48', '128']) {
     assert.ok(fs.existsSync(path.join(ROOT, manifest.icons[size])), manifest.icons[size]);

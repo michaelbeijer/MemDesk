@@ -41,12 +41,19 @@ test('the manifest names functions the bundle has, and asks for no more than it 
   ];
   for (const fn of named) assert.equal(typeof addon[fn], 'function', fn);
   assert.deepEqual(manifest.oauthScopes.sort(), [
+    'https://www.googleapis.com/auth/calendar.readonly',
     'https://www.googleapis.com/auth/gmail.addons.current.message.metadata',
     'https://www.googleapis.com/auth/gmail.addons.execute',
     'https://www.googleapis.com/auth/gmail.modify',
     'https://www.googleapis.com/auth/script.external_request',
+    'https://www.googleapis.com/auth/tasks.readonly',
   ]);
-  assert.deepEqual(manifest.urlFetchWhitelist, ['https://gmail.googleapis.com/']);
+  assert.deepEqual(manifest.urlFetchWhitelist, [
+    'https://gmail.googleapis.com/', 'https://www.googleapis.com/calendar/', 'https://tasks.googleapis.com/',
+  ]);
+  // The advanced services are what switch the APIs on in the script's own
+  // Cloud project; the calls themselves go through UrlFetchApp.
+  assert.deepEqual(manifest.dependencies.enabledAdvancedServices.map(s => s.serviceId).sort(), ['calendar', 'gmail', 'tasks']);
   // Settings that make Gmail demand a scope of their own. useLocaleFromApp
   // needs script.locale, and without it Gmail refuses to run the add-on
   // at all ("Run time error ... Required permissions: script.locale").
@@ -607,6 +614,47 @@ test('the board in the app: a board of cards in one round trip, reads only', () 
   assert.equal(got[ids.length].error.status, 404, 'one missing thread is an answer, not a failure');
   assert.throws(() => p.server('appBoardGmailMany', [['POST', `threads/${ids[0]}/modify`, {}]]), /only reads/);
   assert.throws(() => p.server('appBoardGmailMany', [['GET', 'messages', {}]]), /not_allowed/);
+});
+
+test('the calendar in the app: Calendar and Tasks in one round trip, reads only', () => {
+  const p = new Phone();
+  const cal = require('../src/lib/calendar-logic.js');
+  const [calendars, lists] = plain(p.server('appGoogleMany', cal.sourceRequests()));
+  const sources = cal.sources(calendars.items, lists.items);
+  assert.deepEqual(sources.map(s => s.name), ['test', 'Jobs', 'Family', 'Holidays in the United Kingdom', 'My Tasks', 'Admin']);
+
+  const today = cal.dateKey(new Date());
+  const range = cal.viewRange('week', today);
+  const on = sources.filter(s => s.on);
+  const reqs = cal.rangeRequests(range, on.filter(s => s.kind === 'calendar'), on.filter(s => s.kind === 'tasks'));
+  const got = plain(p.server('appGoogleMany', reqs));
+  assert.equal(got.length, reqs.length);
+  assert.ok(got.every(r => !r.error));
+  const titles = got.flatMap(r => r.items.map(x => x.summary || x.title));
+  assert.ok(titles.includes('Lumenra glossary delivery'));
+  assert.ok(titles.includes('Quote for Ingrid'));
+  assert.ok(titles.includes('Proofread the IFU'), 'a task ticked in Google’s apps is hidden, and still read');
+  assert.ok(!titles.includes('Bank holiday'), 'not from a calendar that is off');
+  assert.ok(p.log.filter(l => l.service).every(l => l.method === 'GET'));
+
+  // A calendar that is not there is one answer among the rest.
+  const missing = plain(p.server('appGoogleMany', [['calendar', 'calendars/nope%40example.com/events', {}], ['tasks', 'users/@me/lists', {}]]));
+  assert.equal(missing[0].error.status, 404);
+  assert.equal(missing[1].items.length, 2);
+
+  // Nothing but the four reads.
+  assert.throws(() => p.server('appGoogleMany', [['calendar', 'calendars/primary/acl', {}]]), /not_allowed/);
+  assert.throws(() => p.server('appGoogleMany', [['calendar', 'calendars/primary/events/ev1', {}]]), /not_allowed/);
+  assert.throws(() => p.server('appGoogleMany', [['gmail', 'profile', {}]]), /not_allowed/);
+  assert.throws(() => p.server('appGoogleMany', [['tasks', 'lists/abc/tasks/clear', {}]]), /not_allowed/);
+});
+
+test('the calendar in the app: Tasks not allowed says so, and the calendar still reads', () => {
+  const p = new Phone({ search: '?calendar=notasks' });
+  const got = plain(p.server('appGoogleMany', [['tasks', 'lists/MTAxMjM0NTY3ODk/tasks', {}], ['calendar', 'users/me/calendarList', {}]]));
+  assert.equal(got[0].error.code, 'calendar_scope');
+  assert.match(got[0].error.message, /allow it/);
+  assert.equal(got[1].items.length, 4);
 });
 
 test('the board in the app: whose mailbox, the first column layout, and settings kept per account', () => {

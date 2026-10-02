@@ -43,7 +43,7 @@ const pause = ms => new Promise(r => setTimeout(r, ms));
 // ── A computer: Gmail with the board and the notes ───────────────────
 
 async function desktop(colorScheme, viewport = { width: 1440, height: 900 }) {
-  const ctx = await browser.newContext({ viewport, deviceScaleFactor: 2, colorScheme });
+  const ctx = await browser.newContext({ viewport, deviceScaleFactor: 2, colorScheme, locale: 'en-GB' });
   const page = await ctx.newPage();
   await page.goto(PREVIEW);
   // The preview's yellow developer bar is not part of Gmail.
@@ -97,6 +97,13 @@ async function desktop(colorScheme, viewport = { width: 1440, height: 900 }) {
   await pause(500);
   await page.mouse.move(0, 0);
   await shot(page, 'notes-search');
+
+  // The calendar: this week, from Google Calendar and Google Tasks.
+  await page.locator('[data-key="view:calendar"]').click();
+  await page.locator('.cal .ev').first().waitFor();
+  await pause(400);
+  await page.mouse.move(0, 0);
+  await shot(page, 'calendar');
   await page.context().close();
 }
 
@@ -130,7 +137,7 @@ function installGoogle() {
 async function phone(colorScheme) {
   const fake = new Phone({ search: '?showcase' });
   const ctx = await browser.newContext({
-    viewport: { width: 400, height: 860 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, colorScheme,
+    viewport: { width: 400, height: 860 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, colorScheme, locale: 'en-GB',
   });
   const page = await ctx.newPage();
   await page.exposeFunction('__gas', (fn, args) => fake.server(fn, ...args));
@@ -160,6 +167,11 @@ const q = (page, sel) => page.locator(`#gkb-app-host >> ${sel}`);
   await q(page, '.card .subject').first().waitFor();
   await pause(400);
   await phoneShot(page, 'phone-board');
+  // And the week, two columns of days.
+  await q(page, '[data-key="view:calendar"]').tap();
+  await q(page, '.cal .ev').first().waitFor();
+  await pause(400);
+  await phoneShot(page, 'phone-calendar');
   await page.context().close();
 }
 
@@ -312,6 +324,11 @@ await compose('scratchpad', 1200, 760, { cls: 'soft dots', html:
   at(browserWindow('notes-scratch', { width: 900 }), 56, 56) +
   at(phoneFrame('phone-home', { width: 262 }), 884, 104) });
 
+// The calendar: the week in Chrome, and on the phone.
+await compose('calendar', 1200, 760, { cls: 'violet dots', html:
+  at(browserWindow('calendar', { width: 900 }), 56, 56) +
+  at(phoneFrame('phone-calendar', { width: 262 }), 884, 74) });
+
 // The phone app: the folders, a note, and search in the dark.
 await compose('phone', 1200, 760, { cls: 'violet dots', html:
   at(phoneFrame('phone-board', { width: 300 }), 90, 70) +
@@ -339,18 +356,19 @@ async function storeShot(name, width, height, cls, html) {
 const caption = text => `<div class="caption">${text}</div>`;
 const APP_NAME = /APP_NAME = '([^']+)'/.exec(readFileSync(join(REPO, 'src', 'shared', 'ns.js'), 'utf8'))[1];
 const storeWindow = (img, opts = {}) => at(browserWindow(img, { width: 980, ...opts }), 150, 84);
-await storeShot('screenshot-1', 1280, 800, 'violet dots', caption('A Kanban board and a notebook, inside Gmail') +
+await storeShot('screenshot-1', 1280, 800, 'violet dots', caption('A Kanban board, a notebook and your week, inside Gmail') +
   at(browserWindow('board', { width: 930 }), 60, 92) + at(phoneFrame('phone-home', { width: 240 }), 950, 150));
 await storeShot('screenshot-2', 1280, 800, 'soft dots', caption('Every card is an email: drag it to the next column') + storeWindow('board'));
 await storeShot('screenshot-3', 1280, 800, 'soft dots', caption('Notes in your own mailbox, with folders and a Scratchpad') + storeWindow('notes-scratch'));
-await storeShot('screenshot-4', 1280, 800, 'soft dots', caption('Search shows you where the words are') + storeWindow('notes-search'));
+await storeShot('screenshot-4', 1280, 800, 'soft dots', caption('Your week, with your tasks in it') +
+  at(browserWindow('calendar', { width: 930 }), 60, 92) + at(phoneFrame('phone-calendar', { width: 240 }), 950, 120));
 await storeShot('screenshot-5', 1280, 800, 'soft dots', caption('File the email you are reading, without leaving it') +
   storeWindow('gmail-dock', { title: 'Termbase export won’t open', url: 'mail.google.com/mail/u/0/#inbox/18f2a3b4c5d6e025' }));
 await storeShot('promo-small', 440, 280, 'violet dots', `
   <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#fff;font-family:Roboto,Arial,sans-serif">
     <div style="width:92px;height:92px">${ICON}</div>
     <div style="font-size:38px;font-weight:500;letter-spacing:.2px">${APP_NAME}</div>
-    <div style="font-size:16px;opacity:.92">A Kanban board and a notebook, inside Gmail</div>
+    <div style="font-size:16px;opacity:.92">Board, notes and your week, inside Gmail</div>
   </div>`);
 
 await browser.close();

@@ -9,9 +9,9 @@ phone and can be added any time.
 
 | Part | Where it runs | Time | Needs |
 |---|---|---|---|
-| [1. The extension](#part-1-the-extension) | Chrome on a computer: the board and the notes editor inside Gmail | about 15 minutes | a free Google Cloud project of your own |
+| [1. The extension](#part-1-the-extension) | Chrome on a computer: the board, the notes editor and the calendar inside Gmail | about 15 minutes | a free Google Cloud project of your own |
 | [2. The phone panel](#part-2-the-phone-panel) | the Gmail app on your phone, at the bottom of an open email | about 5 minutes | a free Apps Script project |
-| [3. The phone app](#part-3-the-phone-app) | your phone's home screen: the board and the notes, full-screen | about 3 minutes | part 2 |
+| [3. The phone app](#part-3-the-phone-app) | your phone's home screen: the board, the notes and the calendar, full-screen | about 3 minutes | part 2 |
 
 It works with a Google Workspace account and with an ordinary @gmail.com
 account. Nothing is sent anywhere but Google: there is no Supermail server.
@@ -48,9 +48,15 @@ signed in with the account your mail is in. Call it anything (say,
 "Supermail") and click **Create**. Make sure it is the project selected at the
 top of the page for the next steps.
 
-**b. Turn on the Gmail API.** Open
-[the Gmail API page](https://console.cloud.google.com/apis/library/gmail.googleapis.com)
-and click **Enable**.
+**b. Turn on the Gmail API, and the two the calendar uses.** Open each of
+these and click **Enable**:
+
+- [the Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com)
+- [the Google Calendar API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com)
+- [the Google Tasks API](https://console.cloud.google.com/apis/library/tasks.googleapis.com)
+
+(The last two are only for the **Calendar** tab. Without them the board and
+the notes work as ever, and the calendar says which API to switch on.)
 
 **c. Set up the consent screen.** Open
 [Google Auth Platform](https://console.cloud.google.com/auth/overview) and click
@@ -90,9 +96,12 @@ address.
 
 ### 4. Use it
 
-Reload Gmail. **Board** and **Notes** buttons appear at the bottom left. The
-first time you open the board, it creates its labels (`_Board/To do`,
-`_Board/Doing`, `_Board/Waiting`, `_Board/Done`); the notes create `_Notes`.
+Reload Gmail. **Board**, **Notes** and **Calendar** buttons appear at the
+bottom left. The first time you open the board, it creates its labels
+(`_Board/To do`, `_Board/Doing`, `_Board/Waiting`, `_Board/Done`); the notes
+create `_Notes`. The first time you open the calendar, it asks to connect:
+click **Connect Google Calendar** and allow it (read-only access to your
+calendars and tasks; the "hasn't verified this app" page may come up again).
 The [README](README.md#usage) explains everything they do.
 
 ---
@@ -135,9 +144,10 @@ project: Apps Script brings its own.
 
 ## Part 3: the phone app
 
-The board and the notes on your phone's home screen, full-screen, with the same editor as
-in Chrome: formatting, checklists, folders, search with the words marked, and
-saving as you type. It is served by the same Apps Script project as the phone
+The board, the notes and the calendar on your phone's home screen,
+full-screen, with the same editor as in Chrome: formatting, checklists,
+folders, search with the words marked, and saving as you type; and your week
+as two columns of days. It is served by the same Apps Script project as the phone
 panel, so do part 2 first.
 
 1. In the Apps Script project (open [script.google.com/home](https://script.google.com/home)
@@ -152,7 +162,8 @@ panel, so do part 2 first.
 
 The icon on your home screen now opens your notes. They are the same notes as
 in Chrome and in the phone panel: change one anywhere, and the others show the
-change the next time they load.
+change the next time they load. The **Calendar** tab reads your calendars and
+tasks with the project's own access, so it needs nothing more.
 
 If the page says "Sorry, unable to open the file at this time", Chrome on
 the phone is signed in to more than one Google account and opened it as
@@ -171,6 +182,11 @@ with just this account.
   paste the new `Code.gs` (and `appsscript.json`, if it changed, keeping your
   time zone) and press **Ctrl+S**. There is nothing to reinstall. The first line
   of `Code.gs` says which version it is.
+- **Updating to 0.17.0 (the calendar)**: turn on the Google Calendar API and
+  the Google Tasks API in your Cloud project (step 3b), and paste the new
+  `appsscript.json` as well as `Code.gs`: it asks for read-only access to
+  Calendar and Tasks, so the panel asks you to **Authorize access** once
+  more, and the phone app to allow it.
 
 ## When something goes wrong
 
@@ -179,9 +195,12 @@ with just this account.
 | `redirect_uri_mismatch` when connecting | The redirect URI in the OAuth client (step 3d) is not exactly the one on the setup page. The slash at the end matters. |
 | `org_internal` or "access blocked" | The consent screen is Internal, but you signed in with an account outside your Workspace. |
 | "Gmail API has not been used in project …" | Step 3b: enable the Gmail API in that project. |
+| The calendar says "Google Calendar API (or Tasks API) has not been used in project …" | Step 3b: enable that API too. The message has the link. |
+| The calendar says Google Tasks (or Calendar) "was not allowed" | Google's page lets you untick each permission. Click **Connect again** and leave both ticked. |
 | The panel says "Run time error … Required permissions" | `appsscript.json` is not the current one. Paste it again. |
 | The panel says the Gmail API is not switched on | In the Apps Script editor, open **Services** (left) and check that Gmail is listed; if not, paste `appsscript.json` again and save. |
-| The Board and Notes buttons are gone from Gmail | Gmail changed its page. The board still opens from the toolbar icon or Alt+Shift+K; please report it. |
+| The phone app's calendar says an API is not switched on | The same: **Services** should list Gmail, Google Calendar and Tasks. |
+| The Board, Notes and Calendar buttons are gone from Gmail | Gmail changed its page. The board still opens from the toolbar icon or Alt+Shift+K; please report it. |
 
 ## Removing it
 

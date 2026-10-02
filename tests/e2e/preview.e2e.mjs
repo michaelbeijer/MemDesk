@@ -1229,6 +1229,168 @@ try {
     await p.context().close();
   });
 
+  // ── The calendar ─────────────────────────────────────────────────────
+
+  const openCalendar = async p => {
+    await p.locator('[data-action="toggle-calendar"]').click();
+    await p.locator('.cal .ev').first().waitFor();
+  };
+  const weekText = p => p.locator('.cal-week').innerText();
+  const calTitle = p => p.locator('.cal-title').innerText();
+
+  await r.step('calendar: the week from Google Calendar and Google Tasks, beside the sources and the tasks with no date', async () => {
+    const p = await openPage();
+    await openCalendar(p);
+    assert.equal(await p.locator('.tab[aria-selected="true"]').innerText(), 'Calendar');
+    assert.match(await calTitle(p), /^Week \d+ · /);
+    const days = p.locator('.cal-week > .day:not(.mini-tile)');
+    assert.equal(await days.count(), 7);
+    const ys = await days.evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().top)));
+    assert.equal(new Set(ys).size, 1, 'seven columns side by side');
+    assert.equal(await p.locator('.mini-tile').isVisible(), false, 'the small month is in the sidebar instead');
+    assert.equal(await p.locator('.cal-week .day.today .badge').innerText(), 'today');
+
+    const text = await weekText(p);
+    for (const t of ['Kestrel Medical: kick-off call', 'Lumenra glossary delivery', 'Grandma’s birthday', 'Quote for Ingrid', 'Proofread the IFU']) {
+      assert.ok(text.includes(t), t);
+    }
+    for (const t of ['Working from home', 'Cancelled: weekly sync', 'Old and deleted']) assert.ok(!text.includes(t), `not ${t}`);
+    assert.equal(await p.locator('.task.done').filter({ hasText: 'Proofread the IFU' }).count(), 1);
+
+    // Each opens where it lives in Google, in a tab of its own.
+    const quote = p.locator('.cal-week a.task').filter({ hasText: 'Quote for Ingrid' });
+    assert.equal(await quote.getAttribute('href'), 'https://mail.google.com/mail/#all/quote-request');
+    assert.equal(await quote.getAttribute('target'), '_blank');
+    assert.equal(await quote.locator('.mail').count(), 1, 'made from an email');
+    assert.match(await p.locator('.cal-week a.ev').first().getAttribute('href'), /^https:\/\/www\.google\.com\/calendar\/event\?eid=/);
+
+    assert.deepEqual(await p.locator('.cal-sources .src-name').allInnerTexts(),
+      ['test', 'Jobs', 'Family', 'Holidays in the United Kingdom', 'My Tasks', 'Admin']);
+    assert.equal(await p.locator('.src').filter({ hasText: 'Holidays' }).getAttribute('aria-pressed'), 'false', 'off, as in Google');
+    const tray = await p.locator('.cal-tray').innerText();
+    for (const t of ['Overdue', 'Back up the TMs', 'No date', 'Renew the guild membership', 'Order printer toner']) assert.ok(tray.includes(t), t);
+
+    // Reads only, and only of the four kinds.
+    const calls = await p.evaluate(() => window.__mockChrome.log.filter(l => l.type === 'google'));
+    assert.ok(calls.length >= 6);
+    assert.ok(calls.every(c => /^(users\/me\/calendarList|calendars\/[^/]+\/events|users\/@me\/lists|lists\/[^/]+\/tasks)$/.test(c.path)), 'reads only');
+    assert.ok(!calls.some(c => c.path.includes('holiday')), 'a calendar that is off is not read');
+    await p.screenshot({ path: join(SCREENS, 'preview-calendar-week.png'), animations: 'disabled' });
+    await p.context().close();
+  });
+
+  await r.step('calendar: Month and Agenda, the keys, and the small month', async () => {
+    const p = await openPage();
+    await openCalendar(p);
+    const thisWeek = await calTitle(p);
+    await p.locator('[data-key="cal-view:month"]').click();
+    await p.locator('.cal-month').waitFor();
+    assert.equal((await p.locator('.mcell').count()) % 7, 0);
+    assert.match(await calTitle(p), /^[A-Z][a-z]+ \d{4}$/);
+    await p.screenshot({ path: join(SCREENS, 'preview-calendar-month.png'), animations: 'disabled' });
+
+    await p.keyboard.press('a');
+    await p.locator('.cal-agenda .aday').first().waitFor();
+    await until(async () => (await p.locator('.cal-agenda').innerText()).includes('Planning call with Grace'), 'next week in the agenda');
+    await p.screenshot({ path: join(SCREENS, 'preview-calendar-agenda.png'), animations: 'disabled' });
+
+    await p.keyboard.press('w');
+    await p.locator('.cal-week').waitFor();
+    assert.equal(await calTitle(p), thisWeek);
+    await p.keyboard.press('j');
+    await until(async () => (await weekText(p)).includes('Planning call with Grace'), 'the next week');
+    assert.notEqual(await calTitle(p), thisWeek);
+    await p.keyboard.press('t');
+    await until(async () => (await calTitle(p)) === thisWeek, 'back to today');
+
+    // A day in the small month goes to its week.
+    const next = await p.evaluate(() => window.__fakeCalendar.day(8));
+    await p.locator(`[data-key="cal-mini:${next}"]`).first().click();
+    await until(async () => (await weekText(p)).includes('MedTech translators’ conference'), 'that week');
+    const pref = await p.evaluate(async () => (await chrome.storage.local.get('pref:test@example.com:calendarView'))['pref:test@example.com:calendarView']);
+    assert.equal(pref, 'week', 'the view is remembered');
+    await p.context().close();
+  });
+
+  await r.step('calendar: it opens on the view used last time, and reads that view’s days', async () => {
+    const p = await openPage();
+    await p.evaluate(() => chrome.storage.local.set({ 'pref:test@example.com:calendarView': 'month' }));
+    await p.locator('[data-action="toggle-calendar"]').click();
+    await p.locator('.cal-month .ev').first().waitFor();
+    assert.equal(await p.locator('[data-key="cal-view:month"]').getAttribute('aria-selected'), 'true');
+    const [wanted, asked] = await p.evaluate(() => {
+      const cal = window.gkb.calendarLogic;
+      const { start } = cal.viewRange('month', cal.dateKey(new Date()));
+      const events = window.__mockChrome.log.filter(l => l.type === 'google' && /\/events$/.test(l.path));
+      return [cal.fromKey(cal.addDays(start, -1)).toISOString(), events.map(l => l.query.timeMin)];
+    });
+    assert.ok(asked.length && asked.every(t => t === wanted), 'the month’s days, not the week’s');
+    await p.context().close();
+  });
+
+  await r.step('calendar: a source shows or hides with a click, and it is remembered', async () => {
+    const p = await openPage();
+    await openCalendar(p);
+    await p.locator('.src').filter({ hasText: 'Family' }).click();
+    await until(async () => !(await weekText(p)).includes('Pub quiz'), 'Family hidden');
+    assert.equal(await p.locator('.src').filter({ hasText: 'Family' }).getAttribute('aria-pressed'), 'false');
+    await p.locator('.src').filter({ hasText: 'My Tasks' }).click();
+    await until(async () => !(await weekText(p)).includes('Quote for Ingrid'), 'My Tasks hidden');
+    assert.ok(!(await p.locator('.cal-tray').innerText()).includes('Renew the guild membership'));
+
+    // Switched on: read now, as it was not before.
+    await p.locator('.src').filter({ hasText: 'Holidays' }).click();
+    await until(async () => (await p.evaluate(() => window.__mockChrome.log.some(l => l.type === 'google' && l.path.includes('holiday')))), 'read');
+    await p.keyboard.press('j');
+    await p.keyboard.press('j');
+    await until(async () => (await weekText(p)).includes('Bank holiday'), 'the holiday, two weeks on');
+
+    const saved = await p.evaluate(async () => (await chrome.storage.local.get('pref:test@example.com:calendarSources'))['pref:test@example.com:calendarSources']);
+    assert.equal(saved['c_family@group.calendar.google.com'], false);
+    assert.equal(saved['en.uk#holiday@group.v.calendar.google.com'], true);
+    await p.context().close();
+  });
+
+  await r.step('calendar: connecting it is a step of its own, and the board never needed it', async () => {
+    const p = await openPage('calendar=signin');
+    await openBoard(p);
+    await p.locator('[data-key="view:calendar"]').click();
+    await p.locator('.panel', { hasText: 'Connect Google Calendar' }).waitFor();
+    assert.match(await p.locator('.panel').innerText(), /only reads them/);
+    await p.screenshot({ path: join(SCREENS, 'preview-calendar-connect.png'), animations: 'disabled' });
+    await p.locator('.panel .btn-primary').click();
+    await p.locator('.cal .ev').first().waitFor();
+    // The board's own sign-in was never touched.
+    await p.locator('[data-key="view:board"]').click();
+    await p.locator('.card').first().waitFor();
+    await p.context().close();
+  });
+
+  await r.step('calendar: Tasks not allowed says so, with a way to fix it, and the events still show', async () => {
+    const p = await openPage('calendar=notasks');
+    await openCalendar(p);
+    await until(async () => /Google Tasks: It was not allowed/.test(await p.locator('.cal-note').innerText()), 'the note');
+    assert.equal(await p.locator('.cal-note .btn').innerText(), 'Connect again');
+    assert.ok((await weekText(p)).includes('Lumenra glossary delivery'));
+    await p.context().close();
+  });
+
+  await r.step('calendar: narrow, it is the phone’s week, two columns of days; and in dark mode', async () => {
+    const p = await openPage('', { colorScheme: 'dark' });
+    await openCalendar(p);
+    await p.screenshot({ path: join(SCREENS, 'preview-calendar-dark.png'), animations: 'disabled' });
+    await p.setViewportSize({ width: 560, height: 900 });
+    await until(async () => (await p.locator('.cal').getAttribute('data-narrow')) === 'true', 'narrow');
+    assert.equal(await p.locator('.mini-tile').isVisible(), true);
+    assert.equal(await p.locator('.cal-views').isVisible(), false);
+    const days = p.locator('.cal-week > .day:not(.mini-tile)');
+    const [mon, tue, fri] = await Promise.all([0, 1, 4].map(i => days.nth(i).boundingBox()));
+    assert.ok(tue.y > mon.y && Math.abs(tue.x - mon.x) < 2, 'Tuesday under Monday');
+    assert.ok(Math.abs(fri.y - mon.y) < 2 && fri.x > mon.x, 'Friday beside Monday');
+    await p.screenshot({ path: join(SCREENS, 'preview-calendar-narrow.png'), animations: 'disabled' });
+    await p.context().close();
+  });
+
   await r.step('no console errors anywhere', async () => {
     assert.deepEqual(errors, []);
   });

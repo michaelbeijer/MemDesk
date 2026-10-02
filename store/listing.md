@@ -6,13 +6,13 @@ redraws them. See [PUBLISHING.md](../PUBLISHING.md) for the whole process.
 
 ## Store listing
 
-**Summary** (the line under the name; 132 characters at most - this is 121):
+**Summary** (the line under the name; 132 characters at most - this is 128):
 
-> A Kanban board and a notebook, inside Gmail. Every card is an email, every note a message in your own mailbox. No server.
+> A Kanban board, a notebook and your week, inside Gmail. Every card is an email, every note a message in your mailbox. No server.
 
 **Description:**
 
-> Supermail turns Gmail into a Kanban board and a notebook, without moving your mail anywhere.
+> Supermail turns Gmail into a Kanban board, a notebook and a calendar, without moving your mail anywhere.
 >
 > THE BOARD
 > • Every card is an email conversation, every column a Gmail label (To do, Doing, Waiting, Done – or your own).
@@ -26,11 +26,16 @@ redraws them. See [PUBLISHING.md](../PUBLISHING.md) for the whole process.
 > • A Scratchpad that is always open, ready for whatever needs writing down.
 > • Search that marks the words, in the list and in the note.
 >
+> THE CALENDAR
+> • Your Google Calendar with Google Tasks in it: the week, the month, or the next four weeks as a list.
+> • Tasks with a date sit in their day; the ones without wait at the side. A task made from an email opens the email.
+> • Show or hide each calendar and task list with one click. Read-only: it never changes your calendar.
+>
 > ON YOUR PHONE
-> • A home-screen app with your notes and the Scratchpad, and a panel in the Gmail app.
+> • A home-screen app with the board, your notes, the Scratchpad and your week, and a panel in the Gmail app.
 >
 > PRIVATE BY DESIGN
-> • There is no Supermail server. Everything is in your own Gmail, as labels and messages, and Supermail talks only to Gmail, from your browser.
+> • There is no Supermail server. Everything is in your own Gmail, as labels and messages, and Supermail talks only to Google (Gmail, and Calendar and Tasks for the calendar), from your browser.
 > • It never sends mail and never deletes anything for good.
 >
 > Open source: https://github.com/michaelbeijer/Supermail
@@ -50,23 +55,26 @@ redraws them. See [PUBLISHING.md](../PUBLISHING.md) for the whole process.
 
 **Single purpose:**
 
-> Organises the user's own Gmail: shows their email conversations as a Kanban board, by Gmail label, and keeps their notes as messages in their own Gmail.
+> Organises the user's own working day inside Gmail: shows their email conversations as a Kanban board, by Gmail label, keeps their notes as messages in their own Gmail, and shows their Google Calendar and Google Tasks beside them.
 
 **Permission justifications:**
 
 | Permission | Why |
 |---|---|
-| `identity` | Signs in with Google (chrome.identity.launchWebAuthFlow) to get a Gmail access token. |
-| `storage` | Keeps the board's column layout, card order, the user's own card titles, notes and colours, and the short-lived access token (session storage only). |
-| Host `https://gmail.googleapis.com/*` | The Gmail API: the only server the extension talks to. |
+| `identity` | Signs in with Google (chrome.identity.launchWebAuthFlow) to get a Gmail access token, and, for the calendar, a separate read-only Calendar and Tasks token. |
+| `storage` | Keeps the board's column layout, card order, the user's own card titles, notes and colours, which calendars to show, and the short-lived access tokens (session storage only). |
+| Host `https://gmail.googleapis.com/*` | The Gmail API, for the board and the notes. |
+| Host `https://www.googleapis.com/*` | The Google Calendar API (read-only), and Google's userinfo endpoint to check which account the calendar sign-in belongs to. |
+| Host `https://tasks.googleapis.com/*` | The Google Tasks API (read-only), for tasks in the calendar. |
 | Content script on `https://mail.google.com/*` | Draws the board, the notes and the "Add to board" button inside Gmail. |
 | Remote code | No: every script is in the package. |
 
 **Data usage.** Tick what the extension handles: *Personally identifiable
 information* (the account's email address, to tell accounts apart),
-*Authentication information* (the access token) and *Personal
-communications* (email subjects, senders and snippets for the cards, and
-the notes). Then certify all three statements: the data is not sold, not
+*Authentication information* (the access tokens) and *Personal
+communications* (email subjects, senders and snippets for the cards, the
+notes, and the calendar's events and tasks, which are shown and never
+stored). Then certify all three statements: the data is not sold, not
 used or transferred for purposes unrelated to the single purpose, and not
 used to determine creditworthiness.
 

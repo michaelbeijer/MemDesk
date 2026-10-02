@@ -40,6 +40,7 @@
     view: 'view',                                // storage.local: 'board' | 'notes'
     pref: (email, name) => `pref:${String(email).toLowerCase()}:${name}`, // storage.local: the notes' small preferences
     token: email => `token:${String(email).toLowerCase()}`,     // storage.session
+    calendarToken: email => `ctoken:${String(email).toLowerCase()}`, // storage.session: the calendar's own sign-in
     gmailTabs: 'gmailTabs',                      // storage.session
   };
 

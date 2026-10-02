@@ -8,7 +8,8 @@
 // only notes are inserted, only notes go to Trash or come back out of it,
 // mail kept as a note just leaves the list, only an empty notes folder is
 // ever deleted, and the board only reads, labels and unlabels - nothing
-// is ever sent, deleted, or put in Trash, Spam or the Inbox.
+// is ever sent, deleted, or put in Trash, Spam or the Inbox. The calendar
+// only reads.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -253,6 +254,31 @@
     return cols.length ? cols : null;
   }
 
+  // ── The calendar ─────────────────────────────────────────────────────
+  //
+  // Google Calendar and Google Tasks, read-only: the same short list of
+  // reads the extension's worker allows (calendarLogic.isAllowedRequest),
+  // side by side in one round trip.
+
+  function googleMany(list) {
+    const cal = ns.calendarLogic;
+    const urls = (list || []).slice(0, BATCH_MAX).map(([service, path, query]) => {
+      if (!cal.isAllowedRequest(service, 'GET', path)) {
+        throw new Error(`not_allowed: ${service} ${path} is not something the calendar does.`);
+      }
+      return cal.buildUrl(service, path, query || null);
+    });
+    return gmail.getAll(urls).map(r => {
+      if (!r || !r.error) return r;
+      const e = r.error;
+      // Google's consent screen lets people untick Calendar or Tasks.
+      if (e.status === 403 && /insufficient.*scope/i.test(e.detail || e.message)) {
+        return { error: { code: 'calendar_scope', status: 403, message: 'It was not allowed when the app was authorised. Open the app again, and allow it when Google asks.' } };
+      }
+      return { error: { message: e.detail || e.message, status: e.status || 0 } };
+    });
+  }
+
   // ── The app's settings ───────────────────────────────────────────────
   //
   // What the extension keeps in Chrome's synced storage (the column
@@ -294,6 +320,6 @@
 
   ns.app = {
     page, list, body, save, retire, restore, move, createFolder, renameFolder, deleteFolder,
-    account, boardGmail, boardGmailMany, boardColumns, prefsGet, prefsSet, prefsRemove,
+    account, boardGmail, boardGmailMany, boardColumns, googleMany, prefsGet, prefsSet, prefsRemove,
   };
 })();
