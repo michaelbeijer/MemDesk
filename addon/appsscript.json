@@ -13,6 +13,10 @@
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/script.external_request"
   ],
+  "webapp": {
+    "executeAs": "USER_DEPLOYING",
+    "access": "MYSELF"
+  },
   "urlFetchWhitelist": [
     "https://gmail.googleapis.com/"
   ],

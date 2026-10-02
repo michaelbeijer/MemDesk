@@ -14,21 +14,30 @@ underscore sorts both labels to the top of Gmail's label list. The board and the
 notes editor themselves only exist in desktop Chrome; on a phone, the **phone
 panel** (a small Gmail add-on you install for yourself, see below) puts the
 open email in a column, ticks checklist items, adds lines to a note, files it
-in a folder and starts new notes from inside the Gmail app.
+in a folder and starts new notes from inside the Gmail app, and the **phone
+app** puts the notes themselves, with the full editor, on your home screen.
 
-Version 0.10.0. Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.12.2. Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
-## Install
+## Getting started
 
-1. Open `chrome://extensions` and switch on **Developer mode**.
-2. Click **Load unpacked** and choose this folder.
-3. The setup page opens. Do the one-time Google setup below.
-4. Reload any Gmail tabs that were already open.
+**[SETUP.md](SETUP.md)** walks through it step by step:
 
-The manifest carries a public `key`, so the extension ID is the same on every
-install of this folder:
+1. **The extension** (Chrome on a computer): download, load it in
+   `chrome://extensions`, and connect it to Gmail through a free Google Cloud
+   project of your own. About 15 minutes, once.
+2. **The phone panel** (the Gmail app): paste two files into a new Apps Script
+   project. About 5 minutes.
+3. **The phone app** (a home-screen icon): one more click in that same
+   project. About 3 minutes.
+
+It works with Google Workspace and with @gmail.com accounts.
+
+The manifest carries a public `key`, so the extension ID - and with it the
+redirect URI that every user's OAuth client needs - is the same on every
+install:
 
 | | |
 |---|---|
@@ -37,48 +46,6 @@ install of this folder:
 
 The matching private key is not in the repository and is not needed to load the
 extension. It only matters if you ever pack a `.crx`.
-
-## One-time Google setup
-
-The extension calls the Gmail API directly from your browser with a short-lived
-token. It needs one OAuth client to do that.
-
-### Reusing the dashboard's Cloud project (recommended)
-
-The Google Cloud project you set up for the dashboard (see `EMAIL-SETUP.md` in
-supervertaler-stats) already has the Gmail API enabled and an **Internal**
-consent screen. You only need one new OAuth client:
-
-1. Open [APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials)
-   in that project and choose **Create credentials → OAuth client ID**, with
-   application type **Web application**. The dashboard's client is a *Desktop
-   app*, which cannot use a `chromiumapp.org` redirect, hence a second one.
-2. Under **Authorised redirect URIs**, add
-   `https://lfeogecmdohgofbifobhkolapmjikdih.chromiumapp.org/`
-3. Create it, open the extension's setup page, paste the **Client ID** and press
-   **Save**. No client secret is needed: the browser flow does not use one.
-4. Optional: under **Google Auth Platform → Data access**, add the
-   `https://www.googleapis.com/auth/gmail.modify` scope. With an Internal app this
-   is documentation rather than a requirement, but it keeps the consent screen's
-   list honest.
-
-Then press **Test connection** on the setup page. Google asks you to choose an
-account, and the page should say "Connected as …".
-
-The token request asks for `gmail.modify` alone, with
-`include_granted_scopes=false`. Google treats every client in a project as one
-app, so incremental auth would also fold the dashboard's `gmail.metadata` grant
-into this token. Gmail then applies metadata-scope rules to the whole token, and
-search (`q=`) stops working.
-
-### Starting from a fresh project instead
-
-1. Create a project at [console.cloud.google.com](https://console.cloud.google.com/).
-2. **APIs & Services → Library → Gmail API → Enable**.
-3. Configure the OAuth consent screen with user type **Internal**. This is only
-   available on Google Workspace accounts. It avoids Google's verification review
-   for a restricted scope and the seven-day token limit of "Testing" mode.
-4. Follow steps 1 to 4 above.
 
 ## Usage
 
@@ -255,6 +222,14 @@ as the extension.
   words are only in its title. Operators such as `from:` or `before:` narrow
   the search but are not marked. There is no stepping from match to match: a
   card cannot scroll itself.
+- **Find in this note**, at the top of every note: type a word and press
+  **Find** to mark it everywhere in the note, with a count. **Only lines with
+  it** then shows just the lines that have it (a ⋯ marks each stretch left
+  out), which is how you get to a match in a long note on a phone; **Whole
+  note** brings the rest back and **Clear** removes the marks. Ticks, lines
+  to add and a folder chosen before pressing Find are kept, and Save saves
+  them as usual. A note opened from search results starts with the search's
+  words in the box.
 - **New note** takes a title, some lines (as text, a checklist or bullets) and a
   folder. From a folder's list or from a note, it starts in that folder.
 - **All notes** and **New note** are also on the panel's own menu (⋮).
@@ -271,39 +246,12 @@ as the extension.
   any others after them alphabetically, and only Done archives. If you change
   which column archives in the extension, the panel will not know.
 
-### Setting it up (once, about five minutes)
-
-1. Go to [script.google.com](https://script.google.com), signed in as the
-   account the notes are in, and click **New project**. Click "Untitled
-   project" at the top and call it Supermail.
-2. Click the gear (**Project Settings**) on the left and tick **Show
-   "appsscript.json" manifest file in editor**.
-3. Back in the editor (**< >** on the left):
-   - click `appsscript.json`, select everything in it, and paste the contents
-     of [`addon/appsscript.json`](addon/appsscript.json) over it;
-   - click `Code.gs`, select everything, and paste the contents of
-     [`addon/Code.gs`](addon/Code.gs) over it;
-   - press **Ctrl+S**.
-
-   Settings, if they need changing: `"timeZone"` in `appsscript.json`
-   (it is `Europe/London`; it only affects "edited 3 h" style times), and
-   `SUPERMAIL_NOTES_LABEL` and `SUPERMAIL_BOARD_LABEL` at the top of
-   `Code.gs` if you renamed `_Notes` or `_Board`.
-4. Click **Deploy > Test deployments**, then **Install**, then **Done**.
-5. Open Gmail on your computer and reload it. The panel's icon is in the strip
-   on the right. Click it, then **Authorize access**, choose your account, and
-   allow what it asks (below). Google may first say it "hasn't verified this
-   app": that is said of every script that has not been through Google's
-   review, including your own. Click **Advanced**, then **Go to Supermail**.
-6. On your phone, open the Gmail app, open any email, and scroll to the bottom:
-   the icon is in the row of add-ons there. If it is not there yet, close and
-   reopen the app.
-
-**Updating**: open [script.google.com/home](https://script.google.com/home)
-(your Apps Script projects), click the Supermail project, paste the new
-`Code.gs` (and `appsscript.json`, if it changed) over the old ones and save. A test deployment always runs the latest saved
-code, so there is nothing to reinstall. The first line of `Code.gs` says which
-version it is.
+**Setting it up** takes about five minutes: a new Apps Script project with
+two files pasted in, then **Deploy → Test deployments → Install**. The steps
+are in [SETUP.md, part 2](SETUP.md#part-2-the-phone-panel). To update, paste
+the new `Code.gs` over the old one at
+[script.google.com/home](https://script.google.com/home) and save; the first
+line of `Code.gs` says which version it is.
 
 **What it is allowed to do**: read and change your mail's labels and insert
 messages (`gmail.modify`, the same as the extension), run as a Gmail add-on and
@@ -322,6 +270,44 @@ and the panel's own files in `addon/src/`, with small stand-ins for the browser
 APIs Apps Script lacks (`addon/src/shims.js`). `npm test` fails if it is out of
 date, and runs the whole panel against the preview's fake Gmail in a stand-in
 for Apps Script (`tests/addon.test.js`).
+
+## The phone app
+
+The notes on your phone's home screen: the extension's own Notes view, served
+full-screen by the same Apps Script project as the phone panel, and added to
+the home screen from Chrome. It is the same list, folders, search with the
+words marked, formatting editor, checklists, find and autosave as in Chrome,
+laid out for a phone:
+
+- **One pane at a time.** The list, with the folders as a row of chips above
+  it, or the open note, full-screen. The arrow at the top left, or Android's
+  back gesture, goes from a note back to the list.
+- **Saving.** As in Chrome, a moment after you stop typing - and at once when
+  you go back to the list or switch to another app, since a phone does not
+  close pages.
+- **Search** marks the words in the results and in the open note, with the
+  arrows to step from one match to the next.
+
+**Setting it up** is one more step in the phone panel's project: **Deploy →
+Test deployments → Web app**, open its address in Chrome on the phone, and
+**Add to Home screen**. See [SETUP.md, part 3](SETUP.md#part-3-the-phone-app).
+The address ends in `/dev`: it always runs the code last saved, and only you
+can open it.
+
+**How it works**: `doGet` in `Code.gs` serves the page, which is
+`addon/app/index.html` with the extension's own files packed into it
+(`src/content/notes.js`, `note-editor.js`, `ui.js`, `styles.js` and the shared
+note code). They go in as base64 inside one small loader script, which runs
+them in order and names any that fails: Apps Script takes a page's inline
+scripts out and runs them itself, and an app made of many plain scripts did
+not survive that (it came up blank). With them come `addon/app/remote.js`, a notes store that asks the script
+through `google.script.run` instead of asking the extension's background
+worker, and `addon/app/shell.js`, the full-screen frame and the phone layout.
+On the script's side, `addon/src/app-server.js` keeps the worker's rules: it
+inserts only notes, moves to Trash or back only messages it has itself
+checked are notes, takes an email kept as a note off the list without
+touching it otherwise, and deletes a folder only when Gmail says it is empty.
+It runs as you, under the phone panel's permissions; nothing new is asked.
 
 ## Privacy
 
@@ -356,6 +342,12 @@ for Apps Script (`tests/addon.test.js`).
   folder: before a `DELETE`, it reads the label, the full label list, and
   whether any message is still filed under it, and refuses anything that is not
   a folder under the notes label with no notes and no subfolders.
+- **One scope, and only that.** The extension's token request asks for
+  `gmail.modify` alone, with `include_granted_scopes=false`. Google treats
+  every client in a Cloud project as one app, so incremental auth would fold
+  any other Gmail grant in the same project (a `gmail.metadata` one, say) into
+  this token - and Gmail then applies metadata-scope rules to the whole token,
+  and search (`q=`) stops working.
 - Every token is checked against Gmail's own profile before use. If Google
   signs in a different account from the one in the Gmail tab, the token is
   discarded and the board says so, rather than acting on the wrong mailbox.
@@ -429,6 +421,7 @@ Either install it without saving it (`node_modules/` is gitignored), or point
 npm i --no-save playwright-core
 npm run test:preview          # (a) content scripts against a fake Gmail
 npm run test:extension        # (b) the real unpacked extension
+npm run test:app              # (c) the phone app at a phone's size
 ```
 
 - `CHROMIUM_PATH` chooses the browser. It must be full Chromium, because
@@ -445,6 +438,11 @@ npm run test:extension        # (b) the real unpacked extension
   falls back to `xvfb-run` if the service worker does not appear. It checks the
   worker, the extension ID, the setup page, the allow-list, and that the content
   scripts inject into a stand-in `mail.google.com` page and reach the worker.
+- (c) opens the phone app's page at a phone's size, with touch, its
+  `google.script.run` wired to the real `Code.gs` running in the Apps Script
+  stand-in against the fake Gmail: the list and folder chips, opening a note,
+  typing and formatting with autosave, ticking a box, the back gesture,
+  search, a new note, saving on switching away, and dark mode.
 
 ### Dev preview
 
@@ -485,26 +483,35 @@ src/content/               classic scripts, in manifest order
   main.js                  wiring
 src/options/               setup page
 dev/                       preview page and fake Gmail
-addon/                     the phone panel (a Gmail add-on in Apps Script)
+addon/                     the phone panel and phone app (Apps Script)
   appsscript.json          its manifest
-  Code.gs                  generated: shared note code + addon/src, one file
+  Code.gs                  generated: shared note code + addon/src + the app's page
   src/shims.js             btoa, TextEncoder, URL and friends for Apps Script
   src/panel-logic.js       pure: a note as card items, ticks, appended lines,
                            board columns from labels
   src/gmail.js, store.js   Gmail over UrlFetchApp, and the notes on it
   src/cards.js             the cards and what their buttons do
+  src/app-server.js        the phone app's server side: notes, folders, the page
   src/triggers.js          the top-level functions Apps Script calls
+  app/index.html           the phone app's page, filled in by the build
+  app/remote.js            its notes store, over google.script.run
+  app/shell.js             its full-screen frame and phone layout
 tests/                     unit tests; tests/e2e/ browser checks;
                            helpers/apps-script.js, a stand-in Apps Script
 tools/make-icons.mjs       icon generator
 tools/build-addon.mjs      builds addon/Code.gs
+SETUP.md                   step-by-step setup, for anyone
+LICENSE                    MIT
 ```
 
 ## Roadmap
 
 - **A to-do view.** One flat list across all columns, oldest first, for days when
   a board is too much.
-- **A "Needs reply" column**, computed rather than labelled. It would reuse the
-  triage and ranking logic in `supervertaler-stats/src/email.js`
-  (`classifyBulk`, `scoreThread`): threads whose newest message is inbound and
-  not bulk mail, ranked by who is waiting and for how long.
+- **A "Needs reply" column**, computed rather than labelled: threads whose
+  newest message is inbound and not bulk mail, ranked by who is waiting and
+  for how long.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).

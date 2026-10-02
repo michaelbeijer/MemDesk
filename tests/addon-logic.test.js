@@ -219,3 +219,27 @@ test('a search result: marked title, up to two excerpts, a count', () => {
   assert.equal(panel.matchCount(3), '3 matches');
   assert.deepEqual(panel.searchResult('Untitled', doc, search.queryTerms('absent')), { titleHtml: 'Untitled', excerpts: [], count: 0 });
 });
+
+test('only the lines with a match: a "⋯" for each gap, numbers as in the whole note', () => {
+  const search = require('../src/lib/search-logic.js');
+  const doc = [B('p', [T('alpha')]), B('p', [T('beta')]), B('ol', [T('one')]), B('ol', [T('alpha two')]), B('check', [T('alpha box')])];
+  const { items, hits, filtered, hidden } = panel.cardItems(doc, { terms: search.queryTerms('alpha'), only: true });
+  assert.equal(hits, 3);
+  assert.equal(filtered, true);
+  assert.equal(hidden, 0);
+  assert.deepEqual(items.map(i => i.kind === 'check' ? `[${i.index}] ${i.html}` : i.html), [
+    '<font color="#e8710a"><b>alpha</b></font><br><font color="#5f6368">⋯</font><br>2. <font color="#e8710a"><b>alpha</b></font> two',
+    '[4] <font color="#e8710a"><b>alpha</b></font> box',
+  ]);
+  assert.equal(panel.cardItems(doc, { only: true }).items.length, 2, 'with nothing to find, the whole note');
+  assert.equal(panel.cardItems(doc, { terms: search.queryTerms('alpha'), only: true, maxBlocks: 2 }).hidden, 1);
+});
+
+test('unsaved ticks travel as text and come back the same', () => {
+  assert.equal(panel.encodeTicks({ 5: false, 3: true }), '3.1,5.0');
+  assert.deepEqual(panel.decodeTicks('3.1,5.0,junk,7.2'), { 3: true, 5: false });
+  assert.deepEqual(panel.decodeTicks(''), {});
+  const doc = [B('check', [T('a')]), B('check', [T('b')], { checked: true })];
+  assert.deepEqual(panel.withTicks(doc, { 0: true, 1: false }).map(b => b.checked), [true, false]);
+  assert.deepEqual(panel.withTicks(doc, {}).map(b => b.checked), [false, true]);
+});

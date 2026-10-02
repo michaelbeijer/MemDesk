@@ -46,7 +46,9 @@ test('the display name lives only in the documented rename spots', () => {
   ];
   for (const f of candidates) {
     if (!fs.existsSync(path.join(ROOT, f)) || allowed.has(f)) continue;
-    assert.equal(read(f).includes(NAME), false, `${f} mentions “${NAME}”; use APP_NAME instead`);
+    // The repository's address is where it lives, not what it is called.
+    const text = read(f).replace(/github\.com\/michaelbeijer\/Supermail/g, '');
+    assert.equal(text.includes(NAME), false, `${f} mentions “${NAME}”; use APP_NAME instead`);
   }
   assert.equal(manifest.action.default_title, NAME);
   assert.equal(JSON.parse(read('addon/appsscript.json')).addOns.common.name, NAME, 'the phone panel has the same name');
@@ -71,7 +73,7 @@ test('the preview loads exactly the manifest’s content scripts, in order', () 
 
 test('manifest: version, permissions and a key whose ID the README reports', () => {
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '0.10.0');
+  assert.equal(manifest.version, '0.12.2');
   assert.deepEqual(manifest.permissions.sort(), ['identity', 'storage']);
   assert.deepEqual(manifest.host_permissions, ['https://gmail.googleapis.com/*']);
   assert.equal(manifest.commands['toggle-board'].suggested_key.default, 'Alt+Shift+K');

@@ -97,11 +97,15 @@
   // checklist item, `index` being its block's place in the note. Past
   // `maxBlocks` nothing is shown, and `hidden` says how much that was.
   // With search `terms`, their matches are marked, and `hits` counts them
-  // in the whole note.
-  function cardItems(docIn, { maxBlocks = 80, terms = null } = {}) {
+  // in the whole note; with `only` as well, just the lines that have a
+  // match are shown, a "⋯" standing for each stretch left out - a card
+  // cannot scroll to a match, so this is how a long note gets to one.
+  function cardItems(docIn, { maxBlocks = 80, terms = null, only = false } = {}) {
     const doc = fmt.normaliseDoc(docIn);
-    const matchesIn = b => (terms && terms.length ? search.findMatches(b.runs.map(r => r.text).join(''), terms) : []);
-    const hits = doc.reduce((n, b) => n + matchesIn(b).length, 0);
+    const searching = !!(terms && terms.length);
+    const matches = doc.map(b => (searching ? search.findMatches(b.runs.map(r => r.text).join(''), terms) : []));
+    const hits = matches.reduce((n, m) => n + m.length, 0);
+    const filter = only && searching;
     const items = [];
     const counters = [0, 0, 0, 0];
     let lines = [];
@@ -112,30 +116,40 @@
       if (lines.length) items.push({ kind: 'text', html: lines.join('<br>') });
       lines = [];
     };
-    const shown = Math.min(doc.length, maxBlocks);
-    for (let i = 0; i < shown; i++) {
+    let shown = 0;
+    let wanted = 0;
+    let last = -1;
+    for (let i = 0; i < doc.length; i++) {
       const b = doc[i];
-      const inner = runsHtml(b.runs, matchesIn(b));
-      if (!fmt.LISTS.has(b.type)) {
-        counters.fill(0);
-        lines.push(/^h[123]$/.test(b.type) && inner ? `<b>${inner}</b>` : inner);
-        continue;
+      // Numbers are counted over the whole note, shown or not.
+      let number = 0;
+      if (!fmt.LISTS.has(b.type)) counters.fill(0);
+      else {
+        for (let l = b.level + 1; l < counters.length; l++) counters[l] = 0;
+        if (b.type === 'ol') number = ++counters[b.level];
+        else counters[b.level] = 0;
       }
+      if (filter && !matches[i].length) continue;
+      wanted++;
+      if (shown >= maxBlocks) continue;
+      shown++;
+      if (filter && last >= 0 && i > last + 1) lines.push(grey('\u22ef'));
+      last = i;
+      const inner = runsHtml(b.runs, matches[i]);
       const pad = INDENT.repeat(b.level);
-      for (let l = b.level + 1; l < counters.length; l++) counters[l] = 0;
       if (b.type === 'check') {
-        counters[b.level] = 0;
         flush();
         items.push({ kind: 'check', index: i, html: pad + (inner || grey('(empty)')), checked: b.checked });
       } else if (b.type === 'ol') {
-        lines.push(`${pad}${++counters[b.level]}. ${inner}`);
+        lines.push(`${pad}${number}.\u2002${inner}`);
+      } else if (b.type === 'ul') {
+        lines.push(`${pad}\u2022\u2002${inner}`);
       } else {
-        counters[b.level] = 0;
-        lines.push(`${pad}• ${inner}`);
+        lines.push(/^h[123]$/.test(b.type) && inner ? `<b>${inner}</b>` : inner);
       }
     }
     flush();
-    return { items, hidden: doc.length - shown, hits };
+    return { items, hidden: wanted - shown, hits, filtered: filter };
   }
 
   // ── Search results ───────────────────────────────────────────────────
@@ -196,6 +210,28 @@
     if (!blocks.length) return doc;
     while (doc.length && blank(doc[doc.length - 1])) doc.pop();
     return fmt.normaliseDoc(doc.concat(blocks));
+  }
+
+  // Ticks not saved yet, carried from one card to the next as "3.1,5.0"
+  // (block index, ticked or not) when the card is redrawn - by Find, say -
+  // so redrawing never quietly drops one.
+  function encodeTicks(map) {
+    return Object.keys(map || {}).map(Number).sort((x, y) => x - y).map(i => `${i}.${map[i] ? 1 : 0}`).join(',');
+  }
+
+  function decodeTicks(s) {
+    const out = {};
+    String(s || '').split(',').forEach(part => {
+      const m = /^(\d+)\.([01])$/.exec(part);
+      if (m) out[Number(m[1])] = m[2] === '1';
+    });
+    return out;
+  }
+
+  // A doc with ticks applied from such a map.
+  function withTicks(doc, map) {
+    const indices = Object.keys(map || {}).map(Number);
+    return applyTicks(doc, indices, new Set(indices.filter(i => map[i])));
   }
 
   function docsEqual(a, b) {
@@ -305,7 +341,7 @@
   }
 
   const api = {
-    esc, runsHtml, highlight, cardItems, searchResult, matchCount, applyTicks, linesToBlocks, appendBlocks, docsEqual,
+    esc, runsHtml, highlight, cardItems, searchResult, matchCount, applyTicks, encodeTicks, decodeTicks, withTicks, linesToBlocks, appendBlocks, docsEqual,
     folderName, folderOptions, noteSubtitle, apiMessageId,
     boardColumns, currentColumn, boardDiff, boardOptions,
   };

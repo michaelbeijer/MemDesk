@@ -70,7 +70,8 @@ test('opening a note shows its text, a box for each checklist item, its folder',
     '[x] Proofread the IFU', '[ ] Send the invoice', '[ ] \u2003\u2003Check the PO number', // indented a level
     '1.\u2002Zip the files', '2.\u2002Upload', '~~not struck~~ and **not bold**',
   ]);
-  const body = p.card.sections[0].widgets[0].text;
+  assert.equal(p.field('find').title, 'Find in this note', 'Find comes first');
+  const body = p.card.sections[1].widgets[0].text;
   assert.match(body, /<b>Kestrel<\/b> by <i>noon<\/i>, see <a href="https:\/\/example\.com\/portal">the portal<\/a>/);
   assert.equal(p.field('addAs').items.find(i => i.selected).value, 'check', 'a checklist note adds checklist items');
   assert.equal(p.field('folder').items.find(i => i.selected).text, 'No folder');
@@ -379,6 +380,54 @@ test('operators are not marked; a match in the title only is said; no search, no
   assert.doesNotMatch(p.lines().join('\n'), /match/);
 });
 
+test('Find in this note marks the words, and can show only the lines with them', () => {
+  const p = new Phone();
+  p.openMessage(idOf(p, 'launchchecklist0004'));
+  p.fill('find', 'the');
+  p.press('Find');
+  assert.equal(p.lines()[0], '5 matches for “the”');
+  assert.equal(p.marked().length, 5);
+  assert.equal(p.field('find').value, 'the');
+  p.fill('find', 'upload');
+  p.press('Find');
+  assert.deepEqual(p.marked(), ['Upload']);
+  p.press('Only lines with it');
+  assert.deepEqual(p.lines(), ['1 match for “upload” · only the lines with them', '2. Upload'], 'numbered as in the whole note');
+  p.press('Whole note');
+  assert.ok(p.lines().includes('[ ] Send the invoice'));
+  p.press('Clear');
+  assert.deepEqual(p.marked(), []);
+  assert.equal(p.field('find').value, undefined);
+  assert.doesNotMatch(p.lines().join('\n'), /match/);
+  p.fill('find', 'nowhere');
+  p.press('Find');
+  p.press('Only lines with it');
+  assert.deepEqual(p.lines(), ['“nowhere” is not in the text itself', 'No line has it.']);
+  assert.deepEqual(p.writes(), [], 'finding changes nothing in Gmail');
+});
+
+test('Find keeps what was done on the card: ticks, lines to add, the folder - and Save still saves them all', () => {
+  const p = new Phone();
+  p.openMessage(idOf(p, 'launchchecklist0004'));
+  p.tick(p.boxFor('Send the invoice'));
+  p.fill('add', 'Courier');
+  p.choose('folder', 'Work');
+  p.fill('find', 'upload');
+  p.press('Find');
+  assert.equal(p.checkboxes().find(c => c.text === 'Send the invoice').ticked, true);
+  assert.equal(p.field('add').value, 'Courier');
+  assert.equal(p.field('folder').items.find(i => i.selected).text, 'Work');
+  p.press('Only lines with it');
+  assert.deepEqual(p.checkboxes(), [], 'the ticked box is off the card now');
+  p.press('Save');
+  assert.equal(p.toast, 'Saved.');
+  const [now] = live(p, 'launchchecklist0004');
+  assert.match(now.text, /☑ Send the invoice/, 'the tick made before Find');
+  assert.match(now.text, /☐ Courier$/);
+  assert.deepEqual(plain(p.fake.box.messageFolders(now.id)), ['_Notes/Work']);
+  assert.deepEqual(p.lines(), ['1 match for “upload” · only the lines with them', '2. Upload'], 'the view stays as it was');
+});
+
 // ── The board ────────────────────────────────────────────────────────
 
 test('an email on the board shows its column first, and choosing another moves it at once', () => {
@@ -461,6 +510,125 @@ test('a failed move says so and changes nothing', () => {
   p.choose('boardColumn', 'Doing');
   assert.match(p.toast, /^Not done: Gmail answered 500/);
   assert.deepEqual(threadLabels(p, threadId).filter(n => n.startsWith('_Board')), ['_Board/To do']);
+});
+
+// ── The phone app's server side ──────────────────────────────────────
+
+test('the app page: served by doGet, titled, sized for a phone, with the notes view inside', () => {
+  const p = new Phone();
+  const out = p.addon.doGet({}).output;
+  assert.equal(out.title, 'Supermail notes');
+  assert.deepEqual(out.meta, [['viewport', 'width=device-width, initial-scale=1, viewport-fit=cover']]);
+  assert.match(out.html, /^<!DOCTYPE html>/);
+  // The modules are packed in base64url inside one loader script, in order,
+  // each exactly its source file.
+  const packed = JSON.parse(/var MODULES = (\[.*?\]);\n/.exec(out.html)[1]);
+  const names = packed.map(m => m[0]);
+  for (const f of ['src/content/notes.js', 'src/content/note-editor.js', 'addon/app/remote.js', 'addon/app/shell.js']) {
+    const m = packed.find(x => x[0] === f);
+    assert.ok(m, f);
+    assert.equal(Buffer.from(m[1], 'base64url').toString('utf8'), fs.readFileSync(path.join(__dirname, '..', f), 'utf8'), f);
+    assert.match(m[1], /^[A-Za-z0-9_-]+$/, 'nothing but base64url');
+  }
+  assert.ok(names.indexOf('addon/app/remote.js') < names.indexOf('src/content/notes.js'), 'the store before the view');
+  // Nothing a careless rewrite of the page could cut: no "//", "<!--" or
+  // "</" anywhere in the scripts.
+  for (const [, body] of out.html.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
+    for (const bad of ['//', '<!--', '</']) assert.ok(!body.includes(bad), `a script contains "${bad}"`);
+  }
+  assert.match(out.html, /<div id="boot"[^>]*>Loading your notes/, 'something to see before the scripts run');
+  const ping = p.addon.doGet({ parameter: { ping: '1' } }).output;
+  assert.match(ping.html, new RegExp(`Supermail ${require('../manifest.json').version}: the script runs, and its page is ${out.html.length} characters long`));
+});
+
+test('appList: every note once, newest first, with its folder; stale versions tidied; a search brings content', () => {
+  const p = new Phone();
+  const r = p.server('appList', '');
+  assert.deepEqual(r.notes.map(n => n.title), [
+    'Ideas for the October newsletter', 'Shopping list', 'Launch checklist', 'Kestrel glossary decisions', 'Rate schedule 2027 – draft',
+  ]);
+  assert.equal(r.label, '_Notes');
+  assert.deepEqual(r.folders.map(f => f.path), ['Empty', 'Personal', 'Work', 'Work/Clients']);
+  const byTitle = t => r.notes.find(n => n.title === t);
+  assert.equal(r.folders.find(f => f.id === byTitle('Kestrel glossary decisions').folderId).path, 'Work/Clients');
+  assert.equal(byTitle('Rate schedule 2027 – draft').folderId, '');
+  assert.equal(byTitle('Shopping list').own, false);
+  assert.deepEqual(r.docs, {});
+  assert.equal(live(p, 'kestrelglossary0001').length, 1, 'the older live version went to Trash');
+  assert.ok(!('parts' in r.notes[0]), 'no message parts sent to the page');
+
+  const s = p.server('appList', 'kestrel');
+  assert.deepEqual(s.notes.map(n => n.title), ['Launch checklist', 'Kestrel glossary decisions']);
+  assert.deepEqual(Object.keys(s.docs).sort(), s.notes.map(n => n.messageId).sort());
+  assert.match(JSON.stringify(s.docs), /Kestrel/);
+});
+
+test('appBody, and appSave: a new note, a new version, an email turned into a note', () => {
+  const p = new Phone();
+  const launch = idOf(p, 'launchchecklist0004');
+  const doc = p.server('appBody', launch);
+  assert.equal(doc[0].type, 'h2');
+  assert.equal(doc.find(b => b.type === 'check').runs[0].text, 'Proofread the IFU');
+
+  const work = p.server('appList', '').folders.find(f => f.path === 'Work').id;
+  const made = p.server('appSave', '', { title: 'From the phone', doc: [{ type: 'p', runs: [{ text: 'Hello', b: true }] }], folderId: work }).note;
+  assert.equal(made.title, 'From the phone');
+  assert.equal(made.folderId, work);
+  assert.ok(made.own);
+  assert.deepEqual(plain(p.fake.box.messageLabelNames(made.messageId)), ['_Notes', '_Notes/Work']);
+  assert.match(html(p, made.messageId), /<b>Hello<\/b>/);
+
+  const next = p.server('appSave', made.messageId, { title: 'From the phone', doc: [{ type: 'p', runs: [{ text: 'Hello again' }] }], folderId: work }).note;
+  assert.equal(next.noteId, made.noteId, 'the same note');
+  assert.ok(plain(p.fake.box.messageLabelNames(made.messageId)).includes('TRASH'), 'the old version in Trash');
+
+  const mail = p.fake.box.findMessageBySubject('Shopping list');
+  const kept = p.server('appSave', mail, { title: 'Shopping list', doc: [{ type: 'p', runs: [{ text: 'Milk' }] }], folderId: '' }).note;
+  assert.ok(kept.own);
+  assert.deepEqual(plain(p.fake.box.messageLabelNames(mail)), [], 'the email leaves the list, not for Trash');
+});
+
+test('appRetire and appRestore: Trash and back for a note; off and on the list for an email', () => {
+  const p = new Phone();
+  const rate = idOf(p, 'rateschedule00000003');
+  p.server('appRetire', rate);
+  assert.ok(plain(p.fake.box.messageLabelNames(rate)).includes('TRASH'));
+  p.server('appRestore', rate, '');
+  assert.deepEqual(plain(p.fake.box.messageLabelNames(rate)), ['_Notes']);
+
+  const mail = p.fake.box.findMessageBySubject('Shopping list');
+  const personal = p.server('appList', '').folders.find(f => f.path === 'Personal').id;
+  p.server('appRetire', mail);
+  assert.deepEqual(plain(p.fake.box.messageLabelNames(mail)), []);
+  p.server('appRestore', mail, personal);
+  assert.deepEqual(plain(p.fake.box.messageLabelNames(mail)), ['_Notes', '_Notes/Personal']);
+
+  const inbox = p.fake.box.threadsInInbox()[0].messages[0].id;
+  assert.throws(() => p.server('appRetire', inbox) && p.addon.gkb.addonGmail.trashNote(inbox), /Only notes/);
+  assert.ok(!plain(p.fake.box.messageLabelNames(inbox)).includes('TRASH'), 'an email is never sent to Trash');
+});
+
+test('appMove and the folder functions, with the extension\'s rules', () => {
+  const p = new Phone();
+  const folders = () => p.server('appList', '').folders;
+  const idFor = path => folders().find(f => f.path === path).id;
+  const rate = idOf(p, 'rateschedule00000003');
+  p.server('appMove', rate, idFor('Personal'));
+  assert.deepEqual(plain(p.fake.box.messageFolders(rate)), ['_Notes/Personal']);
+
+  const made = p.server('appCreateFolder', idFor('Work'), 'Archive');
+  assert.equal(made.folder.path, 'Work/Archive');
+  assert.throws(() => p.server('appCreateFolder', idFor('Work'), 'archive'), /already a folder/);
+  assert.throws(() => p.server('appCreateFolder', '', 'a/b'), /cannot contain/);
+
+  const r = p.server('appRenameFolder', idFor('Work'), 'Jobs');
+  assert.deepEqual(r.folders.map(f => f.path), ['Empty', 'Jobs', 'Jobs/Archive', 'Jobs/Clients', 'Personal'], 'the branch follows');
+
+  assert.throws(() => p.server('appDeleteFolder', idFor('Jobs/Clients')), /^Error: not_allowed: only an empty notes folder/);
+  const after = p.server('appDeleteFolder', idFor('Empty')).folders;
+  assert.ok(!after.some(f => f.path === 'Empty'));
+  const notNotes = plain(p.fake.box.labelByName('Clients')).id;
+  assert.throws(() => p.server('appDeleteFolder', notNotes), /not_allowed/, 'never a label outside the notes');
 });
 
 // ── Limits and failures ──────────────────────────────────────────────

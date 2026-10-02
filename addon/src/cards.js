@@ -168,12 +168,30 @@
 
   // ── One note ─────────────────────────────────────────────────────────
 
-  // `query`: the search the note was opened from, whose words are marked.
-  function noteCard(ctx, opened, { addText = '', addAs = '', notice = '', query = '' } = {}) {
-    const { note, doc } = opened;
+  // `query`: the words marked - from the search the note was opened
+  // from, or typed into Find; `only`: just the lines with them. `pending`
+  // ({ index: ticked }) and the other state are what the person had done
+  // on the card before it was redrawn, kept so a Find loses nothing.
+  function noteCard(ctx, opened, { addText = '', addAs = '', notice = '', query = '', only = false, pending = {}, folderId = null } = {}) {
+    const { note } = opened;
+    const doc = panel.withTicks(opened.doc, pending);
     const terms = query ? ns.searchLogic.queryTerms(query) : [];
-    const { items, hidden, hits } = panel.cardItems(doc, { maxBlocks: MAX_BLOCKS, terms });
+    const { items, hidden, hits, filtered } = panel.cardItems(doc, { maxBlocks: MAX_BLOCKS, terms, only });
     const checks = items.filter(it => it.kind === 'check').map(it => it.index);
+    // Unsaved ticks on lines this card does not show travel with Save.
+    const offCard = {};
+    Object.keys(pending).forEach(i => { if (checks.indexOf(Number(i)) < 0) offCard[i] = pending[i]; });
+    const state = { messageId: note.messageId, checks: checks.join(','), pending: panel.encodeTicks(offCard) };
+
+    const find = CardService.newCardSection()
+      .addWidget(textInput('find', 'Find in this note', { value: query }));
+    const findButtons = CardService.newButtonSet().addButton(button('Find', 'onFindInNote', Object.assign({ only: only ? '1' : '' }, state)));
+    if (terms.length) {
+      findButtons
+        .addButton(button(only ? 'Whole note' : 'Only lines with it', 'onFindInNote', Object.assign({ only: only ? '' : '1' }, state)))
+        .addButton(button('Clear', 'onFindInNote', Object.assign({ clear: '1' }, state)));
+    }
+    find.addWidget(findButtons);
 
     const body = CardService.newCardSection();
     if (notice) body.addWidget(html(`<font color="${GREY}"><i>${panel.esc(notice)}</i></font>`));
@@ -183,7 +201,7 @@
       const inTitle = ns.searchLogic.findMatches(note.title, terms).length > 0;
       const q = `\u201c${query}\u201d`;
       let what = `${q} is not in the text itself`;
-      if (hits) what = `${panel.matchCount(hits)} for ${q}${inTitle ? ', and in the title' : ''}`;
+      if (hits) what = `${panel.matchCount(hits)} for ${q}${inTitle ? ', and in the title' : ''}${filtered ? ' \u00b7 only the lines with them' : ''}`;
       else if (inTitle) what = `${q} is in the title only`;
       body.addWidget(greyText(what));
     }
@@ -201,7 +219,8 @@
           .setSelected(it.checked)
           .setControlType(CardService.SwitchControlType.CHECK_BOX)));
     });
-    if (!items.length) body.addWidget(greyText('This note is empty.'));
+    if (!items.length && !terms.length) body.addWidget(greyText('This note is empty.'));
+    if (!items.length && terms.length && filtered) body.addWidget(greyText('No line has it.'));
     if (hidden) body.addWidget(greyText(`…and ${hidden} more line${hidden === 1 ? '' : 's'}. Open the note in Gmail to see the rest.`));
 
     const add = CardService.newCardSection()
@@ -211,21 +230,32 @@
 
     const where = CardService.newCardSection()
       .setHeader('Folder')
-      .addWidget(dropdown('folder', 'Folder', panel.folderOptions(ctx.folders, note.folderId)))
+      .addWidget(dropdown('folder', 'Folder', panel.folderOptions(ctx.folders, folderId === null ? note.folderId : folderId)))
       .addWidget(CardService.newButtonSet()
         .addButton(button('All notes', 'onAllNotes'))
         .addButton(button('New note', 'onNewNote', { folderId: note.folderId || '' })));
 
-    const subtitle = [panel.noteSubtitle(note, ctx.folders), note.own ? '' : 'an email kept as a note'].filter(Boolean).join(' · ');
+    const subtitle = [panel.noteSubtitle(note, ctx.folders), note.own ? '' : 'an email kept as a note'].filter(Boolean).join(' \u00b7 ');
     return CardService.newCardBuilder()
       .setName('note')
       .setHeader(CardService.newCardHeader().setTitle(note.title).setSubtitle(subtitle || 'No folder'))
+      .addSection(find)
       .addSection(body)
       .addSection(add)
       .addSection(where)
       .setFixedFooter(CardService.newFixedFooter()
-        .setPrimaryButton(button('Save', 'onSaveNote', { messageId: note.messageId, checks: checks.join(','), q: query }, true)))
+        .setPrimaryButton(button('Save', 'onSaveNote', Object.assign({ q: query, only: only ? '1' : '' }, state), true)))
       .build();
+  }
+
+  // Everything done on a note's card and not saved yet: ticks (those on
+  // the card, and those carried from an earlier card), lines to add, and
+  // the folder chosen.
+  function cardState(e, ctx) {
+    const p = params(e);
+    const pending = panel.decodeTicks(p.pending);
+    String(p.checks || '').split(',').filter(Boolean).forEach(i => { pending[Number(i)] = value(e, `c${i}`) !== ''; });
+    return { pending, addText: value(e, 'add'), addAs: value(e, 'addAs') || 'p', folderId: chosenFolder(ctx, value(e, 'folder')) };
   }
 
   // The note behind a message as it is now: the message itself while it
@@ -356,18 +386,36 @@
     return respond({ notify: said, changed: true });
   });
 
+  // Find in the open note: mark the words typed, show only the lines with
+  // them, or clear - redrawing the card with nothing that was done on it
+  // lost.
+  const onFindInNote = act(e => {
+    const ctx = store.context();
+    const p = params(e);
+    const st = cardState(e, ctx);
+    const c = current(ctx, p.messageId);
+    const query = p.clear ? '' : value(e, 'find').trim();
+    const keep = c.replaced ? {} : st.pending; // ticks belong to the version they were made on
+    return respond({
+      card: noteCard(ctx, c.opened, {
+        query, only: !!query && p.only === '1', pending: keep, addText: st.addText, addAs: st.addAs, folderId: st.folderId,
+        notice: c.replaced ? 'This note was changed somewhere else in the meantime. This is the latest version.' : noticeFor(c),
+      }),
+    });
+  });
+
   const onSaveNote = act(e => {
     const ctx = store.context();
     const p = params(e);
-    const addText = value(e, 'add');
-    const addAs = value(e, 'addAs') || 'p';
-    const folderId = chosenFolder(ctx, value(e, 'folder'));
+    const { pending, addText, addAs, folderId } = cardState(e, ctx);
+    const query = p.q || '';
+    const only = p.only === '1';
 
     const c = current(ctx, p.messageId);
     if (c.replaced) {
       return respond({
         card: noteCard(ctx, c.opened, {
-          addText, addAs, query: p.q || '',
+          addText, addAs, query, only,
           notice: 'This note was changed somewhere else in the meantime. Here is the latest version: tick again, then save.',
         }),
         notify: 'Not saved: the note had changed.',
@@ -375,9 +423,7 @@
     }
 
     const { note, doc } = c.opened;
-    const checks = String(p.checks || '').split(',').filter(Boolean).map(Number);
-    const ticked = new Set(checks.filter(i => value(e, `c${i}`) !== ''));
-    const next = panel.appendBlocks(panel.applyTicks(doc, checks, ticked), panel.linesToBlocks(addText, addAs));
+    const next = panel.appendBlocks(panel.withTicks(doc, pending), panel.linesToBlocks(addText, addAs));
     const contentChanged = !panel.docsEqual(next, doc);
     const folderChanged = folderId !== note.folderId;
     if (!contentChanged && !folderChanged && !c.gone) return respond({ notify: 'Nothing to save.' });
@@ -391,7 +437,7 @@
       store.move(ctx, id, folderId);
       said = folderId ? `Moved to ${panel.folderName(folderId, ctx.folders)}.` : 'Taken out of its folder.';
     }
-    return respond({ card: noteCard(ctx, store.open(ctx, id), { query: p.q || '' }), notify: said, changed: true });
+    return respond({ card: noteCard(ctx, store.open(ctx, id), { query, only }), notify: said, changed: true });
   });
 
   const onCreateNote = act(e => {
@@ -408,6 +454,6 @@
 
   ns.panel = {
     onHomepage, onGmailMessage, onOpenNote, onAllNotes, onNewNote, onSearchNotes,
-    onFilterNotes: onSearchNotes, onSaveNote, onCreateNote, onMoveThread, onUniversalAllNotes, onUniversalNewNote,
+    onFilterNotes: onSearchNotes, onSaveNote, onFindInNote, onCreateNote, onMoveThread, onUniversalAllNotes, onUniversalNewNote,
   };
 })();
