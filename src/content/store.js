@@ -14,7 +14,7 @@
   'use strict';
 
   const ns = (globalThis.gkb = globalThis.gkb || {});
-  const { api, logic, util, KEYS } = ns;
+  const { api, logic, KEYS } = ns;
 
   const bus = new EventTarget();
   const emit = (type, detail) => bus.dispatchEvent(new CustomEvent(type, { detail }));
@@ -163,17 +163,17 @@
       const m = S.meta.get(t.id);
       return !m || (t.historyId && m.historyId !== String(t.historyId));
     });
-    await util.mapPool(need, 6, async t => {
-      try {
-        const full = await api.gmail('GET', `threads/${t.id}`, {
-          format: 'metadata',
-          metadataHeaders: ['Subject', 'From', 'Date'],
-        });
-        S.meta.set(t.id, logic.summariseThread(full, account));
-      } catch (err) {
-        // One thread deleted between list and get must not sink the board.
-        if (isFatal(err)) throw err;
+    const results = await api.gmailMany(need.map(t => ['GET', `threads/${t.id}`, {
+      format: 'metadata',
+      metadataHeaders: ['Subject', 'From', 'Date'],
+    }]));
+    results.forEach((full, i) => {
+      // One thread deleted between list and get must not sink the board.
+      if (full && full.error) {
+        if (isFatal(full.error)) throw full.error;
+        return;
       }
+      if (full) S.meta.set(need[i].id, logic.summariseThread(full, account));
     });
   }
 
@@ -200,9 +200,9 @@
     await ensureLabels(columns.map(c => c.label));
     columns = await syncColumnLabels(account, columns);
 
-    const results = await util.mapPool(columns, 6, col =>
-      api.gmail('GET', 'threads', { labelIds: labelId(col.label), maxResults: 100 })
-    );
+    const results = await api.gmailMany(columns.map(col => ['GET', 'threads', { labelIds: labelId(col.label), maxResults: 100 }]));
+    const failed = results.find(r => r && r.error);
+    if (failed) throw failed.error;
 
     const raw = {};
     const truncated = {};

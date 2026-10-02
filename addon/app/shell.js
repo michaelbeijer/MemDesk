@@ -1,34 +1,43 @@
 // ─────────────────────────────────────────────────────────────────────
 // The phone app
 //
-// The extension's Notes view, full-screen: the same list, folders,
-// search with the words marked, formatting editor, autosave and find,
-// with the board's styles and a phone layout on top. It opens on the
-// scratchpad, under the search box, ready to type into; a folder or a
-// search shows the list instead, and a note opens full-screen. The folder
-// tree is folded away behind a button.
+// The extension's board and Notes view, full-screen, as the app itself:
+// the same Board and Notes tabs, columns, cards, notes, search, editor and
+// autosave, with the board's styles and a phone layout on top. On a phone
+// the board shows one column at a time, swiped sideways; the notes open
+// on the Scratchpad, under the search box; a folder or a search shows the
+// list instead, and a note opens full-screen. A first visit opens on the
+// notes; after that, on whichever tab was used last.
 //
 // A phone leaves pages without closing them, so whatever is pending is
 // saved whenever the page is hidden; and Android's back gesture steps
-// back - a note to the list, the list to the scratchpad - through
-// google.script.history.
+// back through the notes - a note to the list, the list to the
+// Scratchpad - through google.script.history.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
   'use strict';
 
   const ns = (globalThis.gkb = globalThis.gkb || {});
-  const { h, icon, logo, mountShadow, toast } = ns.ui;
+  const { mountShadow } = ns.ui;
 
   const PHONE = `
 :host { position: fixed !important; inset: 0 !important; }
 .overlay { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-.app-head { display: flex; align-items: center; gap: 8px; padding: 8px 8px 4px 20px; flex: none; }
-.app-logo { display: flex; margin-right: 4px; }
-.app-title { flex: 1; font-size: 20px; color: var(--fg); }
 
 @media (max-width: 760px) {
-  .app[data-view="note"] .app-head { display: none; }
+  /* The header: the mark, the two tabs, refresh and the column settings;
+     gone while a note has the whole screen. */
+  .bar { height: 56px; padding: 0 4px 0 12px; gap: 2px; }
+  .brand > span:not(.logo), .account, .updated { display: none; }
+  .tabs { margin-left: 10px; }
+  :host([data-view="note"]) .bar { display: none; }
+
+  /* The board: one column to a screen, swiped sideways. Cards move with
+     their ⋯ menu, since a finger cannot drag them. */
+  .columns { scroll-snap-type: x mandatory; gap: 10px; padding: 4px 16px 12px; scroll-padding: 0 16px; }
+  .column { flex: 0 0 calc(100vw - 44px); min-width: 0; max-width: none; scroll-snap-align: center; }
+
   .notes { flex-direction: column; gap: 0; padding: 0; }
   .notes[data-view="note"] .notes-folders, .notes[data-view="note"] .notes-list { display: none; }
   .notes[data-view="list"] .note-editor { display: none; }
@@ -94,59 +103,50 @@
     return { push: safe('push'), replace: safe('replace'), setChangeHandler: safe('setChangeHandler') };
   }
 
+  const wide = () => !!(window.matchMedia && window.matchMedia('(min-width: 761px)').matches);
+
   function start() {
     // Without all its parts the app cannot work: the loader's list of
     // what did not load stays on the screen instead.
     if (window.__partsFailed && window.__partsFailed.length) return;
-    const { root } = mountShadow('gkb-app-host', ns.styles.board + PHONE);
+    const { host, root } = mountShadow('gkb-app-host', ns.styles.board + PHONE);
     const history = historyApi();
-    // How many steps in from the scratchpad the history holds, and whether
+    // How many steps in from the Scratchpad the history holds, and whether
     // the back gesture is being followed right now.
     let depth = 0;
     let stepping = false;
 
-    const head = h('header', { class: 'app-head' },
-      h('span', { class: 'app-logo' }, logo(28)),
-      h('span', { class: 'app-title', text: 'Notes' }),
-      h('button', {
-        class: 'icon-btn', type: 'button', title: 'Refresh', 'aria-label': 'Refresh', dataset: { key: 'app-refresh' },
-        onclick: () => ns.notes.load({ force: true }),
-      }, icon('refresh')));
-    const app = h('div', { class: 'overlay app', dataset: { view: 'home' } }, head);
-
-    ns.notes.init({
+    ns.boardFrame = {
       root,
-      onStateError: err => toast(root, err.message, { kind: 'error' }),
-      onLoaded() {},
-      closeBoard() {},
-      barChanged() {},
-      // Which folders are folded, on this phone. The page is only ever
-      // opened by its owner, so there is no account to key it by.
-      prefs: {
-        get(name) {
-          try { return JSON.parse(localStorage.getItem(`supermail.${name}`) || 'null'); } catch (err) { return null; }
+      view: 'notes',
+      // On a computer, typing goes straight into the Scratchpad. (A phone
+      // would only pop its keyboard up over it, so there it waits for a tap.)
+      focus: wide(),
+      notes: {
+        // Which folders are folded, on this phone. The page is only ever
+        // opened by its owner, so there is no account to key it by.
+        prefs: {
+          get(name) {
+            try { return JSON.parse(localStorage.getItem(`supermail.${name}`) || 'null'); } catch (err) { return null; }
+          },
+          set(name, value) {
+            try { localStorage.setItem(`supermail.${name}`, JSON.stringify(value)); } catch (err) { /* storage off: not remembered */ }
+          },
         },
-        set(name, value) {
-          try { localStorage.setItem(`supermail.${name}`, JSON.stringify(value)); } catch (err) { /* storage off: not remembered */ }
+        // Each step in goes on the history, so the back gesture can undo it;
+        // a step out taken in the app itself rewrites the top entry instead,
+        // since nothing here can take an entry off.
+        onViewChange(view) {
+          host.dataset.view = view;
+          const d = ns.notes.depth();
+          if (history && !stepping) {
+            if (d > depth) for (let i = depth + 1; i <= d; i++) history.push({ depth: i }, {}, '');
+            else if (d < depth) history.replace({ depth: d }, {}, '');
+          }
+          depth = d;
         },
       },
-      // Each step in goes on the history, so the back gesture can undo it;
-      // a step out taken in the app itself rewrites the top entry instead,
-      // since nothing here can take an entry off.
-      onViewChange(view) {
-        app.dataset.view = view;
-        const d = ns.notes.depth();
-        if (history && !stepping) {
-          if (d > depth) for (let i = depth + 1; i <= d; i++) history.push({ depth: i }, {}, '');
-          else if (d < depth) history.replace({ depth: d }, {}, '');
-        }
-        depth = d;
-      },
-    });
-    app.appendChild(ns.notes.element());
-    root.appendChild(app);
-    const boot = document.getElementById('boot');
-    if (boot) boot.remove();
+    };
 
     if (history) {
       history.setChangeHandler(async e => {
@@ -167,21 +167,22 @@
       });
     }
 
-    // Ctrl+S and F3, for a keyboard.
-    root.addEventListener('keydown', e => ns.notes.handleKey(e));
-    // "Saved 5s ago".
-    setInterval(() => ns.notes.tick(), 5000);
     // A phone switches away without closing the page.
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') ns.notes.flush();
-      else if (ns.notes.isStale()) ns.notes.load();
+      else if (ns.board.view() === 'notes') { if (ns.notes.isStale()) ns.notes.load(); }
+      else ns.board.refreshIfStale();
     });
     window.addEventListener('pagehide', () => ns.notes.flush());
 
-    ns.notes.load();
-    // On a computer, typing goes straight into the scratchpad. (A phone
-    // would only pop its keyboard up over it, so there it waits for a tap.)
-    if (window.matchMedia && window.matchMedia('(min-width: 761px)').matches) ns.notes.focusDefault();
+    // The board keeps its settings per account: whose, first.
+    return ns.appRemote.loadAccount().then(() => {
+      ns.board.open();
+      const boot = document.getElementById('boot');
+      if (boot) boot.remove();
+    }, err => {
+      if (window.__bootFailed) window.__bootFailed(`Gmail could not be reached: ${err.message}`);
+    });
   }
 
   function run() {

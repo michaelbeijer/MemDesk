@@ -31,3 +31,10 @@ function appMove(messageId, folderId) { return gkb.app.move(messageId, folderId)
 function appCreateFolder(parentId, title) { return gkb.app.createFolder(parentId, title); }
 function appRenameFolder(folderId, title) { return gkb.app.renameFolder(folderId, title); }
 function appDeleteFolder(folderId) { return gkb.app.deleteFolder(folderId); }
+function appAccount() { return gkb.app.account(); }
+function appBoardGmail(method, path, query, body) { return gkb.app.boardGmail(method, path, query, body); }
+function appBoardGmailMany(list) { return gkb.app.boardGmailMany(list); }
+function appBoardColumns() { return gkb.app.boardColumns(); }
+function appPrefsGet(keys) { return gkb.app.prefsGet(keys); }
+function appPrefsSet(items) { return gkb.app.prefsSet(items); }
+function appPrefsRemove(keys) { return gkb.app.prefsRemove(keys); }

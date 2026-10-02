@@ -1,13 +1,14 @@
 // ─────────────────────────────────────────────────────────────────────
 // The phone app's server side
 //
-// The phone app (addon/app) is the extension's own Notes view, served as
-// a full-screen web page by this same script. Where the extension's
-// notes store asks Gmail through the background worker, the app's asks
-// these functions through google.script.run - and they keep the worker's
-// rules: only notes are inserted, only notes go to Trash or come back out
-// of it, mail kept as a note just leaves the list, and only an empty
-// notes folder is ever deleted.
+// The phone app (addon/app) is the extension's own board and Notes view,
+// served as a full-screen web page by this same script. Where the
+// extension asks Gmail through its background worker, the app asks these
+// functions through google.script.run - and they keep the worker's rules:
+// only notes are inserted, only notes go to Trash or come back out of it,
+// mail kept as a note just leaves the list, only an empty notes folder is
+// ever deleted, and the board only reads, labels and unlabels - nothing
+// is ever sent, deleted, or put in Trash, Spam or the Inbox.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -173,7 +174,7 @@
         `the script runs, and its page is ${html.length} characters long.</p>`).setTitle(`${ns.APP_NAME} notes`);
     }
     const out = HtmlService.createHtmlOutput(html || '<p>The app is not built into this Code.gs.</p>')
-      .setTitle(`${ns.APP_NAME} notes`)
+      .setTitle(ns.APP_NAME)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
     // Our icon rather than Apps Script's, in the tab and on the home screen.
     // Only a nicety: a refused address must not cost the page.
@@ -185,5 +186,114 @@
     return out;
   }
 
-  ns.app = { page, list, body, save, retire, restore, move, createFolder, renameFolder, deleteFolder };
+  // ── The board ────────────────────────────────────────────────────────
+  //
+  // The app runs the extension's own board (src/content/board.js and
+  // store.js), whose Gmail requests come here instead of to the worker.
+  // They are held to what the board does with Gmail, and nothing more.
+
+  const BOARD_REQUESTS = [
+    ['GET', /^labels$/],
+    ['GET', /^threads$/],
+    ['GET', /^threads\/[A-Za-z0-9]+$/],
+    ['POST', /^labels$/],
+    ['PATCH', /^labels\/Label_[0-9]+$/],
+    ['POST', /^threads\/[A-Za-z0-9]+\/modify$/],
+  ];
+  const BATCH_MAX = 200;
+
+  function boardAllowed(method, path) {
+    const m = String(method || '').toUpperCase();
+    const p = String(path || '');
+    if (!BOARD_REQUESTS.some(([mm, re]) => mm === m && re.test(p))) {
+      throw new Error(`not_allowed: ${m} ${p} is not something the board does.`);
+    }
+    return [m, p];
+  }
+
+  function boardGmail(method, path, query, body) {
+    const [m, p] = boardAllowed(method, path);
+    const b = body || {};
+    // Labelling: never Trash, Spam or the Inbox (gmail.js refuses those).
+    if (m === 'POST' && p.endsWith('/modify')) return gmail.modifyThread(p.split('/')[1], b);
+    // A column's label: a name, and how Gmail shows it - nothing else.
+    if (m === 'POST' || m === 'PATCH') {
+      const name = String(b.name || '').trim();
+      if (!name) throw new Error('not_allowed: a label needs a name.');
+      const label = { name };
+      if (m === 'POST') Object.assign(label, { labelListVisibility: 'labelShow', messageListVisibility: 'show' });
+      return gmail.call(m, p, null, label);
+    }
+    return gmail.call(m, p, query || null);
+  }
+
+  // Several reads side by side: a board's worth of cards in one round
+  // trip instead of one each. Each answer is the response, or { error }.
+  function boardGmailMany(list) {
+    const calls = (list || []).slice(0, BATCH_MAX).map(([method, path, query]) => {
+      const [m, p] = boardAllowed(method, path);
+      if (m !== 'GET') throw new Error('not_allowed: only reads go in a batch.');
+      return [m, p, query || null];
+    });
+    return gmail.callAll(calls).map(r => (r && r.error ? { error: { message: r.error.message, status: r.error.status || 0 } } : r));
+  }
+
+  // Whose mailbox this is, for the board's per-account settings.
+  function account() {
+    return gmail.call('GET', 'profile').emailAddress;
+  }
+
+  // Before the app has a column layout of its own: the board's labels as
+  // Gmail has them, so a column renamed in the extension does not come
+  // back here as a fresh, empty label of the old name. null: no board
+  // labels yet, and the usual columns will be made.
+  function boardColumns() {
+    const labels = gmail.call('GET', 'labels').labels || [];
+    const cols = ns.panelLogic.boardColumns(labels, String(globalThis.SUPERMAIL_BOARD_LABEL || ns.logic.DEFAULT_ROOT).trim());
+    return cols.length ? cols : null;
+  }
+
+  // ── The app's settings ───────────────────────────────────────────────
+  //
+  // What the extension keeps in Chrome's synced storage (the column
+  // layout, card titles, notes and colours), the app keeps in the
+  // script's user properties: per Google account, and the same on every
+  // phone and computer the app is opened on.
+
+  const PREF = 'gkb.';
+  const props = () => PropertiesService.getUserProperties();
+
+  function prefsGet(keys) {
+    const all = props().getProperties();
+    const out = {};
+    for (const k of Object.keys(all)) {
+      if (!k.startsWith(PREF)) continue;
+      const key = k.slice(PREF.length);
+      if (keys && keys.indexOf(key) < 0) continue;
+      try { out[key] = JSON.parse(all[k]); } catch (err) { /* not ours */ }
+    }
+    return out;
+  }
+
+  function prefsSet(items) {
+    const out = {};
+    for (const k of Object.keys(items || {})) {
+      const text = JSON.stringify(items[k]);
+      if (text.length > 8000) throw new Error('That is too much to keep in one setting.');
+      out[PREF + k] = text;
+    }
+    props().setProperties(out);
+    return true;
+  }
+
+  function prefsRemove(keys) {
+    const p = props();
+    for (const k of keys || []) p.deleteProperty(PREF + k);
+    return true;
+  }
+
+  ns.app = {
+    page, list, body, save, retire, restore, move, createFolder, renameFolder, deleteFolder,
+    account, boardGmail, boardGmailMany, boardColumns, prefsGet, prefsSet, prefsRemove,
+  };
 })();

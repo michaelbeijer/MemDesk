@@ -1,13 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────
 // The phone app's way to Gmail
 //
-// The Notes view (src/content/notes.js) talks to a notesStore. In the
-// extension that store asks Gmail through the background worker; here it
-// asks the script that served this page, through google.script.run, which
-// asks Gmail. Same shape, same answers, so the view runs unchanged.
-// Also the two other things the view expects to find: `hooks` (the
-// account, and opening a message in Gmail) and `api` (which errors mean
-// the account needs attention - none do here).
+// The Notes view (src/content/notes.js) talks to a notesStore, and the
+// board's data layer (src/content/store.js) to `api.gmail` and
+// `chrome.storage`. In the extension those reach Gmail through the
+// background worker; here they ask the script that served this page,
+// through google.script.run, which asks Gmail. Same shapes, same answers,
+// so the views run unchanged. Also `hooks`: the account, and opening a
+// conversation in Gmail.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -88,13 +88,114 @@
     },
   };
 
+  // ── Whose mailbox, and opening a conversation ─────────────────────────
+
+  const who = { account: '' };
+
+  // Asked once, as the app starts: the board keeps its settings per account.
+  function loadAccount() {
+    return call('appAccount').then(a => { who.account = String(a || ''); return who.account; });
+  }
+
+  const threadUrl = threadId =>
+    `https://mail.google.com/mail/?authuser=${encodeURIComponent(who.account)}#all/${encodeURIComponent(threadId)}`;
+
   ns.hooks = {
-    getAccount: () => '',
-    // The message in Gmail - which, on a phone, the Gmail app may offer to open.
+    getAccount: () => who.account,
+    threadUrl,
+    // The conversation in Gmail - which, on a phone, the Gmail app may offer to open.
     openThread(threadId) {
-      window.open(`https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}`, '_blank', 'noopener');
+      window.open(threadUrl(threadId), '_blank', 'noopener');
     },
   };
 
-  ns.api = { STATE_CODES: new Set() };
+  // ── The board's Gmail ────────────────────────────────────────────────
+  //
+  // appBoardGmail allows only what the board does with Gmail. Errors come
+  // back as the extension's do ("http_409"), since the board acts on some.
+
+  function gmailError(message, status) {
+    const e = new Error(String(message || 'Gmail did not answer.'));
+    const m = /Gmail answered (\d{3})/.exec(e.message);
+    e.code = status ? `http_${status}` : m ? `http_${m[1]}` : 'gmail';
+    return e;
+  }
+
+  function gmail(method, path, query, body) {
+    return call('appBoardGmail', method, path, query || null, body || null).catch(err => {
+      if (!err.code) throw gmailError(err.message);
+      throw err;
+    });
+  }
+
+  // A batch of reads in one round trip: a board's worth of cards at once.
+  async function gmailMany(list) {
+    const results = await call('appBoardGmailMany', list);
+    return results.map(r => (r && r.error ? { error: gmailError(r.error.message, r.error.status) } : r));
+  }
+
+  ns.api = { STATE_CODES: new Set(), gmail, gmailMany };
+  ns.appRemote = { call, loadAccount };
+
+  // ── chrome.storage, as the board uses it ─────────────────────────────
+  //
+  // "sync" - the column layout and card titles, notes and colours - is the
+  // script's per-user properties: the same on every phone and computer
+  // the app is opened on (though not shared with the extension, whose
+  // copy is Chrome's). "local" - card order and the last tab - is this
+  // browser's own storage, as in the extension.
+
+  function pick(all, keys) {
+    if (keys === null || keys === undefined) return { ...all };
+    if (typeof keys === 'string') keys = [keys];
+    const out = {};
+    if (Array.isArray(keys)) {
+      for (const k of keys) if (k in all) out[k] = all[k];
+      return out;
+    }
+    for (const k of Object.keys(keys)) out[k] = k in all ? all[k] : keys[k];
+    return out;
+  }
+
+  const LOCAL = 'supermail.';
+  function localAll() {
+    const out = {};
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || !k.startsWith(LOCAL)) continue;
+        try { out[k.slice(LOCAL.length)] = JSON.parse(localStorage.getItem(k)); } catch (err) { /* not ours */ }
+      }
+    } catch (err) { /* storage off: nothing kept */ }
+    return out;
+  }
+  const local = {
+    async get(keys) { return pick(localAll(), keys); },
+    async set(items) {
+      try { for (const k of Object.keys(items)) localStorage.setItem(LOCAL + k, JSON.stringify(items[k])); } catch (err) { /* not kept */ }
+    },
+    async remove(keys) {
+      try { for (const k of [].concat(keys)) localStorage.removeItem(LOCAL + k); } catch (err) { /* nothing to remove */ }
+    },
+  };
+
+  // Read from the script once, then kept here and written through.
+  let synced = null;
+  const syncAll = async () => (synced = synced || await call('appPrefsGet', null));
+  const sync = {
+    async get(keys) { return pick(await syncAll(), keys); },
+    async set(items) {
+      await call('appPrefsSet', items);
+      Object.assign(await syncAll(), JSON.parse(JSON.stringify(items)));
+    },
+    async remove(keys) {
+      const list = [].concat(keys);
+      await call('appPrefsRemove', list);
+      const all = await syncAll();
+      for (const k of list) delete all[k];
+    },
+  };
+
+  const chromeLike = (globalThis.chrome = globalThis.chrome || {});
+  if (!chromeLike.storage) chromeLike.storage = { local, sync, onChanged: { addListener() {} } };
 })();

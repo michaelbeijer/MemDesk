@@ -34,8 +34,8 @@ everything they do.
    signed in to the same Google account.
 2. Google asks you to allow access, as on the computer (the same
    **Advanced → Go to …** if it says it hasn't verified the app).
-3. Your Scratchpad opens. To put it on your home screen: **⋮ → Add to
-   Home screen → Add**.
+3. Your Scratchpad opens; the **Board** tab at the top has the board. To put
+   the app on your home screen: **⋮ → Add to Home screen → Add**.
 
 ## If something is not right
 

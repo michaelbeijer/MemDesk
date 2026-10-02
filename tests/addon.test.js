@@ -517,7 +517,7 @@ test('a failed move says so and changes nothing', () => {
 test('the app page: served by doGet, titled, sized for a phone, with the notes view inside', () => {
   const p = new Phone();
   const out = p.addon.doGet({}).output;
-  assert.equal(out.title, 'Supermail notes');
+  assert.equal(out.title, 'Supermail');
   assert.deepEqual(out.meta, [['viewport', 'width=device-width, initial-scale=1, viewport-fit=cover']]);
   assert.equal(out.favicon, 'https://raw.githubusercontent.com/michaelbeijer/Supermail/main/icons/icon-192.png', 'our icon, not Apps Script\'s');
   assert.match(out.html, /^<!DOCTYPE html>/);
@@ -537,7 +537,7 @@ test('the app page: served by doGet, titled, sized for a phone, with the notes v
   for (const [, body] of out.html.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
     for (const bad of ['//', '<!--', '</']) assert.ok(!body.includes(bad), `a script contains "${bad}"`);
   }
-  assert.match(out.html, /<div id="boot"[^>]*>Loading your notes/, 'something to see before the scripts run');
+  assert.match(out.html, /<div id="boot"[^>]*>Loading/, 'something to see before the scripts run');
   const ping = p.addon.doGet({ parameter: { ping: '1' } }).output;
   assert.match(ping.html, new RegExp(`Supermail ${require('../manifest.json').version}: the script runs, and its page is ${out.html.length} characters long`));
 });
@@ -562,6 +562,72 @@ test('appList: every note once, newest first, with its folder; stale versions ti
   assert.deepEqual(s.notes.map(n => n.title), ['Launch checklist', 'Kestrel glossary decisions']);
   assert.deepEqual(Object.keys(s.docs).sort(), s.notes.map(n => n.messageId).sort());
   assert.match(JSON.stringify(s.docs), /Kestrel/);
+});
+
+test('the board in the app: Gmail only as the board uses it - reading, labelling, and nothing more', () => {
+  const p = new Phone();
+  const refused = (...args) => assert.throws(() => p.server('appBoardGmail', ...args), /not_allowed|never moved to Trash, Spam or the Inbox/, args.slice(0, 2).join(' '));
+  const threadId = p.fake.box.findThread('Termbase export');
+
+  // Reading: labels, a column's threads, one thread.
+  assert.ok(p.server('appBoardGmail', 'GET', 'labels').labels.some(l => l.name === '_Board/Doing'));
+  const doing = p.server('appBoardGmail', 'GET', 'labels').labels.find(l => l.name === '_Board/Doing');
+  assert.ok(p.server('appBoardGmail', 'GET', 'threads', { labelIds: doing.id, maxResults: 100 }).threads.some(t => t.id === threadId));
+  assert.equal(p.server('appBoardGmail', 'GET', `threads/${threadId}`, { format: 'metadata', metadataHeaders: ['Subject'] }).id, threadId);
+
+  // Labelling: a move between columns, as the board sends it.
+  const waiting = p.server('appBoardGmail', 'GET', 'labels').labels.find(l => l.name === '_Board/Waiting');
+  p.server('appBoardGmail', 'POST', `threads/${threadId}/modify`, null, { addLabelIds: [waiting.id], removeLabelIds: [doing.id] });
+  assert.deepEqual(plain(p.fake.box.threadLabelNames(threadId)).filter(n => n.startsWith('_Board')), ['_Board/Waiting']);
+
+  // Nothing else: no sending, deleting, Trash, Spam or Inbox; no other labels' business.
+  refused('POST', 'messages/send', null, { raw: 'x' });
+  refused('POST', 'messages', null, { raw: 'x' });
+  refused('DELETE', `threads/${threadId}`);
+  refused('POST', `threads/${threadId}/trash`);
+  refused('DELETE', `labels/${waiting.id}`);
+  refused('PATCH', 'labels/INBOX', null, { name: 'Gone' });
+  refused('GET', 'messages');
+  refused('POST', `threads/${threadId}/modify`, null, { addLabelIds: ['TRASH'], removeLabelIds: [] });
+  refused('POST', `threads/${threadId}/modify`, null, { addLabelIds: ['INBOX'], removeLabelIds: [] });
+  refused('POST', `threads/${threadId}/modify`, null, { addLabelIds: ['SPAM'], removeLabelIds: [] });
+
+  // A label is a name and nothing else.
+  const made = p.server('appBoardGmail', 'POST', 'labels', null, { name: '_Board/Later', type: 'system', color: { textColor: '#000000' } });
+  assert.equal(made.name, '_Board/Later');
+  assert.throws(() => p.server('appBoardGmail', 'POST', 'labels', null, { name: ' ' }), /needs a name/);
+  assert.equal(p.server('appBoardGmail', 'PATCH', `labels/${made.id}`, null, { name: '_Board/Someday' }).name, '_Board/Someday');
+});
+
+test('the board in the app: a board of cards in one round trip, reads only', () => {
+  const p = new Phone();
+  const ids = plain(p.server('appBoardGmail', 'GET', 'threads', { maxResults: 5 }).threads).map(t => t.id);
+  const got = p.server('appBoardGmailMany', ids.map(id => ['GET', `threads/${id}`, { format: 'metadata' }]).concat([['GET', 'threads/ffffffffffffffff', {}]]));
+  assert.deepEqual(got.slice(0, ids.length).map(t => t.id), ids);
+  assert.equal(got[ids.length].error.status, 404, 'one missing thread is an answer, not a failure');
+  assert.throws(() => p.server('appBoardGmailMany', [['POST', `threads/${ids[0]}/modify`, {}]]), /only reads/);
+  assert.throws(() => p.server('appBoardGmailMany', [['GET', 'messages', {}]]), /not_allowed/);
+});
+
+test('the board in the app: whose mailbox, the first column layout, and settings kept per account', () => {
+  const p = new Phone();
+  assert.equal(p.server('appAccount'), 'test@example.com');
+  const cols = plain(p.server('appBoardColumns'));
+  assert.deepEqual(cols.map(c => c.title), ['To do', 'Doing', 'Waiting', 'Done'], 'from the _Board labels, in the usual order');
+  assert.ok(cols.every(c => c.label === `_Board/${c.title}` && c.labelId));
+  assert.deepEqual(cols.map(c => c.archiveOnDrop), [false, false, false, true]);
+
+  assert.deepEqual(plain(p.server('appPrefsGet', null)), {});
+  p.server('appPrefsSet', { 'columns:test@example.com': [{ id: 'a', title: 'A', label: '_Board/A' }], 'card:test@example.com:123': { title: 'Mine' } });
+  // Another phone (or computer) on the same account sees them.
+  const other = new Phone({ fake: p.fake });
+  assert.deepEqual(plain(other.server('appPrefsGet', ['card:test@example.com:123'])), { 'card:test@example.com:123': { title: 'Mine' } });
+  other.server('appPrefsRemove', ['card:test@example.com:123']);
+  assert.deepEqual(Object.keys(plain(p.server('appPrefsGet', null))), ['columns:test@example.com']);
+  assert.throws(() => p.server('appPrefsSet', { big: 'x'.repeat(9000) }), /too much/);
+
+  const fresh = new Phone({ search: '?fresh' });
+  assert.equal(fresh.server('appBoardColumns'), null, 'no board labels yet: the usual columns, made as in Chrome');
 });
 
 test('appSave: the scratchpad saves under its fixed id, and only it can ask for one', () => {

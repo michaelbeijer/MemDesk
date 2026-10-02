@@ -276,6 +276,29 @@ function htmlService() {
   };
 }
 
+// ── PropertiesService ────────────────────────────────────────────────
+//
+// User properties belong to the account, so every phone on one mailbox
+// sees the same ones. Values are strings, as in Apps Script.
+
+function propertiesService(fake) {
+  const store = (fake.userProperties = fake.userProperties || new Map());
+  const user = {
+    getProperties: () => Object.fromEntries(store),
+    getProperty: k => (store.has(k) ? store.get(k) : null),
+    setProperties(items) {
+      for (const [k, v] of Object.entries(items)) {
+        if (typeof v !== 'string') throw new TypeError('Property values must be strings');
+        store.set(k, v);
+      }
+      return user;
+    },
+    setProperty(k, v) { return user.setProperties({ [k]: v }); },
+    deleteProperty(k) { store.delete(k); return user; },
+  };
+  return { getUserProperties: () => user };
+}
+
 // ── The add-on, loaded ───────────────────────────────────────────────
 
 function loadAddon(fake) {
@@ -286,6 +309,7 @@ function loadAddon(fake) {
     UrlFetchApp: urlFetch(fake, log),
     ScriptApp: { getOAuthToken: () => TOKEN },
     HtmlService: htmlService(),
+    PropertiesService: propertiesService(fake),
   };
   sandbox.CardService = cardService(name => typeof sandbox[name] === 'function');
   vm.createContext(sandbox);
