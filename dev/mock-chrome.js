@@ -321,6 +321,11 @@
         ck(false, 'Renew the Guild membership')) +
       '<p>The filing deadline moved to <b>Thursday 10:00</b> – see <a href="https://example.com/portal">the portal</a>.</p>',
       0.6, [root, work]);
+    seedRich('scratchpad000000', 'Scratchpad',
+      '<p>Hendrik’s .tbx opens empty – try exporting it as UTF-8.</p>' +
+      checks(ck(false, 'Order printer toner'), ck(true, 'Pay the Guild renewal'), ck(false, 'Book the dentist, week 43')) +
+      '<p>Conference Wi-Fi: <b>Northgate-Guest</b></p>',
+      0.2, [root]);
     seedRich('showcasekestrel0002', 'Style decisions',
       '<h2>Terminology</h2>' +
       list('ul', '“coating” stays <b>coating</b>, never “layer”', '<i>IFU</i> = instructions for use, spelled out once',

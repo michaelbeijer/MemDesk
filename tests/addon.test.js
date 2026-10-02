@@ -564,6 +564,21 @@ test('appList: every note once, newest first, with its folder; stale versions ti
   assert.match(JSON.stringify(s.docs), /Kestrel/);
 });
 
+test('appSave: the scratchpad saves under its fixed id, and only it can ask for one', () => {
+  const p = new Phone();
+  const first = p.server('appSave', '', { title: 'Scratchpad', doc: [{ type: 'p', runs: [{ text: 'Call the bank' }] }], noteId: 'scratchpad000000' }).note;
+  assert.equal(first.key, 'n:scratchpad000000');
+  const next = p.server('appSave', first.messageId, { title: 'Scratchpad', doc: [{ type: 'p', runs: [{ text: 'Call the bank today' }] }], noteId: 'scratchpad000000' }).note;
+  assert.equal(next.key, 'n:scratchpad000000');
+  const live = plain(p.fake.box.notesWithId('scratchpad000000')).filter(n => !n.labels.includes('TRASH'));
+  assert.deepEqual(live.map(n => n.text), ['Call the bank today'], 'one live version');
+  const other = p.server('appSave', '', { title: 'Sneaky', doc: [], noteId: 'aaaaaaaaaaaaaaaa' }).note;
+  assert.notEqual(other.key, 'n:aaaaaaaaaaaaaaaa', 'any other id is ignored');
+  // In the phone panel, it is listed first.
+  p.openHome();
+  assert.equal(p.listItems()[0].title, 'Scratchpad');
+});
+
 test('appBody, and appSave: a new note, a new version, an email turned into a note', () => {
   const p = new Phone();
   const launch = idOf(p, 'launchchecklist0004');

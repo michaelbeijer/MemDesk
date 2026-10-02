@@ -59,7 +59,7 @@
 
     async save(account, previous, snap) {
       const r = await call('appSave', previous ? previous.messageId : '', {
-        title: snap.title, doc: fmt.normaliseDoc(snap.doc), folderId: snap.folderId || '',
+        title: snap.title, doc: fmt.normaliseDoc(snap.doc), folderId: snap.folderId || '', noteId: snap.noteId || '',
       });
       S.docs.set(r.note.messageId, fmt.normaliseDoc(snap.doc));
       return r.note;

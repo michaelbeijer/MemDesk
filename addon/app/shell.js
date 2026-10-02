@@ -3,12 +3,15 @@
 //
 // The extension's Notes view, full-screen: the same list, folders,
 // search with the words marked, formatting editor, autosave and find,
-// with the board's styles and a phone layout on top - one pane at a time,
-// the list or the open note, the folder tree folded away behind a button.
+// with the board's styles and a phone layout on top. It opens on the
+// scratchpad, under the search box, ready to type into; a folder or a
+// search shows the list instead, and a note opens full-screen. The folder
+// tree is folded away behind a button.
 //
 // A phone leaves pages without closing them, so whatever is pending is
-// saved whenever the page is hidden; and Android's back gesture goes from
-// a note back to the list, through google.script.history.
+// saved whenever the page is hidden; and Android's back gesture steps
+// back - a note to the list, the list to the scratchpad - through
+// google.script.history.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -29,6 +32,15 @@
   .notes { flex-direction: column; gap: 0; padding: 0; }
   .notes[data-view="note"] .notes-folders, .notes[data-view="note"] .notes-list { display: none; }
   .notes[data-view="list"] .note-editor { display: none; }
+
+  /* Home: the search box, and the scratchpad filling the rest. */
+  .notes[data-view="home"] .notes-list { flex: none; }
+  .notes[data-view="home"] .notes-scope, .notes[data-view="home"] .notes-items, .notes[data-view="home"] .notes-foot { display: none; }
+  .notes[data-view="home"] .note-editor { margin: 0 12px 12px; border-radius: 22px; min-height: 0; }
+  .notes[data-view="home"] .ne-title { padding: 14px 18px 6px; }
+  .notes[data-view="home"] .ne-toolbar { margin: 0 10px; }
+  .notes[data-view="home"] .ne-body { padding: 10px 18px 20vh; }
+  .notes[data-view="home"] .ne-body[data-empty="1"]::before { left: 18px; right: 18px; }
 
   /* Folders: the tree, folded away behind a button that says where you
      are; open, it is the same tree as on a computer, nesting and all. */
@@ -68,7 +80,6 @@
   .ne-find { margin: 4px 12px 0; }
   .ne-body { padding: 10px 16px 40vh; font-size: 16px; }
   .ne-body[data-empty="1"]::before { left: 16px; }
-  .notes-intro { display: none; }
 }
 `;
 
@@ -84,9 +95,15 @@
   }
 
   function start() {
+    // Without all its parts the app cannot work: the loader's list of
+    // what did not load stays on the screen instead.
+    if (window.__partsFailed && window.__partsFailed.length) return;
     const { root } = mountShadow('gkb-app-host', ns.styles.board + PHONE);
     const history = historyApi();
-    let noteOnHistory = false;
+    // How many steps in from the scratchpad the history holds, and whether
+    // the back gesture is being followed right now.
+    let depth = 0;
+    let stepping = false;
 
     const head = h('header', { class: 'app-head' },
       h('span', { class: 'app-logo' }, logo(28)),
@@ -95,7 +112,7 @@
         class: 'icon-btn', type: 'button', title: 'Refresh', 'aria-label': 'Refresh', dataset: { key: 'app-refresh' },
         onclick: () => ns.notes.load({ force: true }),
       }, icon('refresh')));
-    const app = h('div', { class: 'overlay app', dataset: { view: 'list' } }, head);
+    const app = h('div', { class: 'overlay app', dataset: { view: 'home' } }, head);
 
     ns.notes.init({
       root,
@@ -113,17 +130,17 @@
           try { localStorage.setItem(`supermail.${name}`, JSON.stringify(value)); } catch (err) { /* storage off: not remembered */ }
         },
       },
+      // Each step in goes on the history, so the back gesture can undo it;
+      // a step out taken in the app itself rewrites the top entry instead,
+      // since nothing here can take an entry off.
       onViewChange(view) {
         app.dataset.view = view;
-        if (!history) return;
-        // A note on the history, so Android's back gesture closes it.
-        if (view === 'note') {
-          history.push({ note: 1 }, {}, '');
-          noteOnHistory = true;
-        } else if (noteOnHistory) {
-          history.replace({}, {}, '');
-          noteOnHistory = false;
+        const d = ns.notes.depth();
+        if (history && !stepping) {
+          if (d > depth) for (let i = depth + 1; i <= d; i++) history.push({ depth: i }, {}, '');
+          else if (d < depth) history.replace({ depth: d }, {}, '');
         }
+        depth = d;
       },
     });
     app.appendChild(ns.notes.element());
@@ -132,13 +149,21 @@
     if (boot) boot.remove();
 
     if (history) {
-      history.setChangeHandler(e => {
-        if (e && e.state && e.state.note) return;
-        if (!ns.notes.isOpen()) return;
-        ns.notes.closeNote().then(() => {
-          // Not closed (an unsaved edit): back on the history it goes.
-          if (ns.notes.isOpen()) history.push({ note: 1 }, {}, '');
-        });
+      history.setChangeHandler(async e => {
+        const target = (e && e.state && Number(e.state.depth)) || 0;
+        stepping = true;
+        try {
+          while (ns.notes.depth() > target) {
+            const before = ns.notes.depth();
+            await ns.notes.back();
+            if (ns.notes.depth() >= before) break; // an unsaved edit kept the note open
+          }
+        } finally {
+          stepping = false;
+        }
+        // Not as far back as the gesture went: those steps go back on.
+        depth = ns.notes.depth();
+        for (let i = target + 1; i <= depth; i++) history.push({ depth: i }, {}, '');
       });
     }
 
@@ -154,6 +179,9 @@
     window.addEventListener('pagehide', () => ns.notes.flush());
 
     ns.notes.load();
+    // On a computer, typing goes straight into the scratchpad. (A phone
+    // would only pop its keyboard up over it, so there it waits for a tap.)
+    if (window.matchMedia && window.matchMedia('(min-width: 761px)').matches) ns.notes.focusDefault();
   }
 
   function run() {

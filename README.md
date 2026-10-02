@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.13.0" src="https://img.shields.io/badge/version-0.13.0-6D28D9">
+  <img alt="Version 0.14.0" src="https://img.shields.io/badge/version-0.14.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <img src="images/hero.jpg" width="100%" alt="The board inside Gmail on a computer, with the notes app open on a phone in front of it">
+  <img src="images/hero.jpg" width="100%" alt="The board inside Gmail on a computer, with the notes app on a phone in front of it, open on its Scratchpad">
 </p>
 
 ## What it does
@@ -56,6 +56,16 @@ long.
 
 <img src="images/notes.jpg" width="100%" alt="The notes: nested folders on the left, the list in the middle, a checklist note open on the right">
 
+### ✏️ A Scratchpad, always open
+
+Open the notes and you are already in it, cursor blinking: one note for
+whatever needs writing down right now, and the same one on every computer and
+phone, so a line jotted on the train is waiting at your desk. On the phone it
+fills the screen under the search box; in Chrome it is open whenever no other
+note is, and pinned at the top of the list.
+
+<img src="images/scratchpad.jpg" width="100%" alt="The Scratchpad open in Chrome beside the notes list, and on a phone, where the app opens on it">
+
 ### 🔎 Search that shows you where
 
 The words you searched for are marked in the list and in the open note, with
@@ -66,10 +76,11 @@ a find bar to step from one to the next.
 ### 📱 And on your phone
 
 A panel in the Gmail app files the open email on the board, ticks your
-checklists and adds to a note. A home-screen app gives you the notes
-themselves, full-screen, with the same editor, folders and search.
+checklists and adds to a note. A home-screen app opens straight onto your
+Scratchpad, ready to type, and has the notes themselves a tap away, with the
+same editor, folders and search.
 
-<img src="images/phone.jpg" width="100%" alt="Three phones: the folder tree, a checklist note, and search results in dark mode">
+<img src="images/phone.jpg" width="100%" alt="Three phones: the folder tree above the Scratchpad, a checklist note, and search results in dark mode">
 
 ### 🔒 Yours alone
 
@@ -97,7 +108,7 @@ open email in a column, ticks checklist items, adds lines to a note, files it
 in a folder and starts new notes from inside the Gmail app, and the **phone
 app** puts the notes themselves, with the full editor, on your home screen.
 
-Version 0.13.0. Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.14.0. Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -195,6 +206,12 @@ your Chrome profile to other computers. All of it is kept per Gmail account.
   `_Notes/Work/Clients` - so the same tree shows in Gmail's label list on the
   phone.
 - The list in the middle shows your notes, newest first, with their first lines.
+- The **Scratchpad** is pinned at the top of it, and open on the right
+  whenever no other note is: the notes open on it, with the cursor in it, so
+  you can start typing at once. It is one note, saved like any other (as
+  "Scratchpad" under `_Notes`), and the same one on every computer and phone,
+  so a line typed on the phone is waiting in Chrome. It has no folder and
+  cannot be renamed or deleted; clear it by deleting its text.
 - **Search** shows where the words are. While a search is on, each result shows
   short excerpts around its matches with the words highlighted, and how many
   matches it has; words in titles are highlighted too. Case and accents do not
@@ -362,13 +379,19 @@ the home screen from Chrome. It is the same list, folders, search with the
 words marked, formatting editor, checklists, find and autosave as in Chrome,
 laid out for a phone:
 
-- **One pane at a time.** The list, or the open note, full-screen. Above the
-  list, one button says which folder you are in ("Work › Clients"); tap it
-  and the folder tree opens, nested as on a computer, with its counts and each
-  folder's ⋯ menu (rename, new subfolder, delete); pick a folder and it folds
-  away again. Tap the arrow beside a folder to fold its subfolders away, or
-  open them again; the phone remembers which are folded. The arrow at the top
-  left, or Android's back gesture, goes from a note back to the list.
+- **It opens on the Scratchpad.** The search box and **New** at the top, and
+  the Scratchpad below them, filling the screen: tap it and type.
+- **One thing at a time.** Above the search box, one button says which folder
+  you are in ("All notes"); tap it and the folder tree opens, nested as on a
+  computer, with its counts and each folder's ⋯ menu (rename, new subfolder,
+  delete). Pick a folder - **All notes** too - and its list takes the
+  Scratchpad's place; so does a search. Tap a note and it opens full-screen.
+  Tap the arrow beside a folder to fold its subfolders away, or open them
+  again; the phone remembers which are folded.
+- **Back** steps back: Android's back gesture (or the arrow at the top left of
+  a note) goes from a note to the list it was opened from, and from the list
+  to the Scratchpad. The pinned Scratchpad at the top of the list goes there
+  too.
 - **Saving.** As in Chrome, a moment after you stop typing - and at once when
   you go back to the list or switch to another app, since a phone does not
   close pages.

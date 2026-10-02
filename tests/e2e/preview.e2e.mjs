@@ -460,7 +460,8 @@ try {
   const np = await openPage();
   const gm = (fn, ...a) => np.evaluate(([f, args]) => window.__fakeGmail[f](...args), [fn, a]);
   const live = noteId => gm('notesWithId', noteId).then(list => list.filter(n => !n.labels.includes('TRASH')));
-  const noteTitles = () => np.locator('.note-item .ni-title').allInnerTexts();
+  // The notes listed, the pinned scratchpad aside.
+  const noteTitles = () => np.locator('.note-item:not(.scratch-item) .ni-title').allInnerTexts();
   const noteStatus = () => np.locator('.ne-status').innerText();
   const savedSoon = () => until(async () => /^Saved/.test(await noteStatus()), 'note saved', 8000);
   const bodyOf = p => p.locator('[data-key="note-body"]');
@@ -509,13 +510,39 @@ try {
     assert.equal(await np.locator('.tab[aria-selected="true"]').innerText(), 'Notes');
     assert.deepEqual(await noteTitles(), ['Ideas for the October newsletter', 'Shopping list', 'Launch checklist',
       'Kestrel glossary decisions', 'Rate schedule 2027 – draft']);
-    assert.ok(await np.locator('.notes-intro').isVisible(), 'nothing open yet: the intro');
+    // Nothing else open: the scratchpad, pinned on top, with the cursor in it.
+    await np.locator('.note-editor.scratch .ne-body[contenteditable="true"]').waitFor();
+    assert.equal(await np.locator('[data-key="scratch-title"] .st-name').innerText(), 'Scratchpad');
+    assert.match(await np.locator('.note-item').first().innerText(), /^Scratchpad\s+Empty/);
+    await until(() => np.evaluate(() => document.querySelector('#gkb-board-host').shadowRoot.activeElement?.classList.contains('ne-body')),
+      'typing goes straight into it');
     assert.match(await np.locator('.notes-foot').innerText(), /_Notes/);
     assert.ok(await np.locator('[data-key="settings"]').isHidden(), 'column settings hidden on the notes tab');
     await until(async () => (await live('kestrelglossary0001')).length === 1, 'older version of the Kestrel note trashed');
     assert.match((await live('kestrelglossary0001'))[0].text, /decimal commas/, 'and it was the older one');
     await np.mouse.move(0, 0);
     await np.screenshot({ path: join(SCREENS, 'notes-intro.png'), animations: 'disabled' });
+  });
+
+  await r.step('the scratchpad: typed into, it saves as one note of its own; it comes back when nothing else is open', async () => {
+    await np.keyboard.type('Ring the printer about toner');
+    await until(async () => /^Saved/.test(await np.locator('.scratch-title .ne-status').innerText()), 'saved by itself', 10000);
+    const saved = (await gm('notesWithId', 'scratchpad000000')).filter(n => !n.labels.includes('TRASH'));
+    assert.equal(saved.length, 1);
+    assert.equal(saved[0].subject, 'Scratchpad');
+    assert.equal(saved[0].text, 'Ring the printer about toner');
+    assert.deepEqual(saved[0].labels, ['_Notes'], 'in no folder, not in the Inbox');
+    assert.match(await np.locator('.note-item').first().innerText(), /^Scratchpad[\s\S]*Ring the printer/, 'still pinned first');
+    for (const key of ['note-delete', 'note-folder', 'note-title']) assert.equal(await np.locator(`[data-key="${key}"]`).count(), 0, `no ${key}`);
+    // Another note, then back.
+    await np.locator('.note-item[data-note="n:rateschedule00000003"]').click();
+    await bodyReady(np, /Per-word rates/, 'the other note');
+    assert.equal(await np.locator('.note-editor.scratch').count(), 0);
+    await np.locator('.scratch-item').click();
+    await bodyReady(np, /Ring the printer about toner/, 'the scratchpad again');
+    assert.equal(await np.locator('.scratch-item').getAttribute('aria-current'), 'true');
+    await np.mouse.move(0, 0);
+    await np.screenshot({ path: join(SCREENS, 'notes-scratchpad.png'), animations: 'disabled' });
   });
 
   await r.step('editing a note saves a new version, formatted, and trashes the old one', async () => {
@@ -575,7 +602,7 @@ try {
     await search.fill('newsletter');
     await p.waitForTimeout(700); // past the 400 ms pause: that search is now running
     await search.fill('rate schedule');
-    await until(async () => JSON.stringify(await p.locator('.note-item .ni-title').allInnerTexts()) ===
+    await until(async () => JSON.stringify(await p.locator('.note-item:not(.scratch-item) .ni-title').allInnerTexts()) ===
       JSON.stringify(['Rate schedule 2027 – draft']), 'the later search wins', 15000);
     await p.context().close();
   });

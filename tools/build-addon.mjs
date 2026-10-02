@@ -92,7 +92,10 @@ const LOADER = `<script>
       failed.push(MODULES[i][0] + ': ' + err.message);
     }
   }
-  if (failed.length && window.__bootFailed) window.__bootFailed('Parts that did not load: ' + failed.join('; '));
+  if (failed.length) {
+    window.__partsFailed = failed;
+    if (window.__bootFailed) window.__bootFailed('Parts that did not load: ' + failed.join('; '));
+  }
 })();
 </script>`;
 

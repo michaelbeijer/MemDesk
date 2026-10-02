@@ -135,10 +135,10 @@
   // Inserts the new version, then retires the old one. If retiring fails
   // the note briefly has two versions; the next full list keeps the newer
   // and tidies the older away, so nothing is lost either way.
-  async function save(account, previous, { title, doc, folderId = '' }) {
+  async function save(account, previous, { title, doc, folderId = '', noteId: wanted = '' }) {
     const label = S.label || await resolveLabel(account);
     const folder = folderId && S.folders.some(f => f.id === folderId) ? folderId : '';
-    const noteId = previous && previous.own ? previous.noteId : notesLogic.newNoteId();
+    const noteId = notesLogic.noteIdFor(previous, wanted);
     const clean = fmt.normaliseDoc(doc);
     const text = fmt.toPlain(clean);
     const raw = notesLogic.buildNoteRaw({ noteId, title, body: text, html: fmt.toHtml(clean), account });

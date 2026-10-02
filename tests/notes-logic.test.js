@@ -65,6 +65,17 @@ test('an untitled note is filed under its first line', () => {
   assert.match(headersOf(decode(notes.buildNoteRaw({ noteId: ID, title: '', body: '', account: 'a@b.example', date: at }))), /^Subject: Untitled note$/m);
 });
 
+test('the scratchpad has a fixed id; no other id can be asked for', () => {
+  assert.match(notes.SCRATCHPAD_ID, /^[a-z0-9]{12,40}$/);
+  assert.equal(notes.noteIdFor(null, notes.SCRATCHPAD_ID), notes.SCRATCHPAD_ID, 'a first save of the scratchpad');
+  assert.equal(notes.noteIdFor({ own: true, noteId: 'abcdefabcdef12' }, notes.SCRATCHPAD_ID), 'abcdefabcdef12', 'a note keeps its own');
+  assert.equal(notes.noteIdFor({ own: true, noteId: notes.SCRATCHPAD_ID }, ''), notes.SCRATCHPAD_ID);
+  const fresh = notes.noteIdFor(null, 'aaaaaaaaaaaaaaaa');
+  assert.notEqual(fresh, 'aaaaaaaaaaaaaaaa', 'any other id asked for is ignored');
+  assert.match(fresh, /^[a-z0-9]{12,40}$/);
+  assert.notEqual(notes.noteIdFor({ own: false, noteId: '' }, ''), '', 'an email turned into a note gets a new id');
+});
+
 test('note ids are lower-case alphanumerics the builder accepts', () => {
   const id = notes.newNoteId();
   assert.match(id, /^[a-z0-9]{20}$/);

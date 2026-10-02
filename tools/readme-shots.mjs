@@ -76,6 +76,12 @@ async function desktop(colorScheme, viewport = { width: 1440, height: 900 }) {
 
   await page.locator('[data-key="view:notes"]').click();
   await page.locator('.note-item').first().waitFor();
+  // Nothing else open: the scratchpad.
+  await page.locator('.note-editor.scratch .ne-body[contenteditable="true"]').waitFor();
+  await page.locator('.note-editor.scratch .ne-body').evaluate(el => el.blur());
+  await pause(300);
+  await page.mouse.move(0, 0);
+  await shot(page, 'notes-scratch');
   await page.locator('.note-item', { hasText: 'This week' }).click();
   await page.locator('.ne-body .blk').first().waitFor();
   await pause(300);
@@ -129,20 +135,21 @@ async function phone(colorScheme) {
   await page.exposeFunction('__gas', (fn, args) => fake.server(fn, ...args));
   await page.addInitScript(installGoogle);
   await page.goto(pathToFileURL(APP).href);
-  await page.locator('#gkb-app-host >> .note-item').first().waitFor();
+  await page.locator('#gkb-app-host >> .note-editor.scratch .ne-body[contenteditable="true"]').waitFor();
   return page;
 }
 const q = (page, sel) => page.locator(`#gkb-app-host >> ${sel}`);
 
 {
+  // It opens on the scratchpad.
   const page = await phone('light');
-  await pause(200);
-  await phoneShot(page, 'phone-list');
+  await pause(300);
+  await phoneShot(page, 'phone-home');
   await q(page, '[data-key="folders-toggle"]').tap();
   await pause(200);
   await phoneShot(page, 'phone-folders');
-  await q(page, '[data-key="folders-toggle"]').tap();
-  await q(page, '.note-item', ).filter({ hasText: 'This week' }).tap();
+  await q(page, '[data-key="folder:all"]').tap();
+  await q(page, '.note-item').filter({ hasText: 'This week' }).tap();
   await q(page, '.ne-body .blk').first().waitFor();
   await pause(300);
   await phoneShot(page, 'phone-note');
@@ -278,7 +285,7 @@ const at = (html, left, top) => `<div style="position:absolute;left:${left}px;to
 // The top of the README: Gmail with the board, the phone app in front.
 await compose('hero', 1200, 660, { cls: 'violet dots', html:
   at(browserWindow('board', { width: 900 }), 64, 64) +
-  at(phoneFrame('phone-note', { width: 252 }), 892, 128) });
+  at(phoneFrame('phone-home', { width: 252 }), 892, 128) });
 
 // One window each, on the soft backdrop.
 const single = (img, opts = {}) => ({ cls: 'soft dots', html: at(browserWindow(img, { width: 1088, ...opts }), 56, 56) });
@@ -291,6 +298,12 @@ await compose('board', 1200, framed('board', 1088) + 112, {
 await compose('gmail', 1200, framed('gmail-dock', 1088) + 112, single('gmail-dock', { title: 'Termbase export won’t open', url: 'mail.google.com/mail/u/0/#inbox/18f2a3b4c5d6e025' }));
 await compose('notes', 1200, framed('notes', 1088) + 112, single('notes'));
 await compose('search', 1200, framed('notes-search', 1088) + 112, single('notes-search'));
+
+// The scratchpad: open in Chrome whenever no other note is, and what the
+// phone opens on.
+await compose('scratchpad', 1200, 760, { cls: 'soft dots', html:
+  at(browserWindow('notes-scratch', { width: 900 }), 56, 56) +
+  at(phoneFrame('phone-home', { width: 262 }), 884, 104) });
 
 // The phone app: the folders, a note, and search in the dark.
 await compose('phone', 1200, 760, { cls: 'violet dots', html:

@@ -77,6 +77,9 @@
       })
       : metadata(refs).map(m => describe(ctx, m));
     const { live } = notesLogic.dedupeNotes(notes);
+    // The scratchpad, when it is listed, at the top - as in the app.
+    const scratch = live.findIndex(n => n.noteId === notesLogic.SCRATCHPAD_ID);
+    if (scratch > 0 && !query) live.unshift(...live.splice(scratch, 1));
     return { notes: live.slice(0, max), more: live.length > max || !!r.nextPageToken };
   }
 
@@ -112,9 +115,9 @@
   // mail that was only filed as a note just leaves the notes. If that
   // second step fails, the note has two versions until the extension next
   // lists it and tidies the older away. Returns the new message's id.
-  function save(ctx, previous, { title, doc, folderId = '' }) {
+  function save(ctx, previous, { title, doc, folderId = '', noteId: wanted = '' }) {
     const folder = folderId && ctx.folders.some(f => f.id === folderId) ? folderId : '';
-    const noteId = previous && previous.own ? previous.noteId : notesLogic.newNoteId();
+    const noteId = notesLogic.noteIdFor(previous, wanted);
     const clean = fmt.normaliseDoc(doc);
     const text = fmt.toPlain(clean);
     const raw = notesLogic.buildNoteRaw({ noteId, title, body: text, html: fmt.toHtml(clean), account: ctx.account() });
