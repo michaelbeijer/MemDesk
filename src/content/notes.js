@@ -109,7 +109,14 @@
       els.foot);
 
     els.folderItems = h('div', { class: 'folder-items', role: 'list', 'aria-label': 'Folders' });
+    // On a phone the tree folds away behind one button that says where
+    // you are; only the phone's stylesheet shows it.
+    els.foldersToggle = h('button', {
+      class: 'folders-toggle', type: 'button', 'aria-expanded': 'false', dataset: { key: 'folders-toggle' },
+      onclick: () => setFoldersOpen(els.wrap.dataset.folders !== 'open'),
+    });
     els.foldersPane = h('section', { class: 'notes-folders', 'aria-label': 'Folders' },
+      els.foldersToggle,
       h('div', { class: 'folders-head' },
         h('h2', { text: 'Folders' }),
         h('button', {
@@ -119,7 +126,7 @@
       els.folderItems);
 
     els.editor = h('section', { class: 'note-editor', 'aria-label': 'Note' });
-    els.wrap = h('div', { class: 'notes' }, els.foldersPane, els.list, els.editor);
+    els.wrap = h('div', { class: 'notes', dataset: { folders: 'closed' } }, els.foldersPane, els.list, els.editor);
     drawFolders();
     drawList();
     drawEditor();
@@ -406,7 +413,14 @@
     return out;
   }
 
+  function setFoldersOpen(open) {
+    if (!els.wrap) return;
+    els.wrap.dataset.folders = open ? 'open' : 'closed';
+    els.foldersToggle.setAttribute('aria-expanded', String(open));
+  }
+
   function selectFolder(id) {
+    setFoldersOpen(false);
     if (N.folder === id) return;
     N.folder = id;
     drawFolders();
@@ -431,6 +445,13 @@
       }
     });
     els.folderItems.replaceChildren(...rows);
+
+    const shown = N.folder ? folderById(N.folder) : null;
+    els.foldersToggle.replaceChildren(
+      icon(shown ? 'folder' : 'notes', 20),
+      h('span', { class: 'ft-label', text: shown ? folderLabel(shown.id) : 'All notes' }),
+      h('span', { class: 'ft-count', text: N.status === 'ready' ? String(shown ? tally.get(shown.id) || 0 : N.notes.length) : '' }),
+      icon('caret', 20));
   }
 
   function folderRow(f, count) {

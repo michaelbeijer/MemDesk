@@ -17,7 +17,7 @@ open email in a column, ticks checklist items, adds lines to a note, files it
 in a folder and starts new notes from inside the Gmail app, and the **phone
 app** puts the notes themselves, with the full editor, on your home screen.
 
-Version 0.12.2. Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.12.3. Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -279,8 +279,11 @@ the home screen from Chrome. It is the same list, folders, search with the
 words marked, formatting editor, checklists, find and autosave as in Chrome,
 laid out for a phone:
 
-- **One pane at a time.** The list, with the folders as a row of chips above
-  it, or the open note, full-screen. The arrow at the top left, or Android's
+- **One pane at a time.** The list, or the open note, full-screen. Above the
+  list, one button says which folder you are in ("Work › Clients"); tap it
+  and the folder tree opens, nested as on a computer, with its counts and each
+  folder's ⋯ menu (rename, new subfolder, delete); pick a folder and it folds
+  away again. The arrow at the top left, or Android's
   back gesture, goes from a note back to the list.
 - **Saving.** As in Chrome, a moment after you stop typing - and at once when
   you go back to the list or switch to another app, since a phone does not

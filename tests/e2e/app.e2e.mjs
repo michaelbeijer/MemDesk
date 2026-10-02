@@ -111,16 +111,40 @@ const live = (phone, noteId) => plain(phone.fake.box.notesWithId(noteId)).filter
 
 const { phone, page } = await openApp();
 
-await r.step('the list: every note, newest first, folders as chips', async () => {
+// Opens the folder tree and picks a folder in it.
+async function pickFolder(p, title) {
+  await q(p, '[data-key="folders-toggle"]').tap();
+  await q(p, '.folder-btn').filter({ has: p.locator('.folder-title').filter({ hasText: new RegExp(`^${title}$`) }) }).first().tap();
+}
+const toggleText = async p => (await q(p, '[data-key="folders-toggle"]').innerText()).replace(/\s+/g, ' ').trim();
+
+await r.step('the list: every note, newest first, the folders folded away behind one button', async () => {
   await q(page, '.note-item').first().waitFor();
-  assert.deepEqual(await titles(page), [
-    'Ideas for the October newsletter', 'Shopping list', 'Launch checklist', 'Kestrel glossary decisions', 'Rate schedule 2027 – draft',
-  ]);
-  assert.deepEqual(await q(page, '.folder-row .folder-title').allInnerTexts(), ['All notes', 'Empty', 'Personal', 'Work', 'Clients']);
+  assert.equal((await titles(page)).length, 5);
+  assert.equal((await titles(page))[0], 'Ideas for the October newsletter');
   assert.equal(await visible(page, '.note-editor'), false, 'one pane at a time');
-  const box = await q(page, '.folder-btn').first().boundingBox();
-  assert.ok(box.height <= 36, 'chips, not rows');
+  assert.equal(await visible(page, '.folder-items'), false, 'the tree is folded away');
+  await until(async () => (await toggleText(page)) === 'All notes 5', 'says where you are');
   await page.screenshot({ path: join(SCREENS, 'app-list.png'), animations: 'disabled' });
+});
+
+await r.step('the folder tree: nested as on a computer, with counts and a ⋯ menu; picking one folds it away', async () => {
+  await q(page, '[data-key="folders-toggle"]').tap();
+  assert.equal(await q(page, '[data-key="folders-toggle"]').getAttribute('aria-expanded'), 'true');
+  assert.deepEqual(await q(page, '.folder-row .folder-title').allInnerTexts(), ['All notes', 'Empty', 'Personal', 'Work', 'Clients']);
+  const depth = await q(page, '.folder-row').evaluateAll(rows => rows.map(r => getComputedStyle(r).getPropertyValue('--depth').trim()));
+  assert.deepEqual(depth, ['0', '0', '0', '0', '1'], 'Clients sits inside Work');
+  const indent = await q(page, '.folder-row').evaluateAll(rows => rows.map(r => parseFloat(getComputedStyle(r).paddingLeft)));
+  assert.ok(indent[4] > indent[3], 'and is drawn indented');
+  assert.equal(await visible(page, '[data-key^="folder-menu:"]'), true, 'the ⋯ menu shows without hovering');
+  await page.screenshot({ path: join(SCREENS, 'app-folders.png'), animations: 'disabled' });
+  await q(page, '.folder-btn').filter({ has: page.locator('.folder-title').filter({ hasText: /^Clients$/ }) }).tap();
+  assert.equal(await visible(page, '.folder-items'), false, 'folded away again');
+  assert.equal(await toggleText(page), 'Work › Clients 1');
+  assert.deepEqual(await titles(page), ['Kestrel glossary decisions']);
+  await pickFolder(page, 'All notes');
+  assert.equal(await visible(page, '.folder-items'), false);
+  assert.equal((await titles(page)).length, 5);
 });
 
 await r.step('tapping a note opens it full-screen; Back returns to the list', async () => {
@@ -182,7 +206,7 @@ await r.step('search marks the words in the results, and in the note with a find
 });
 
 await r.step('a new note in the folder being looked at', async () => {
-  await q(page, '.folder-btn').filter({ hasText: /^Work/ }).tap();
+  await pickFolder(page, 'Work');
   assert.deepEqual(await titles(page), ['Ideas for the October newsletter']);
   await q(page, '[data-key="note-new"]').tap();
   await q(page, '[data-key="note-title"]').fill('Written on the train');

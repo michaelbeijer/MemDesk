@@ -760,8 +760,9 @@ button:disabled { cursor: default; }
 .ne-folder:hover { background: var(--hover); color: var(--fg); }
 /* Search: the words marked in results, and in the open note. */
 mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1px; }
-/* Only the phone app, which shows one pane at a time, needs a way back. */
-.ne-back { display: none; }
+/* Only the phone app, which shows one pane at a time, needs a way back,
+   and a button to fold the folder tree away. */
+.ne-back, .folders-toggle { display: none; }
 .ni-excerpts { display: block; margin-top: 3px; }
 .ni-excerpt {
   display: block;
