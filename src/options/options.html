@@ -14,9 +14,34 @@
       <img src="/icons/icon-48.png" width="40" height="40" alt="">
       <div>
         <h1 id="app-name">Setup</h1>
-        <p class="lede">A Kanban board inside Gmail. Every card is a Gmail thread, every column a Gmail label.</p>
+        <p class="lede">A Kanban board and a notebook inside Gmail. Every card is a Gmail thread, every note a message in your own mailbox.</p>
       </div>
     </header>
+
+    <!-- With a client built in (the store build): one button, nothing else to set up. -->
+    <section id="connect-card" class="card" aria-labelledby="connect-title" hidden>
+      <h2 id="connect-title">Connect Gmail</h2>
+      <p class="hint">
+        The board and the notes work with Gmail straight from this browser. Connect once: choose your Google
+        account, and allow access. Nothing is sent anywhere but Google.
+      </p>
+      <div class="test-row">
+        <button type="button" id="connect" class="btn btn-primary">Connect Gmail</button>
+        <p id="connect-status" class="status" role="status"></p>
+      </div>
+      <p id="connect-next" class="hint" hidden>
+        All set. <a href="https://mail.google.com/" target="_blank" rel="noopener">Open Gmail</a>: the
+        <b>Board</b> and <b>Notes</b> buttons are at the bottom left.
+      </p>
+      <p class="hint">
+        If Google says it <b>hasn’t verified this app</b>, click <b>Advanced</b>, then <b>Go to <span data-app-name></span></b>.
+        It says that about any app it has not yet reviewed; <span data-app-name></span> has no server of its own, and only ever
+        talks to Gmail from your browser.
+      </p>
+    </section>
+
+    <details id="own-project" class="own-project" open>
+      <summary id="own-summary">Use your own Google Cloud project instead</summary>
 
     <section class="card" aria-labelledby="ids-title">
       <h2 id="ids-title">This extension</h2>
@@ -78,6 +103,7 @@
         address back from Gmail. It sends nothing and changes nothing.
       </p>
     </section>
+    </details>
 
     <section class="card" aria-labelledby="dock-title">
       <h2 id="dock-title">In Gmail</h2>

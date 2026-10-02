@@ -10,6 +10,9 @@
   'use strict';
 
   const { APP_NAME, KEYS } = globalThis.gkb;
+  // A store build carries its publisher's OAuth client; a copy from the
+  // repository does not, and its user brings their own.
+  const BUILT_IN = !!String(globalThis.gkb.BUILT_IN_CLIENT_ID || '').trim();
   const $ = id => document.getElementById(id);
 
   // Client IDs look like "1234567890-abc123.apps.googleusercontent.com".
@@ -22,6 +25,7 @@
 
   document.title = `${APP_NAME} – Setup`;
   $('app-name').textContent = APP_NAME;
+  for (const el of document.querySelectorAll('[data-app-name]')) el.textContent = APP_NAME;
 
   // ── Identifiers ──────────────────────────────────────────────────────
 
@@ -63,8 +67,18 @@
   }
 
   chrome.storage.sync.get(KEYS.clientId).then(got => {
-    $('client-id').value = got[KEYS.clientId] || '';
-    if (!got[KEYS.clientId]) setStatus($('client-status'), 'No client ID saved yet.', 'muted');
+    const own = got[KEYS.clientId] || '';
+    $('client-id').value = own;
+    if (BUILT_IN) {
+      // One button; your own project only for those who want one (and
+      // open already for anyone who has saved one).
+      $('connect-card').hidden = false;
+      $('own-project').open = !!own;
+      if (!own) setStatus($('client-status'), 'Not needed: this copy has one built in. Save one only to use your own project.', 'muted');
+    } else {
+      $('own-project').classList.add('plain');
+      if (!own) setStatus($('client-status'), 'No client ID saved yet.', 'muted');
+    }
   });
 
   $('client-form').addEventListener('submit', async e => {
@@ -84,17 +98,22 @@
     }
   });
 
-  // ── Test connection ──────────────────────────────────────────────────
+  // ── Connect, and Test connection ─────────────────────────────────────
+  //
+  // The same thing twice: Google's sign-in, then the mailbox's address
+  // read back from Gmail. It sends nothing and changes nothing.
 
-  $('test').addEventListener('click', async () => {
-    const btn = $('test');
-    const status = $('test-status');
+  $('connect').addEventListener('click', () => connect($('connect'), $('connect-status'), () => { $('connect-next').hidden = false; }));
+  $('test').addEventListener('click', () => connect($('test'), $('test-status')));
+
+  async function connect(btn, status, onConnected) {
     btn.disabled = true;
     setStatus(status, 'Waiting for Google…', 'muted');
     try {
       const res = await chrome.runtime.sendMessage({ type: 'connect', account: '' });
       if (res && res.ok) {
         setStatus(status, `Connected as ${res.data.email}`, 'ok');
+        if (onConnected) onConnected();
       } else {
         const err = (res && res.error) || {};
         const text = err.code === 'not_configured'
@@ -107,7 +126,7 @@
     } finally {
       btn.disabled = false;
     }
-  });
+  }
 
   // ── Dock position ────────────────────────────────────────────────────
 

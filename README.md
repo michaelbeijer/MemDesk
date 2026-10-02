@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.14.0" src="https://img.shields.io/badge/version-0.14.0-6D28D9">
+  <img alt="Version 0.15.0" src="https://img.shields.io/badge/version-0.15.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -108,13 +108,17 @@ open email in a column, ticks checklist items, adds lines to a note, files it
 in a folder and starts new notes from inside the Gmail app, and the **phone
 app** puts the notes themselves, with the full editor, on your home screen.
 
-Version 0.14.0. Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.15.0. Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
 ## Getting started
 
-**[SETUP.md](SETUP.md)** walks through it step by step:
+**Sent a link to Supermail?** Then **[INSTALL.md](INSTALL.md)** is all you
+need: add it to Chrome, click **Connect Gmail**, done - about two minutes.
+
+**Setting up your own copy** from this repository? **[SETUP.md](SETUP.md)**
+walks through it step by step:
 
 1. **The extension** (Chrome on a computer): download, load it in
    `chrome://extensions`, and connect it to Gmail through a free Google Cloud
@@ -421,6 +425,8 @@ It runs as you, under the phone panel's permissions; nothing new is asked.
 
 ## Privacy
 
+The privacy policy is [PRIVACY.md](PRIVACY.md). In detail:
+
 - **There is no server.** The extension talks only to `gmail.googleapis.com`,
   from your browser. The phone panel runs in Google's Apps Script, under your
   own account, and also talks only to `gmail.googleapis.com` (see
@@ -628,7 +634,12 @@ tools/icon-svg.py          draws icons/icon.svg
 tools/make-icons.mjs       renders the icon PNGs
 tools/readme-shots.mjs     takes the README's pictures
 tools/build-addon.mjs      builds addon/Code.gs
-SETUP.md                   step-by-step setup, for anyone
+SETUP.md                   step-by-step setup of your own copy
+INSTALL.md                 installing from the store and a shared phone app
+PUBLISHING.md              for the publisher: the store build, the shared sign-in
+PRIVACY.md                 the privacy policy
+store/                     the Chrome Web Store listing and its pictures
+tools/package-extension.mjs  the store build (dist/, not committed)
 LICENSE                    MIT
 ```
 

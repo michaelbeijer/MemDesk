@@ -1,5 +1,9 @@
 # Setting up Supermail
 
+*This is for setting up a copy of your own, with your own Google Cloud
+project. If someone sent you links to Supermail, follow
+[INSTALL.md](INSTALL.md) instead: it is much shorter.*
+
 Supermail has three parts. You need the first; the other two are for your
 phone and can be added any time.
 

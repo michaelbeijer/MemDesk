@@ -77,9 +77,11 @@ async function dropToken(account) {
 
 // ── Auth flow ────────────────────────────────────────────────────────
 
+// The user's own client, if they saved one on the setup page; otherwise
+// the one built into a store build (empty in a copy from the repository).
 async function getClientId() {
   const got = await chrome.storage.sync.get(KEYS.clientId);
-  return String(got[KEYS.clientId] || '').trim();
+  return String(got[KEYS.clientId] || '').trim() || String(globalThis.gkb.BUILT_IN_CLIENT_ID || '').trim();
 }
 
 function randomState() {
