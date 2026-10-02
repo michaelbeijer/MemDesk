@@ -649,11 +649,32 @@ test('the calendar in the app: Calendar and Tasks in one round trip, reads only'
   assert.throws(() => p.server('appGoogleMany', [['tasks', 'lists/abc/tasks/clear', {}]]), /not_allowed/);
 });
 
+test('the calendar in the app: not allowed yet comes with Google’s page that allows it', () => {
+  const { AUTHORIZE_URL } = require('./helpers/apps-script.js');
+  const p = new Phone();
+  p.fake.denied.add('https://www.googleapis.com/auth/calendar.readonly');
+  p.fake.denied.add('https://www.googleapis.com/auth/tasks.readonly');
+  const got = plain(p.server('appGoogleMany', [['calendar', 'users/me/calendarList', {}], ['tasks', 'users/@me/lists', {}]]));
+  for (const r of got) {
+    assert.equal(r.error.code, 'calendar_scope');
+    assert.equal(r.error.url, AUTHORIZE_URL);
+  }
+  assert.throws(() => p.server('allowCalendar'), /Authorization is required/, 'from the editor, Google asks');
+
+  p.fake.denied.clear();
+  assert.equal(p.server('allowCalendar'), true);
+  const ok = plain(p.server('appGoogleMany', [['calendar', 'users/me/calendarList', {}]]));
+  assert.equal(ok[0].items.length, 4);
+});
+
 test('the calendar in the app: Tasks not allowed says so, and the calendar still reads', () => {
-  const p = new Phone({ search: '?calendar=notasks' });
+  const { AUTHORIZE_URL } = require('./helpers/apps-script.js');
+  const p = new Phone();
+  p.fake.denied.add('https://www.googleapis.com/auth/tasks.readonly');
   const got = plain(p.server('appGoogleMany', [['tasks', 'lists/MTAxMjM0NTY3ODk/tasks', {}], ['calendar', 'users/me/calendarList', {}]]));
   assert.equal(got[0].error.code, 'calendar_scope');
-  assert.match(got[0].error.message, /allow it/);
+  assert.equal(got[0].error.message, 'Not allowed for this app yet.');
+  assert.equal(got[0].error.url, AUTHORIZE_URL);
   assert.equal(got[1].items.length, 4);
 });
 

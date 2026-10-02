@@ -1369,7 +1369,7 @@ try {
   await r.step('calendar: Tasks not allowed says so, with a way to fix it, and the events still show', async () => {
     const p = await openPage('calendar=notasks');
     await openCalendar(p);
-    await until(async () => /Google Tasks: It was not allowed/.test(await p.locator('.cal-note').innerText()), 'the note');
+    await until(async () => /Google Tasks needs your permission/.test(await p.locator('.cal-note').innerText()), 'the note');
     assert.equal(await p.locator('.cal-note .btn').innerText(), 'Connect again');
     assert.ok((await weekText(p)).includes('Lumenra glossary delivery'));
     await p.context().close();
