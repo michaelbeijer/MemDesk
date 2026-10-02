@@ -70,7 +70,8 @@ test('opening a note shows its text, a box for each checklist item, its folder',
     '[x] Proofread the IFU', '[ ] Send the invoice', '[ ] \u2003\u2003Check the PO number', // indented a level
     '1.\u2002Zip the files', '2.\u2002Upload', '~~not struck~~ and **not bold**',
   ]);
-  const body = p.card.sections[0].widgets[0].text;
+  assert.equal(p.field('find').title, 'Find in this note', 'Find comes first');
+  const body = p.card.sections[1].widgets[0].text;
   assert.match(body, /<b>Kestrel<\/b> by <i>noon<\/i>, see <a href="https:\/\/example\.com\/portal">the portal<\/a>/);
   assert.equal(p.field('addAs').items.find(i => i.selected).value, 'check', 'a checklist note adds checklist items');
   assert.equal(p.field('folder').items.find(i => i.selected).text, 'No folder');
@@ -377,6 +378,54 @@ test('operators are not marked; a match in the title only is said; no search, no
   p.openMessage(idOf(p, 'launchchecklist0004'));
   assert.deepEqual(p.marked(), []);
   assert.doesNotMatch(p.lines().join('\n'), /match/);
+});
+
+test('Find in this note marks the words, and can show only the lines with them', () => {
+  const p = new Phone();
+  p.openMessage(idOf(p, 'launchchecklist0004'));
+  p.fill('find', 'the');
+  p.press('Find');
+  assert.equal(p.lines()[0], '5 matches for “the”');
+  assert.equal(p.marked().length, 5);
+  assert.equal(p.field('find').value, 'the');
+  p.fill('find', 'upload');
+  p.press('Find');
+  assert.deepEqual(p.marked(), ['Upload']);
+  p.press('Only lines with it');
+  assert.deepEqual(p.lines(), ['1 match for “upload” · only the lines with them', '2. Upload'], 'numbered as in the whole note');
+  p.press('Whole note');
+  assert.ok(p.lines().includes('[ ] Send the invoice'));
+  p.press('Clear');
+  assert.deepEqual(p.marked(), []);
+  assert.equal(p.field('find').value, undefined);
+  assert.doesNotMatch(p.lines().join('\n'), /match/);
+  p.fill('find', 'nowhere');
+  p.press('Find');
+  p.press('Only lines with it');
+  assert.deepEqual(p.lines(), ['“nowhere” is not in the text itself', 'No line has it.']);
+  assert.deepEqual(p.writes(), [], 'finding changes nothing in Gmail');
+});
+
+test('Find keeps what was done on the card: ticks, lines to add, the folder - and Save still saves them all', () => {
+  const p = new Phone();
+  p.openMessage(idOf(p, 'launchchecklist0004'));
+  p.tick(p.boxFor('Send the invoice'));
+  p.fill('add', 'Courier');
+  p.choose('folder', 'Work');
+  p.fill('find', 'upload');
+  p.press('Find');
+  assert.equal(p.checkboxes().find(c => c.text === 'Send the invoice').ticked, true);
+  assert.equal(p.field('add').value, 'Courier');
+  assert.equal(p.field('folder').items.find(i => i.selected).text, 'Work');
+  p.press('Only lines with it');
+  assert.deepEqual(p.checkboxes(), [], 'the ticked box is off the card now');
+  p.press('Save');
+  assert.equal(p.toast, 'Saved.');
+  const [now] = live(p, 'launchchecklist0004');
+  assert.match(now.text, /☑ Send the invoice/, 'the tick made before Find');
+  assert.match(now.text, /☐ Courier$/);
+  assert.deepEqual(plain(p.fake.box.messageFolders(now.id)), ['_Notes/Work']);
+  assert.deepEqual(p.lines(), ['1 match for “upload” · only the lines with them', '2. Upload'], 'the view stays as it was');
 });
 
 // ── The board ────────────────────────────────────────────────────────
