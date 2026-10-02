@@ -5,8 +5,10 @@
 // and beside it on a computer. Opened on a note, the panel shows that
 // note: its text, a real check box for each checklist item, a box for
 // lines to add at the end, and its folder - with one Save for the lot.
-// Opened on any other email, or from Gmail's side panel with nothing
-// open, it shows the newest notes, a search, and New note.
+// Opened on any other email, it starts with that email's place on the
+// board - a column to choose, applied at once, as the button next to
+// Board does in Chrome - and then, as from Gmail's side panel with
+// nothing open, the newest notes, a search, and New note.
 //
 // Saving works as in the extension: a new version is inserted and the
 // old one goes to Trash. If the note changed elsewhere since the card
@@ -106,15 +108,28 @@
 
   // ── The list ─────────────────────────────────────────────────────────
 
-  function homeCard(ctx, { folderId = '', query = '' } = {}) {
+  // The open email's column. Choosing another moves it straight away.
+  function boardSection(ctx, thread) {
+    const cur = panel.currentColumn(ctx.board, thread.labelIds);
+    return CardService.newCardSection()
+      .setHeader('This email on the board')
+      .addWidget(dropdown('boardColumn', 'Column', panel.boardOptions(ctx.board, cur ? cur.id : ''),
+        action('onMoveThread', { threadId: thread.id })));
+  }
+
+  // `thread`: the open email's conversation, if there is one - its place on
+  // the board comes first.
+  function homeCard(ctx, { folderId = '', query = '', thread = null } = {}) {
     const { notes, more } = store.list(ctx, { folderId, query, max: LIST_SIZE });
     const where = (folderId && panel.folderName(folderId, ctx.folders)) || 'All notes';
+    const keep = { threadId: thread ? thread.id : '' };
 
     const find = CardService.newCardSection()
+      .setHeader('Notes')
       .addWidget(textInput('q', 'Search notes', { value: query }))
       .addWidget(dropdown('folderFilter', 'Folder',
-        panel.folderOptions(ctx.folders, folderId, { first: 'All notes', firstValue: 'all' }), action('onFilterNotes')))
-      .addWidget(CardService.newButtonSet().addButton(button('Search', 'onSearchNotes')));
+        panel.folderOptions(ctx.folders, folderId, { first: 'All notes', firstValue: 'all' }), action('onFilterNotes', keep)))
+      .addWidget(CardService.newButtonSet().addButton(button('Search', 'onSearchNotes', keep)));
 
     const list = CardService.newCardSection().setHeader(query ? `${where}: “${query}”` : where);
     if (!notes.length) list.addWidget(greyText(query ? 'No notes match that search.' : 'No notes here yet.'));
@@ -131,9 +146,11 @@
     });
     if (more) list.addWidget(greyText(`The newest ${LIST_SIZE} are shown. Search to find older notes.`));
 
-    return CardService.newCardBuilder()
+    const card = CardService.newCardBuilder()
       .setName('home')
-      .setHeader(CardService.newCardHeader().setTitle('Notes').setSubtitle(NAME))
+      .setHeader(CardService.newCardHeader().setTitle(thread && ctx.board.length ? 'Board and notes' : 'Notes').setSubtitle(NAME));
+    if (thread && ctx.board.length) card.addSection(boardSection(ctx, thread));
+    return card
       .addSection(find)
       .addSection(list)
       .setFixedFooter(CardService.newFixedFooter().setPrimaryButton(button('New note', 'onNewNote', { folderId }, true)))
@@ -272,7 +289,11 @@
       const c = current(ctx, id);
       return [noteCard(ctx, c.opened, { notice: noticeFor(c) })];
     }
-    return [homeCard(ctx)];
+    let thread = null;
+    if (peeked && peeked.threadId && ctx.board.length) {
+      try { thread = store.thread(ctx, peeked.threadId); } catch (err) { log(err); }
+    }
+    return [homeCard(ctx, { thread })];
   });
 
   const onOpenNote = act(e => {
@@ -290,7 +311,27 @@
 
   const onSearchNotes = act(e => {
     const ctx = store.context();
-    return respond({ card: homeCard(ctx, { folderId: chosenFolder(ctx, value(e, 'folderFilter')), query: value(e, 'q').trim() }) });
+    const threadId = params(e).threadId;
+    return respond({
+      card: homeCard(ctx, {
+        folderId: chosenFolder(ctx, value(e, 'folderFilter')),
+        query: value(e, 'q').trim(),
+        thread: threadId && ctx.board.length ? store.thread(ctx, threadId) : null,
+      }),
+    });
+  });
+
+  // A column chosen for the open email. The dropdown already shows the
+  // choice, so only a confirmation comes back - which keeps it quick.
+  const onMoveThread = act(e => {
+    const ctx = store.context();
+    const threadId = params(e).threadId;
+    if (!threadId) return respond({ notify: 'Open an email first.' });
+    const target = ctx.board.find(c => c.id === value(e, 'boardColumn')) || null;
+    store.moveThread(ctx, threadId, target ? target.id : '');
+    let said = 'Taken off the board.';
+    if (target) said = target.archiveOnDrop ? `Moved to ${target.title} and archived.` : `Moved to ${target.title}.`;
+    return respond({ notify: said, changed: true });
   });
 
   const onSaveNote = act(e => {
@@ -345,6 +386,6 @@
 
   ns.panel = {
     onHomepage, onGmailMessage, onOpenNote, onAllNotes, onNewNote, onSearchNotes,
-    onFilterNotes: onSearchNotes, onSaveNote, onCreateNote, onUniversalAllNotes, onUniversalNewNote,
+    onFilterNotes: onSearchNotes, onSaveNote, onCreateNote, onMoveThread, onUniversalAllNotes, onUniversalNewNote,
   };
 })();

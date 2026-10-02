@@ -13,6 +13,15 @@ const all = (p, noteId) => plain(p.fake.box.notesWithId(noteId));
 const idOf = (p, noteId) => live(p, noteId)[0].id;
 const html = (p, id) => p.fake.box.messageHtml(id);
 const inserts = p => p.writes().filter(w => w.method === 'POST' && w.path === 'messages');
+const listSection = p => p.card.sections[p.card.sections.length - 1];
+const sectionHeaders = p => p.card.sections.map(s => s.header || '');
+// The first message of the seeded thread whose subject contains `part`.
+const mailAbout = (p, part) => {
+  const threadId = p.fake.box.findThread(part);
+  return { threadId, messageId: p.fake.box.thread(threadId).messages[0].id };
+};
+const threadLabels = (p, threadId) => plain(p.fake.box.threadLabelNames(threadId));
+const columnOf = p => p.field('boardColumn').items.find(i => i.selected).text;
 
 // ── The bundle ───────────────────────────────────────────────────────
 
@@ -77,7 +86,7 @@ test('opening any other email shows the newest notes, one entry each', () => {
   assert.deepEqual(p.listTitles(), [
     'Ideas for the October newsletter', 'Shopping list', 'Launch checklist', 'Kestrel glossary decisions', 'Rate schedule 2027 – draft',
   ], 'newest first, and the Kestrel note once, though two versions are live');
-  const kestrel = p.card.sections[1].widgets.find(w => w.text === 'Kestrel glossary decisions');
+  const kestrel = listSection(p).widgets.find(w => w.text === 'Kestrel glossary decisions');
   assert.match(kestrel.topLabel, /^Work › Clients · edited /);
   assert.match(kestrel.bottomLabel, /^Stent coating project/);
   assert.deepEqual(p.writes(), []);
@@ -236,12 +245,12 @@ test('the list: a folder at a time, and Gmail search', () => {
   p.openHome();
   p.choose('folderFilter', 'Work');
   assert.deepEqual(p.listTitles(), ['Ideas for the October newsletter']);
-  assert.equal(p.card.sections[1].header, 'Work');
+  assert.equal(listSection(p).header, 'Work');
   p.choose('folderFilter', 'All notes');
   p.fill('q', 'stroopwafels');
   p.press('Search');
   assert.deepEqual(p.listTitles(), ['Shopping list']);
-  assert.equal(p.card.sections[1].header, 'All notes: “stroopwafels”');
+  assert.equal(listSection(p).header, 'All notes: “stroopwafels”');
   p.fill('q', 'nothing-like-this');
   p.press('Search');
   assert.deepEqual(p.lines(), ['No notes match that search.']);
@@ -317,6 +326,90 @@ test('a long note shows its first 80 lines, and the boxes after them keep their 
   assert.match(text, /☐ item 89\n☑ item 90[\s\S]*☑ item 99$/);
 });
 
+// ── The board ────────────────────────────────────────────────────────
+
+test('an email on the board shows its column first, and choosing another moves it at once', () => {
+  const p = new Phone();
+  const { threadId, messageId } = mailAbout(p, 'Quote request');
+  p.openMessage(messageId);
+  assert.equal(p.card.header.title, 'Board and notes');
+  assert.deepEqual(sectionHeaders(p).slice(0, 2), ['This email on the board', 'Notes']);
+  assert.deepEqual(p.field('boardColumn').items.map(i => i.text), ['Not on the board', 'To do', 'Doing', 'Waiting', 'Done']);
+  assert.equal(columnOf(p), 'To do');
+
+  p.choose('boardColumn', 'Doing');
+  assert.equal(p.toast, 'Moved to Doing.');
+  assert.deepEqual(threadLabels(p, threadId).filter(n => n.startsWith('_Board')), ['_Board/Doing']);
+  assert.ok(threadLabels(p, threadId).includes('INBOX'));
+  assert.deepEqual(p.writes().map(w => `${w.method} ${w.path}`), [`POST threads/${threadId}/modify`], 'one call, on the whole conversation');
+
+  p.choose('boardColumn', 'Done');
+  assert.equal(p.toast, 'Moved to Done and archived.');
+  assert.deepEqual(threadLabels(p, threadId).filter(n => n.startsWith('_Board') || n === 'INBOX'), ['_Board/Done']);
+
+  p.choose('boardColumn', 'Not on the board');
+  assert.equal(p.toast, 'Taken off the board.');
+  assert.deepEqual(threadLabels(p, threadId).filter(n => n.startsWith('_Board') || n === 'INBOX'), [], 'off the board, and still archived');
+
+  p.openMessage(messageId);
+  assert.equal(columnOf(p), 'Not on the board', 'and that is what it shows next time');
+});
+
+test('an email not on the board can be put on it; one in two columns ends up in one', () => {
+  const p = new Phone();
+  const nda = mailAbout(p, '3,000-word NDA');
+  p.openMessage(nda.messageId);
+  assert.equal(columnOf(p), 'Not on the board');
+  p.choose('boardColumn', 'To do');
+  assert.deepEqual(threadLabels(p, nda.threadId).filter(n => n.startsWith('_Board')), ['_Board/To do']);
+
+  const drawing = mailAbout(p, 'Drawing labels');
+  assert.deepEqual(threadLabels(p, drawing.threadId).filter(n => n.startsWith('_Board')), ['_Board/To do', '_Board/Waiting']);
+  p.openMessage(drawing.messageId);
+  assert.equal(columnOf(p), 'To do', 'the first of its columns, as on the board');
+  p.choose('boardColumn', 'Waiting');
+  assert.deepEqual(threadLabels(p, drawing.threadId).filter(n => n.startsWith('_Board')), ['_Board/Waiting']);
+});
+
+test('searching the notes keeps the open email\'s board line', () => {
+  const p = new Phone();
+  const { messageId } = mailAbout(p, 'Quote request');
+  p.openMessage(messageId);
+  p.choose('folderFilter', 'Work');
+  assert.equal(columnOf(p), 'To do');
+  assert.deepEqual(p.listTitles(), ['Ideas for the October newsletter']);
+  p.fill('q', 'stroopwafels');
+  p.choose('folderFilter', 'All notes');
+  p.press('Search');
+  assert.equal(columnOf(p), 'To do');
+  assert.deepEqual(p.listTitles(), ['Shopping list']);
+});
+
+test('no board line on a note, on the notes list from the menu, or when there are no columns', () => {
+  const p = new Phone();
+  p.openMessage(idOf(p, 'launchchecklist0004'));
+  assert.throws(() => p.field('boardColumn'), /No input/);
+  p.universal('onUniversalAllNotes');
+  assert.throws(() => p.field('boardColumn'), /No input/);
+  p.openHome();
+  assert.throws(() => p.field('boardColumn'), /No input/);
+
+  const fresh = new Phone({ search: '?fresh' });
+  const mail = fresh.fake.box.threadsInInbox()[0].messages[0].id;
+  fresh.openMessage(mail);
+  assert.equal(fresh.card.header.title, 'Notes');
+  assert.throws(() => fresh.field('boardColumn'), /No input/);
+});
+
+test('a failed move says so and changes nothing', () => {
+  const p = new Phone({ search: '?fail=modify' });
+  const { threadId, messageId } = mailAbout(p, 'Quote request');
+  p.openMessage(messageId);
+  p.choose('boardColumn', 'Doing');
+  assert.match(p.toast, /^Not done: Gmail answered 500/);
+  assert.deepEqual(threadLabels(p, threadId).filter(n => n.startsWith('_Board')), ['_Board/To do']);
+});
+
 // ── Limits and failures ──────────────────────────────────────────────
 
 test('it trashes only notes, never adds Trash, Spam or Inbox, and inserts only notes', () => {
@@ -324,7 +417,10 @@ test('it trashes only notes, never adds Trash, Spam or Inbox, and inserts only n
   const g = p.addon.gkb.addonGmail;
   const mail = p.fake.box.threadsInInbox()[0].messages[0].id;
   assert.throws(() => g.trashNote(mail), /Only notes/);
-  for (const label of ['TRASH', 'SPAM', 'INBOX']) assert.throws(() => g.modifyLabels(mail, { addLabelIds: [label] }), /never moved/);
+  for (const label of ['TRASH', 'SPAM', 'INBOX']) {
+    assert.throws(() => g.modifyLabels(mail, { addLabelIds: [label] }), /never moved/);
+    assert.throws(() => g.modifyThread(p.fake.box.threadsInInbox()[0].id, { addLabelIds: [label] }), /never moved/);
+  }
   assert.throws(() => g.insertNote({ raw: 'U3ViamVjdDogaGkNCg0KaGk', labelIds: [] }), /Only notes/);
   assert.throws(() => g.insertNote({ raw: 'x', labelIds: ['INBOX'] }), /Only notes/);
   assert.ok(!plain(p.fake.box.messageLabelNames(mail)).includes('TRASH'));

@@ -12,11 +12,11 @@ they show up in the Gmail app on your phone too, so you can file a thread from
 the train and see it on the board later, or look up a note. The leading
 underscore sorts both labels to the top of Gmail's label list. The board and the
 notes editor themselves only exist in desktop Chrome; on a phone, the **phone
-panel** (a small Gmail add-on you install for yourself, see below) ticks
-checklist items, adds lines to a note, files it in a folder and starts new
-notes from inside the Gmail app.
+panel** (a small Gmail add-on you install for yourself, see below) puts the
+open email in a column, ticks checklist items, adds lines to a note, files it
+in a folder and starts new notes from inside the Gmail app.
 
-Version 0.8.0. Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.9.0. Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -239,9 +239,15 @@ as the extension.
   Markdown a paste does), and the note's **folder**. **Save** saves the lot as
   one new version; the old one goes to Trash, as in the extension. Changing only
   the folder just moves the note.
-- **Open any other email** and the panel lists your newest notes instead, with
-  a search box (Gmail search, as in the extension), a folder filter, and
-  **New note**. Tap a note to open it.
+- **Open any other email** and the panel starts with **This email on the
+  board**: the column it is in, or "Not on the board". Choose another and it
+  moves at once, as with the button next to **Board** in Chrome: into that
+  column only (out of any other), and out of the Inbox when the column is
+  Done. "Not on the board" takes the column label off and leaves the email
+  where it is.
+- Below that, the panel lists your newest notes, with a search box (Gmail
+  search, as in the extension), a folder filter, and **New note**. Tap a note
+  to open it.
 - **New note** takes a title, some lines (as text, a checklist or bullets) and a
   folder. From a folder's list or from a note, it starts in that folder.
 - **All notes** and **New note** are also on the panel's own menu (⋮).
@@ -252,6 +258,11 @@ as the extension.
   only adds at the end), rename or create folders, or delete notes. Those stay
   in the extension. A note longer than 80 lines shows its first 80; ticks
   further down are left as they were.
+- The board's column settings live in Chrome, where the panel cannot see
+  them, so it reads the columns from your labels: every label directly under
+  `_Board` is a column, To do, Doing, Waiting and Done first in that order,
+  any others after them alphabetically, and only Done archives. If you change
+  which column archives in the extension, the panel will not know.
 
 ### Setting it up (once, about five minutes)
 
@@ -267,9 +278,10 @@ as the extension.
      [`addon/Code.gs`](addon/Code.gs) over it;
    - press **Ctrl+S**.
 
-   Two settings, if they need changing: `"timeZone"` in `appsscript.json`
+   Settings, if they need changing: `"timeZone"` in `appsscript.json`
    (it is `Europe/London`; it only affects "edited 3 h" style times), and
-   `SUPERMAIL_NOTES_LABEL` at the top of `Code.gs` if you renamed `_Notes`.
+   `SUPERMAIL_NOTES_LABEL` and `SUPERMAIL_BOARD_LABEL` at the top of
+   `Code.gs` if you renamed `_Notes` or `_Board`.
 4. Click **Deploy > Test deployments**, then **Install**, then **Done**.
 5. Open Gmail on your computer and reload it. The panel's icon is in the strip
    on the right. Click it, then **Authorize access**, choose your account, and
@@ -469,7 +481,8 @@ addon/                     the phone panel (a Gmail add-on in Apps Script)
   appsscript.json          its manifest
   Code.gs                  generated: shared note code + addon/src, one file
   src/shims.js             btoa, TextEncoder, URL and friends for Apps Script
-  src/panel-logic.js       pure: a note as card items, ticks, appended lines
+  src/panel-logic.js       pure: a note as card items, ticks, appended lines,
+                           board columns from labels
   src/gmail.js, store.js   Gmail over UrlFetchApp, and the notes on it
   src/cards.js             the cards and what their buttons do
   src/triggers.js          the top-level functions Apps Script calls
@@ -483,8 +496,6 @@ tools/build-addon.mjs      builds addon/Code.gs
 
 - **A to-do view.** One flat list across all columns, oldest first, for days when
   a board is too much.
-- **The board on the phone panel**: moving the open thread to another column
-  from the Gmail app.
 - **A "Needs reply" column**, computed rather than labelled. It would reuse the
   triage and ranking logic in `supervertaler-stats/src/email.js`
   (`classifyBulk`, `scoreThread`): threads whose newest message is inbound and

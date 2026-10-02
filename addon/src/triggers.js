@@ -15,5 +15,6 @@ function onSearchNotes(e) { return gkb.panel.onSearchNotes(e); }
 function onFilterNotes(e) { return gkb.panel.onFilterNotes(e); }
 function onSaveNote(e) { return gkb.panel.onSaveNote(e); }
 function onCreateNote(e) { return gkb.panel.onCreateNote(e); }
+function onMoveThread(e) { return gkb.panel.onMoveThread(e); }
 function onUniversalAllNotes(e) { return gkb.panel.onUniversalAllNotes(e); }
 function onUniversalNewNote(e) { return gkb.panel.onUniversalNewNote(e); }

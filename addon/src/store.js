@@ -14,14 +14,17 @@
   const notesLogic = ns.notesLogic;
   const fmt = ns.noteFormat;
   const gmail = ns.addonGmail;
+  const panel = ns.panelLogic;
 
   const META = ['Subject', 'Date', notesLogic.NOTE_HEADER];
   // Set at the top of Code.gs, for anyone who renamed _Notes in Gmail.
   const rootName = () => String(globalThis.SUPERMAIL_NOTES_LABEL || notesLogic.DEFAULT_LABEL).trim();
+  const boardName = () => String(globalThis.SUPERMAIL_BOARD_LABEL || ns.logic.DEFAULT_ROOT).trim();
 
   // What one card needs to know about the mailbox, read once per trigger
   // or button press: the notes label (made if it is missing), its
-  // folders, and - only if a save needs it - the account's address.
+  // folders, the board's columns, and - only if a save needs it - the
+  // account's address.
   function context() {
     const name = rootName();
     let all = gmail.call('GET', 'labels').labels || [];
@@ -34,6 +37,7 @@
     return {
       root,
       folders: notesLogic.folderTree(all, root.name),
+      board: panel.boardColumns(all, boardName()),
       account() {
         if (!email) email = gmail.call('GET', 'profile').emailAddress;
         return email;
@@ -121,5 +125,23 @@
     gmail.modifyLabels(messageId, notesLogic.moveFolderDiff(ctx.root.id, ctx.folders, folderId || ''));
   }
 
-  ns.addonStore = { context, list, peek, open, newerVersion, save, move };
+  // ── The board ────────────────────────────────────────────────────────
+
+  // A conversation's labels: those of all its messages together, which is
+  // how the board sees it.
+  function thread(ctx, threadId) {
+    const t = gmail.call('GET', `threads/${encodeURIComponent(threadId)}`, { format: 'minimal' });
+    const labelIds = [];
+    (t.messages || []).forEach(m => (m.labelIds || []).forEach(id => {
+      if (labelIds.indexOf(id) < 0) labelIds.push(id);
+    }));
+    return { id: t.id || threadId, labelIds };
+  }
+
+  // Into a column ('' for off the board).
+  function moveThread(ctx, threadId, columnId) {
+    gmail.modifyThread(threadId, panel.boardDiff(ctx.board, columnId || ''));
+  }
+
+  ns.addonStore = { context, list, peek, open, newerVersion, save, move, thread, moveThread };
 })();

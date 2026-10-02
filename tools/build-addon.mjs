@@ -25,6 +25,7 @@ export const FILES = [
   'src/lib/util.js',
   'src/lib/notes-logic.js',
   'src/lib/note-format.js',
+  'src/lib/board-logic.js',
   'addon/src/panel-logic.js',
   'addon/src/gmail.js',
   'addon/src/store.js',
@@ -42,8 +43,10 @@ const HEADER = `// The phone panel ${VERSION}: a Google Workspace add-on for Gma
 // those and rebuild rather than editing this copy.
 //   ${FILES.join('\n//   ')}
 
-// The notes label. Change it only if you renamed _Notes in Gmail.
+// The notes label, and the label the board's column labels are under.
+// Change them only if you renamed _Notes or _Board in Gmail.
 var SUPERMAIL_NOTES_LABEL = '_Notes';
+var SUPERMAIL_BOARD_LABEL = '_Board';
 
 // Apps Script has a global object but may not name it globalThis.
 var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;

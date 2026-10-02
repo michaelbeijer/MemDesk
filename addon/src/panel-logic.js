@@ -20,6 +20,7 @@
   const node = typeof module === 'object' && module.exports;
   const fmt = node ? require('../../src/lib/note-format.js') : ns.noteFormat;
   const util = node ? require('../../src/lib/util.js') : ns.util;
+  const board = node ? require('../../src/lib/board-logic.js') : ns.logic;
 
   const INDENT = '  '; // two em spaces a level, which cards do not collapse
   const GREY = '#5f6368';
@@ -166,6 +167,56 @@
     return [where, when ? `edited ${when}` : ''].filter(Boolean).join(' · ');
   }
 
+  // ── The board ────────────────────────────────────────────────────────
+  //
+  // The extension keeps its column list in Chrome's synced storage, out of
+  // reach here, so the panel reads the columns from the labels themselves:
+  // every label directly under the board's parent ("_Board/Doing") is a
+  // column. The usual four come first in their usual order, any others
+  // after them alphabetically, and Done archives, as it does by default.
+  // The moves themselves are the extension's own label arithmetic.
+
+  function boardColumns(labels, root = board.DEFAULT_ROOT) {
+    const prefix = `${root}/`.toLowerCase();
+    const usual = board.DEFAULT_COLUMNS.map(c => c.title.toLowerCase());
+    const rank = c => {
+      const i = usual.indexOf(c.title.toLowerCase());
+      return i < 0 ? usual.length : i;
+    };
+    return (labels || [])
+      .filter(l => l && typeof l.name === 'string' && l.name.toLowerCase().startsWith(prefix) &&
+        l.name.length > prefix.length && l.name.indexOf('/', prefix.length) < 0)
+      .map(l => {
+        const title = l.name.slice(prefix.length);
+        return { id: l.id, title, label: l.name, labelId: l.id, archiveOnDrop: title.toLowerCase() === 'done' };
+      })
+      .sort((a, b) => rank(a) - rank(b) || (a.title.toLowerCase() < b.title.toLowerCase() ? -1 : a.title.toLowerCase() > b.title.toLowerCase() ? 1 : 0));
+  }
+
+  const labelIdOf = columns => name => {
+    const c = columns.find(x => x.label === name);
+    return c ? c.labelId : undefined;
+  };
+
+  // The column a thread is in, from the labels of all its messages.
+  function currentColumn(columns, labelIds) {
+    return board.columnForLabels(columns, labelIds, labelIdOf(columns)) || null;
+  }
+
+  // The labels to change to put a thread in a column ('' takes it off the
+  // board): into one column only, out of the Inbox when that column archives.
+  function boardDiff(columns, columnId) {
+    return columnId
+      ? board.moveLabelDiff(columns, columnId, labelIdOf(columns))
+      : board.removeLabelDiff(columns, labelIdOf(columns));
+  }
+
+  function boardOptions(columns, currentId) {
+    const known = columns.some(c => c.id === currentId);
+    return [{ text: 'Not on the board', value: 'none', selected: !known }]
+      .concat(columns.map(c => ({ text: c.title, value: c.id, selected: c.id === currentId })));
+  }
+
   // ── Message ids ──────────────────────────────────────────────────────
 
   // Gmail's API names a message by a hexadecimal id. Gmail's own pages
@@ -195,6 +246,7 @@
   const api = {
     esc, runsHtml, cardItems, applyTicks, linesToBlocks, appendBlocks, docsEqual,
     folderName, folderOptions, noteSubtitle, apiMessageId,
+    boardColumns, currentColumn, boardDiff, boardOptions,
   };
 
   ns.panelLogic = api;

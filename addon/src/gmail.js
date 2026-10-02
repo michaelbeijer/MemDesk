@@ -80,10 +80,19 @@
     return call('POST', 'messages', null, body);
   }
 
-  function modifyLabels(messageId, diff) {
+  function labelChange(diff) {
     const add = diff.addLabelIds || [];
     if (add.some(id => NEVER_ADD.test(id))) throw new Error('Mail is never moved to Trash, Spam or the Inbox from here.');
-    return call('POST', `messages/${encodeURIComponent(messageId)}/modify`, null, { addLabelIds: add, removeLabelIds: diff.removeLabelIds || [] });
+    return { addLabelIds: add, removeLabelIds: diff.removeLabelIds || [] };
+  }
+
+  function modifyLabels(messageId, diff) {
+    return call('POST', `messages/${encodeURIComponent(messageId)}/modify`, null, labelChange(diff));
+  }
+
+  // A board move: the whole conversation, as the extension moves it.
+  function modifyThread(threadId, diff) {
+    return call('POST', `threads/${encodeURIComponent(threadId)}/modify`, null, labelChange(diff));
   }
 
   // Reads the message first and refuses anything that is not a note.
@@ -93,5 +102,5 @@
     return call('POST', `messages/${encodeURIComponent(messageId)}/trash`);
   }
 
-  ns.addonGmail = { call, callAll, insertNote, modifyLabels, trashNote, queryString };
+  ns.addonGmail = { call, callAll, insertNote, modifyLabels, modifyThread, trashNote, queryString };
 })();

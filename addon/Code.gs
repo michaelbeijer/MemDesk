@@ -1,4 +1,4 @@
-// The phone panel 0.8.0: a Google Workspace add-on for Gmail.
+// The phone panel 0.9.0: a Google Workspace add-on for Gmail.
 //
 // Paste this whole file over Code.gs in the Apps Script editor, and
 // addon/appsscript.json over appsscript.json. The setup steps are in the
@@ -11,14 +11,17 @@
 //   src/lib/util.js
 //   src/lib/notes-logic.js
 //   src/lib/note-format.js
+//   src/lib/board-logic.js
 //   addon/src/panel-logic.js
 //   addon/src/gmail.js
 //   addon/src/store.js
 //   addon/src/cards.js
 //   addon/src/triggers.js
 
-// The notes label. Change it only if you renamed _Notes in Gmail.
+// The notes label, and the label the board's column labels are under.
+// Change them only if you renamed _Notes or _Board in Gmail.
 var SUPERMAIL_NOTES_LABEL = '_Notes';
+var SUPERMAIL_BOARD_LABEL = '_Board';
 
 // Apps Script has a global object but may not name it globalThis.
 var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
@@ -1642,6 +1645,384 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
   if (typeof module === 'object' && module.exports) module.exports = api;
 })();
 
+// ════ src/lib/board-logic.js ══════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────
+// Board logic (pure)
+//
+// The board has no data of its own. A card is a Gmail thread, a column is
+// a Gmail label, and the only things stored outside Gmail are the order of
+// cards within a column and the user's own edits to a card. Everything
+// here is the arithmetic between those: which labels a move adds and
+// removes, where a thread shows up when it carries two column labels, how
+// a saved order meets a fresh thread list, and what an edit looks like.
+// ─────────────────────────────────────────────────────────────────────
+
+(function () {
+  'use strict';
+
+  const ns = (globalThis.gkb = globalThis.gkb || {});
+  const util = (typeof module === 'object' && module.exports) ? require('./util.js') : ns.util;
+
+  // ── Columns ──────────────────────────────────────────────────────────
+
+  // The leading underscore sorts the board's labels above everything else
+  // in Gmail's long, alphabetical label list - on the phone especially.
+  const DEFAULT_ROOT = '_Board';
+
+  // Done archives on drop because that is what finishing something in
+  // Gmail usually means: out of the Inbox, still findable under its label.
+  const DEFAULT_COLUMNS = [
+    { id: 'todo', title: 'To do', label: `${DEFAULT_ROOT}/To do`, archiveOnDrop: false },
+    { id: 'doing', title: 'Doing', label: `${DEFAULT_ROOT}/Doing`, archiveOnDrop: false },
+    { id: 'waiting', title: 'Waiting', label: `${DEFAULT_ROOT}/Waiting`, archiveOnDrop: false },
+    { id: 'done', title: 'Done', label: `${DEFAULT_ROOT}/Done`, archiveOnDrop: true },
+  ];
+
+  function defaultColumns() {
+    return DEFAULT_COLUMNS.map(c => ({ ...c }));
+  }
+
+  // storage.sync can hold anything an older version - or a hand edit -
+  // put there. Anything unusable falls back to the defaults rather than
+  // leaving an empty board with no obvious way back.
+  function normaliseColumns(raw) {
+    if (!Array.isArray(raw)) return defaultColumns();
+    const seen = new Set();
+    const out = [];
+    for (const c of raw) {
+      if (!c || typeof c !== 'object') continue;
+      const id = String(c.id || '').trim();
+      const label = String(c.label || '').trim();
+      if (!id || !label || seen.has(id)) continue;
+      seen.add(id);
+      const col = {
+        id,
+        title: String(c.title || '').trim() || label.split('/').pop(),
+        label,
+        archiveOnDrop: !!c.archiveOnDrop,
+      };
+      if (c.labelId && typeof c.labelId === 'string') col.labelId = c.labelId;
+      out.push(col);
+    }
+    return out.length ? out : defaultColumns();
+  }
+
+  // Where a new column's label goes: under the parent the existing columns
+  // share, so a board moved to "_Board/…" keeps growing there rather than
+  // quietly recreating the old "Board" parent.
+  function labelRoot(columns) {
+    const parents = new Set((columns || []).map(c => {
+      const parts = String(c.label || '').split('/');
+      return parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+    }));
+    if (parents.size === 1) {
+      const [only] = parents;
+      if (only) return only;
+    }
+    return DEFAULT_ROOT;
+  }
+
+  // Columns remember their label's id as well as its name, because Gmail
+  // lets a label be renamed - and renaming "Board" to "_Board" renames
+  // every column label under it. Following the id keeps a column on the
+  // same mail; following the name alone would create a fresh, empty label
+  // with the old name. Returns the columns with names brought up to date
+  // and ids filled in, and whether anything changed (so it can be saved).
+  function resolveColumnLabels(columns, labels) {
+    const byId = new Map((labels || []).map(l => [l.id, l]));
+    const byName = new Map((labels || []).map(l => [String(l.name).toLowerCase(), l]));
+    let changed = false;
+    const out = columns.map(c => {
+      const viaId = c.labelId && byId.get(c.labelId);
+      if (viaId) {
+        if (viaId.name === c.label) return c;
+        changed = true;
+        return { ...c, label: viaId.name };
+      }
+      // Gmail's own spelling wins, so a case-only difference settles here
+      // rather than counting as a rename on the next pass.
+      const viaName = byName.get(String(c.label).toLowerCase());
+      if (viaName) {
+        if (c.labelId === viaName.id && c.label === viaName.name) return c;
+        changed = true;
+        return { ...c, label: viaName.name, labelId: viaName.id };
+      }
+      // Not in Gmail (yet): it is created under this name, and its id is
+      // recorded on the next pass.
+      if (c.labelId) {
+        changed = true;
+        const { labelId, ...rest } = c;
+        return rest;
+      }
+      return c;
+    });
+    return { columns: out, changed };
+  }
+
+  function newColumnId(existing, rand = Math.random) {
+    const taken = new Set((existing || []).map(c => c.id));
+    let id;
+    do {
+      id = 'c' + Date.now().toString(36) + Math.floor(rand() * 1e6).toString(36);
+    } while (taken.has(id));
+    return id;
+  }
+
+  // Gmail reserves its system label names (case-insensitively) and rejects
+  // empty path segments, so both are caught here with a readable message
+  // instead of a bare 400 from the API.
+  const RESERVED = new Set([
+    'inbox', 'sent', 'drafts', 'spam', 'trash', 'starred', 'important',
+    'unread', 'chat', 'snoozed', 'scheduled', 'all mail', 'outbox',
+  ]);
+
+  function validateColumns(cols) {
+    if (!cols.length) return 'Keep at least one column.';
+    const labels = new Set();
+    for (const c of cols) {
+      const title = (c.title || '').trim();
+      const label = (c.label || '').trim();
+      if (!title) return 'Every column needs a title.';
+      if (!label) return `“${title}” needs a Gmail label.`;
+      if (label.split('/').some(seg => !seg.trim())) {
+        return `“${label}” has an empty part between slashes.`;
+      }
+      if (RESERVED.has(label.toLowerCase())) return `“${label}” is a Gmail system label and cannot be used.`;
+      const key = label.toLowerCase();
+      if (labels.has(key)) return `Two columns use the label “${label}”.`;
+      labels.add(key);
+    }
+    return '';
+  }
+
+  // "_Board/To do" → ["_Board"]. Gmail only nests a label in its sidebar
+  // when the parent exists, so the parents are created too.
+  function labelAncestors(name) {
+    const parts = String(name).split('/');
+    const out = [];
+    for (let i = 1; i < parts.length; i++) out.push(parts.slice(0, i).join('/'));
+    return out;
+  }
+
+  // ── Placement ────────────────────────────────────────────────────────
+
+  // A thread carrying two column labels (moved on the phone, say) is shown
+  // once, in the left-most of its columns. Showing it twice would make a
+  // drag ambiguous about which label it is leaving.
+  function assignColumns(columns, listsByColumn) {
+    const seen = new Set();
+    const out = {};
+    for (const col of columns) {
+      out[col.id] = [];
+      for (const id of (listsByColumn[col.id] || [])) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        out[col.id].push(id);
+      }
+    }
+    return out;
+  }
+
+  // Saved order wins for every thread it mentions. Threads it does not
+  // know about are new to the column, so they go on top - newest first -
+  // where they will be noticed. Ids that have left the column drop out.
+  function mergeOrder(savedIds, threads) {
+    const present = new Map(threads.map(t => [t.id, t]));
+    const kept = [];
+    const keptSet = new Set();
+    for (const id of (savedIds || [])) {
+      if (present.has(id) && !keptSet.has(id)) { kept.push(id); keptSet.add(id); }
+    }
+    const fresh = threads
+      .filter(t => !keptSet.has(t.id))
+      .sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0))
+      .map(t => t.id);
+    return fresh.concat(kept);
+  }
+
+  // Index is a position in the list as it looks WITHOUT the thread being
+  // placed - which is what the drop zone measures, since the dragged card
+  // is hidden while it is in flight.
+  function placeId(list, id, index) {
+    const rest = (list || []).filter(x => x !== id);
+    const i = Math.max(0, Math.min(Number(index) || 0, rest.length));
+    rest.splice(i, 0, id);
+    return rest;
+  }
+
+  // Drops ids that are not on the board any more, and columns that no
+  // longer exist, so storage.local does not slowly fill with dead threads.
+  function pruneOrder(lists, columns) {
+    const out = {};
+    for (const col of columns) out[col.id] = (lists[col.id] || []).slice();
+    return out;
+  }
+
+  // ── Label arithmetic ─────────────────────────────────────────────────
+
+  function asLookup(labelIdOf) {
+    if (typeof labelIdOf === 'function') return labelIdOf;
+    if (labelIdOf instanceof Map) return name => labelIdOf.get(name);
+    return name => (labelIdOf || {})[name];
+  }
+
+  // Moving a card is one threads.modify: add the target's label, strip
+  // every other column label (so a thread is only ever in one column, even
+  // if it had drifted into two), and drop INBOX when the target archives.
+  function moveLabelDiff(columns, targetColumnId, labelIdOf) {
+    const lookup = asLookup(labelIdOf);
+    const target = columns.find(c => c.id === targetColumnId);
+    if (!target) throw new Error(`Unknown column ${targetColumnId}`);
+    const addId = lookup(target.label);
+    if (!addId) throw new Error(`No Gmail label id for “${target.label}”`);
+
+    const remove = new Set();
+    for (const c of columns) {
+      if (c.id === targetColumnId) continue;
+      const id = lookup(c.label);
+      if (id && id !== addId) remove.add(id);
+    }
+    if (target.archiveOnDrop) remove.add('INBOX');
+    return { addLabelIds: [addId], removeLabelIds: [...remove] };
+  }
+
+  // Taking a card off the board strips every column label and nothing
+  // else: the thread stays exactly where it was in Gmail.
+  function removeLabelDiff(columns, labelIdOf) {
+    const lookup = asLookup(labelIdOf);
+    const remove = new Set();
+    for (const c of columns) {
+      const id = lookup(c.label);
+      if (id) remove.add(id);
+    }
+    return { addLabelIds: [], removeLabelIds: [...remove] };
+  }
+
+  // Which column a thread belongs in, given the union of its label ids.
+  function columnForLabels(columns, labelIds, labelIdOf) {
+    const lookup = asLookup(labelIdOf);
+    const have = new Set(labelIds || []);
+    for (const c of columns) {
+      const id = lookup(c.label);
+      if (id && have.has(id)) return c;
+    }
+    return null;
+  }
+
+  // ── Threads ──────────────────────────────────────────────────────────
+
+  // Reduces a threads.get(format=metadata) response to what a card shows.
+  // Subject comes from the first message (replies prefix "Re:"), sender
+  // and date from the latest real message (a pending draft is not news).
+  function summariseThread(thread, account) {
+    const msgs = (thread && thread.messages) || [];
+    const id = thread && thread.id;
+    const historyId = String((thread && thread.historyId) || '');
+    if (!msgs.length) {
+      return {
+        id, historyId, subject: '(no subject)', from: '', fromEmail: '', ts: 0,
+        snippet: util.decodeEntities((thread && thread.snippet) || ''),
+        count: 0, unread: false, starred: false, hasDraft: false, labelIds: [],
+      };
+    }
+
+    const isDraft = m => (m.labelIds || []).includes('DRAFT');
+    const real = msgs.filter(m => !isDraft(m));
+    const basis = real.length ? real : msgs;
+    const latest = basis[basis.length - 1];
+    const firstHeaders = util.headerMap(msgs[0]);
+    const latestHeaders = util.headerMap(latest);
+
+    const from = util.parseAddress(latestHeaders.from);
+    const me = !!account && from.email === String(account).toLowerCase();
+    const labels = new Set(msgs.flatMap(m => m.labelIds || []));
+
+    return {
+      id,
+      historyId,
+      subject: (firstHeaders.subject || '').trim() || '(no subject)',
+      from: me ? 'me' : (util.displayName(from) || '(unknown sender)'),
+      fromEmail: from.email,
+      ts: Number(latest.internalDate) || Date.parse(latestHeaders.date) || 0,
+      snippet: util.decodeEntities(latest.snippet || thread.snippet || ''),
+      count: basis.length,
+      unread: labels.has('UNREAD'),
+      starred: labels.has('STARRED'),
+      hasDraft: msgs.some(isDraft),
+      labelIds: [...labels],
+    };
+  }
+
+  function searchQuery(text) {
+    const q = String(text || '').trim();
+    return q || 'in:inbox';
+  }
+
+  // ── Card edits ───────────────────────────────────────────────────────
+  //
+  // A card can carry the user's own title, a short note and a colour. They
+  // live in storage.sync beside the column layout and never touch the mail:
+  // Gmail has nowhere to put a private title on a thread, and rewriting a
+  // subject would change what correspondents see in their replies.
+
+  const CARD_COLOURS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'grey'];
+
+  // Long enough for a working title or a "4,200 words, due Fri" note, short
+  // enough that hundreds of cards fit sync's 100 KB.
+  const MAX_TITLE = 200;
+  const MAX_NOTE = 500;
+
+  // Returns the edit to store, or null when nothing differs from the
+  // email - so clearing every field deletes the record instead of leaving
+  // an empty one to count against the quota. A title identical to the
+  // subject is not an edit either: the editor opens pre-filled with it.
+  function normaliseCardEdit(raw, subject = '') {
+    if (!raw || typeof raw !== 'object') return null;
+    const title = String(raw.title || '').replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE);
+    const note = String(raw.note || '')
+      .replace(/\r\n?/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+      .slice(0, MAX_NOTE);
+    const colour = CARD_COLOURS.includes(raw.colour) ? raw.colour : '';
+
+    const out = {};
+    if (title && title !== String(subject || '').trim()) out.title = title;
+    if (note) out.note = note;
+    if (colour) out.colour = colour;
+    return Object.keys(out).length ? out : null;
+  }
+
+  function displayTitle(thread, edit) {
+    return (edit && edit.title) || (thread && thread.subject) || '(no subject)';
+  }
+
+  // Picks one account's card edits out of a storage.sync dump, keyed by
+  // thread id. Records that no longer normalise to anything are dropped.
+  function cardEditsFrom(all, prefix) {
+    const out = new Map();
+    for (const [key, value] of Object.entries(all || {})) {
+      if (!key.startsWith(prefix)) continue;
+      const id = key.slice(prefix.length);
+      const edit = normaliseCardEdit(value);
+      if (id && edit) out.set(id, edit);
+    }
+    return out;
+  }
+
+  const api = {
+    DEFAULT_ROOT, DEFAULT_COLUMNS, defaultColumns, normaliseColumns, labelRoot, resolveColumnLabels,
+    newColumnId, validateColumns,
+    labelAncestors, assignColumns, mergeOrder, placeId, pruneOrder,
+    moveLabelDiff, removeLabelDiff, columnForLabels, summariseThread, searchQuery,
+    CARD_COLOURS, MAX_TITLE, MAX_NOTE, normaliseCardEdit, displayTitle, cardEditsFrom,
+  };
+
+  ns.logic = api;
+  if (typeof module === 'object' && module.exports) module.exports = api;
+})();
+
 // ════ addon/src/panel-logic.js ════════════════════════════════════════
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1666,6 +2047,7 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
   const node = typeof module === 'object' && module.exports;
   const fmt = node ? require('../../src/lib/note-format.js') : ns.noteFormat;
   const util = node ? require('../../src/lib/util.js') : ns.util;
+  const board = node ? require('../../src/lib/board-logic.js') : ns.logic;
 
   const INDENT = '  '; // two em spaces a level, which cards do not collapse
   const GREY = '#5f6368';
@@ -1812,6 +2194,56 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
     return [where, when ? `edited ${when}` : ''].filter(Boolean).join(' · ');
   }
 
+  // ── The board ────────────────────────────────────────────────────────
+  //
+  // The extension keeps its column list in Chrome's synced storage, out of
+  // reach here, so the panel reads the columns from the labels themselves:
+  // every label directly under the board's parent ("_Board/Doing") is a
+  // column. The usual four come first in their usual order, any others
+  // after them alphabetically, and Done archives, as it does by default.
+  // The moves themselves are the extension's own label arithmetic.
+
+  function boardColumns(labels, root = board.DEFAULT_ROOT) {
+    const prefix = `${root}/`.toLowerCase();
+    const usual = board.DEFAULT_COLUMNS.map(c => c.title.toLowerCase());
+    const rank = c => {
+      const i = usual.indexOf(c.title.toLowerCase());
+      return i < 0 ? usual.length : i;
+    };
+    return (labels || [])
+      .filter(l => l && typeof l.name === 'string' && l.name.toLowerCase().startsWith(prefix) &&
+        l.name.length > prefix.length && l.name.indexOf('/', prefix.length) < 0)
+      .map(l => {
+        const title = l.name.slice(prefix.length);
+        return { id: l.id, title, label: l.name, labelId: l.id, archiveOnDrop: title.toLowerCase() === 'done' };
+      })
+      .sort((a, b) => rank(a) - rank(b) || (a.title.toLowerCase() < b.title.toLowerCase() ? -1 : a.title.toLowerCase() > b.title.toLowerCase() ? 1 : 0));
+  }
+
+  const labelIdOf = columns => name => {
+    const c = columns.find(x => x.label === name);
+    return c ? c.labelId : undefined;
+  };
+
+  // The column a thread is in, from the labels of all its messages.
+  function currentColumn(columns, labelIds) {
+    return board.columnForLabels(columns, labelIds, labelIdOf(columns)) || null;
+  }
+
+  // The labels to change to put a thread in a column ('' takes it off the
+  // board): into one column only, out of the Inbox when that column archives.
+  function boardDiff(columns, columnId) {
+    return columnId
+      ? board.moveLabelDiff(columns, columnId, labelIdOf(columns))
+      : board.removeLabelDiff(columns, labelIdOf(columns));
+  }
+
+  function boardOptions(columns, currentId) {
+    const known = columns.some(c => c.id === currentId);
+    return [{ text: 'Not on the board', value: 'none', selected: !known }]
+      .concat(columns.map(c => ({ text: c.title, value: c.id, selected: c.id === currentId })));
+  }
+
   // ── Message ids ──────────────────────────────────────────────────────
 
   // Gmail's API names a message by a hexadecimal id. Gmail's own pages
@@ -1841,6 +2273,7 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
   const api = {
     esc, runsHtml, cardItems, applyTicks, linesToBlocks, appendBlocks, docsEqual,
     folderName, folderOptions, noteSubtitle, apiMessageId,
+    boardColumns, currentColumn, boardDiff, boardOptions,
   };
 
   ns.panelLogic = api;
@@ -1931,10 +2364,19 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
     return call('POST', 'messages', null, body);
   }
 
-  function modifyLabels(messageId, diff) {
+  function labelChange(diff) {
     const add = diff.addLabelIds || [];
     if (add.some(id => NEVER_ADD.test(id))) throw new Error('Mail is never moved to Trash, Spam or the Inbox from here.');
-    return call('POST', `messages/${encodeURIComponent(messageId)}/modify`, null, { addLabelIds: add, removeLabelIds: diff.removeLabelIds || [] });
+    return { addLabelIds: add, removeLabelIds: diff.removeLabelIds || [] };
+  }
+
+  function modifyLabels(messageId, diff) {
+    return call('POST', `messages/${encodeURIComponent(messageId)}/modify`, null, labelChange(diff));
+  }
+
+  // A board move: the whole conversation, as the extension moves it.
+  function modifyThread(threadId, diff) {
+    return call('POST', `threads/${encodeURIComponent(threadId)}/modify`, null, labelChange(diff));
   }
 
   // Reads the message first and refuses anything that is not a note.
@@ -1944,7 +2386,7 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
     return call('POST', `messages/${encodeURIComponent(messageId)}/trash`);
   }
 
-  ns.addonGmail = { call, callAll, insertNote, modifyLabels, trashNote, queryString };
+  ns.addonGmail = { call, callAll, insertNote, modifyLabels, modifyThread, trashNote, queryString };
 })();
 
 // ════ addon/src/store.js ══════════════════════════════════════════════
@@ -1965,14 +2407,17 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
   const notesLogic = ns.notesLogic;
   const fmt = ns.noteFormat;
   const gmail = ns.addonGmail;
+  const panel = ns.panelLogic;
 
   const META = ['Subject', 'Date', notesLogic.NOTE_HEADER];
   // Set at the top of Code.gs, for anyone who renamed _Notes in Gmail.
   const rootName = () => String(globalThis.SUPERMAIL_NOTES_LABEL || notesLogic.DEFAULT_LABEL).trim();
+  const boardName = () => String(globalThis.SUPERMAIL_BOARD_LABEL || ns.logic.DEFAULT_ROOT).trim();
 
   // What one card needs to know about the mailbox, read once per trigger
   // or button press: the notes label (made if it is missing), its
-  // folders, and - only if a save needs it - the account's address.
+  // folders, the board's columns, and - only if a save needs it - the
+  // account's address.
   function context() {
     const name = rootName();
     let all = gmail.call('GET', 'labels').labels || [];
@@ -1985,6 +2430,7 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
     return {
       root,
       folders: notesLogic.folderTree(all, root.name),
+      board: panel.boardColumns(all, boardName()),
       account() {
         if (!email) email = gmail.call('GET', 'profile').emailAddress;
         return email;
@@ -2072,7 +2518,25 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
     gmail.modifyLabels(messageId, notesLogic.moveFolderDiff(ctx.root.id, ctx.folders, folderId || ''));
   }
 
-  ns.addonStore = { context, list, peek, open, newerVersion, save, move };
+  // ── The board ────────────────────────────────────────────────────────
+
+  // A conversation's labels: those of all its messages together, which is
+  // how the board sees it.
+  function thread(ctx, threadId) {
+    const t = gmail.call('GET', `threads/${encodeURIComponent(threadId)}`, { format: 'minimal' });
+    const labelIds = [];
+    (t.messages || []).forEach(m => (m.labelIds || []).forEach(id => {
+      if (labelIds.indexOf(id) < 0) labelIds.push(id);
+    }));
+    return { id: t.id || threadId, labelIds };
+  }
+
+  // Into a column ('' for off the board).
+  function moveThread(ctx, threadId, columnId) {
+    gmail.modifyThread(threadId, panel.boardDiff(ctx.board, columnId || ''));
+  }
+
+  ns.addonStore = { context, list, peek, open, newerVersion, save, move, thread, moveThread };
 })();
 
 // ════ addon/src/cards.js ══════════════════════════════════════════════
@@ -2084,8 +2548,10 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
 // and beside it on a computer. Opened on a note, the panel shows that
 // note: its text, a real check box for each checklist item, a box for
 // lines to add at the end, and its folder - with one Save for the lot.
-// Opened on any other email, or from Gmail's side panel with nothing
-// open, it shows the newest notes, a search, and New note.
+// Opened on any other email, it starts with that email's place on the
+// board - a column to choose, applied at once, as the button next to
+// Board does in Chrome - and then, as from Gmail's side panel with
+// nothing open, the newest notes, a search, and New note.
 //
 // Saving works as in the extension: a new version is inserted and the
 // old one goes to Trash. If the note changed elsewhere since the card
@@ -2185,15 +2651,28 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
 
   // ── The list ─────────────────────────────────────────────────────────
 
-  function homeCard(ctx, { folderId = '', query = '' } = {}) {
+  // The open email's column. Choosing another moves it straight away.
+  function boardSection(ctx, thread) {
+    const cur = panel.currentColumn(ctx.board, thread.labelIds);
+    return CardService.newCardSection()
+      .setHeader('This email on the board')
+      .addWidget(dropdown('boardColumn', 'Column', panel.boardOptions(ctx.board, cur ? cur.id : ''),
+        action('onMoveThread', { threadId: thread.id })));
+  }
+
+  // `thread`: the open email's conversation, if there is one - its place on
+  // the board comes first.
+  function homeCard(ctx, { folderId = '', query = '', thread = null } = {}) {
     const { notes, more } = store.list(ctx, { folderId, query, max: LIST_SIZE });
     const where = (folderId && panel.folderName(folderId, ctx.folders)) || 'All notes';
+    const keep = { threadId: thread ? thread.id : '' };
 
     const find = CardService.newCardSection()
+      .setHeader('Notes')
       .addWidget(textInput('q', 'Search notes', { value: query }))
       .addWidget(dropdown('folderFilter', 'Folder',
-        panel.folderOptions(ctx.folders, folderId, { first: 'All notes', firstValue: 'all' }), action('onFilterNotes')))
-      .addWidget(CardService.newButtonSet().addButton(button('Search', 'onSearchNotes')));
+        panel.folderOptions(ctx.folders, folderId, { first: 'All notes', firstValue: 'all' }), action('onFilterNotes', keep)))
+      .addWidget(CardService.newButtonSet().addButton(button('Search', 'onSearchNotes', keep)));
 
     const list = CardService.newCardSection().setHeader(query ? `${where}: “${query}”` : where);
     if (!notes.length) list.addWidget(greyText(query ? 'No notes match that search.' : 'No notes here yet.'));
@@ -2210,9 +2689,11 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
     });
     if (more) list.addWidget(greyText(`The newest ${LIST_SIZE} are shown. Search to find older notes.`));
 
-    return CardService.newCardBuilder()
+    const card = CardService.newCardBuilder()
       .setName('home')
-      .setHeader(CardService.newCardHeader().setTitle('Notes').setSubtitle(NAME))
+      .setHeader(CardService.newCardHeader().setTitle(thread && ctx.board.length ? 'Board and notes' : 'Notes').setSubtitle(NAME));
+    if (thread && ctx.board.length) card.addSection(boardSection(ctx, thread));
+    return card
       .addSection(find)
       .addSection(list)
       .setFixedFooter(CardService.newFixedFooter().setPrimaryButton(button('New note', 'onNewNote', { folderId }, true)))
@@ -2351,7 +2832,11 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
       const c = current(ctx, id);
       return [noteCard(ctx, c.opened, { notice: noticeFor(c) })];
     }
-    return [homeCard(ctx)];
+    let thread = null;
+    if (peeked && peeked.threadId && ctx.board.length) {
+      try { thread = store.thread(ctx, peeked.threadId); } catch (err) { log(err); }
+    }
+    return [homeCard(ctx, { thread })];
   });
 
   const onOpenNote = act(e => {
@@ -2369,7 +2854,27 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
 
   const onSearchNotes = act(e => {
     const ctx = store.context();
-    return respond({ card: homeCard(ctx, { folderId: chosenFolder(ctx, value(e, 'folderFilter')), query: value(e, 'q').trim() }) });
+    const threadId = params(e).threadId;
+    return respond({
+      card: homeCard(ctx, {
+        folderId: chosenFolder(ctx, value(e, 'folderFilter')),
+        query: value(e, 'q').trim(),
+        thread: threadId && ctx.board.length ? store.thread(ctx, threadId) : null,
+      }),
+    });
+  });
+
+  // A column chosen for the open email. The dropdown already shows the
+  // choice, so only a confirmation comes back - which keeps it quick.
+  const onMoveThread = act(e => {
+    const ctx = store.context();
+    const threadId = params(e).threadId;
+    if (!threadId) return respond({ notify: 'Open an email first.' });
+    const target = ctx.board.find(c => c.id === value(e, 'boardColumn')) || null;
+    store.moveThread(ctx, threadId, target ? target.id : '');
+    let said = 'Taken off the board.';
+    if (target) said = target.archiveOnDrop ? `Moved to ${target.title} and archived.` : `Moved to ${target.title}.`;
+    return respond({ notify: said, changed: true });
   });
 
   const onSaveNote = act(e => {
@@ -2424,7 +2929,7 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
 
   ns.panel = {
     onHomepage, onGmailMessage, onOpenNote, onAllNotes, onNewNote, onSearchNotes,
-    onFilterNotes: onSearchNotes, onSaveNote, onCreateNote, onUniversalAllNotes, onUniversalNewNote,
+    onFilterNotes: onSearchNotes, onSaveNote, onCreateNote, onMoveThread, onUniversalAllNotes, onUniversalNewNote,
   };
 })();
 
@@ -2447,5 +2952,6 @@ function onSearchNotes(e) { return gkb.panel.onSearchNotes(e); }
 function onFilterNotes(e) { return gkb.panel.onFilterNotes(e); }
 function onSaveNote(e) { return gkb.panel.onSaveNote(e); }
 function onCreateNote(e) { return gkb.panel.onCreateNote(e); }
+function onMoveThread(e) { return gkb.panel.onMoveThread(e); }
 function onUniversalAllNotes(e) { return gkb.panel.onUniversalAllNotes(e); }
 function onUniversalNewNote(e) { return gkb.panel.onUniversalNewNote(e); }

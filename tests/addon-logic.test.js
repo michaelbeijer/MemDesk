@@ -152,3 +152,30 @@ test('message ids: hexadecimal as they are, Gmail\'s decimal form converted', ()
   assert.equal(panel.apiMessageId('1234567890123456'), '1234567890123456', 'sixteen digits can be hexadecimal');
   assert.equal(panel.apiMessageId(''), '');
 });
+
+// ── The board ────────────────────────────────────────────────────────
+
+test('board columns come from the labels under _Board: the usual four in order, then the rest', () => {
+  const labels = [
+    { id: 'L9', name: '_Board/Someday' }, { id: 'L4', name: '_Board/Done' }, { id: 'L1', name: '_Board/To do' },
+    { id: 'L3', name: '_Board/Waiting' }, { id: 'L2', name: '_Board/Doing' }, { id: 'L8', name: '_Board/Admin' },
+    { id: 'L0', name: '_Board' }, { id: 'L7', name: '_Board/Doing/Sub' }, { id: 'X', name: 'Board/Old' }, { id: 'N', name: '_Notes/Work' },
+  ];
+  const cols = panel.boardColumns(labels);
+  assert.deepEqual(cols.map(c => c.title), ['To do', 'Doing', 'Waiting', 'Done', 'Admin', 'Someday']);
+  assert.deepEqual(cols.filter(c => c.archiveOnDrop).map(c => c.title), ['Done']);
+  assert.deepEqual(panel.boardColumns(labels, 'Board').map(c => c.title), ['Old'], 'another parent label');
+  assert.deepEqual(panel.boardColumns([]), []);
+});
+
+test('moves: one column only, Done out of the Inbox, off the board touches nothing else', () => {
+  const cols = panel.boardColumns([{ id: 'L1', name: '_Board/To do' }, { id: 'L2', name: '_Board/Doing' }, { id: 'L4', name: '_Board/Done' }]);
+  assert.equal(panel.currentColumn(cols, ['INBOX', 'L2', 'L1']).title, 'To do', 'the first, in board order');
+  assert.equal(panel.currentColumn(cols, ['INBOX']), null);
+  assert.deepEqual(panel.boardDiff(cols, 'L2'), { addLabelIds: ['L2'], removeLabelIds: ['L1', 'L4'] });
+  assert.deepEqual(panel.boardDiff(cols, 'L4'), { addLabelIds: ['L4'], removeLabelIds: ['L1', 'L2', 'INBOX'] });
+  assert.deepEqual(panel.boardDiff(cols, ''), { addLabelIds: [], removeLabelIds: ['L1', 'L2', 'L4'] });
+  assert.deepEqual(panel.boardOptions(cols, 'L2').map(o => [o.text, o.value, o.selected]),
+    [['Not on the board', 'none', false], ['To do', 'L1', false], ['Doing', 'L2', true], ['Done', 'L4', false]]);
+  assert.equal(panel.boardOptions(cols, '')[0].selected, true);
+});
