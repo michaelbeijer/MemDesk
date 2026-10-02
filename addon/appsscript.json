@@ -20,7 +20,6 @@
     "common": {
       "name": "Supermail",
       "logoUrl": "https://www.gstatic.com/images/icons/material/system/1x/description_black_48dp.png",
-      "useLocaleFromApp": true,
       "layoutProperties": {
         "primaryColor": "#0b57d0",
         "secondaryColor": "#0b57d0"

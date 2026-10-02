@@ -38,6 +38,13 @@ test('the manifest names functions the bundle has, and asks for no more than it 
     'https://www.googleapis.com/auth/script.external_request',
   ]);
   assert.deepEqual(manifest.urlFetchWhitelist, ['https://gmail.googleapis.com/']);
+  // Settings that make Gmail demand a scope of their own. useLocaleFromApp
+  // needs script.locale, and without it Gmail refuses to run the add-on
+  // at all ("Run time error ... Required permissions: script.locale").
+  const needs = { useLocaleFromApp: 'https://www.googleapis.com/auth/script.locale' };
+  for (const [setting, scope] of Object.entries(needs)) {
+    if (manifest.addOns.common[setting]) assert.ok(manifest.oauthScopes.includes(scope), `${setting} needs ${scope}`);
+  }
   assert.equal(manifest.runtimeVersion, 'V8');
   assert.equal(typeof addon.btoa, 'function', 'the shims filled in what the runtime lacks');
   assert.equal(typeof addon.URL, 'function');
