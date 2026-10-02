@@ -17,7 +17,7 @@ open email in a column, ticks checklist items, adds lines to a note, files it
 in a folder and starts new notes from inside the Gmail app, and the **phone
 app** puts the notes themselves, with the full editor, on your home screen.
 
-Version 0.12.3. Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.13.0. Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -108,7 +108,10 @@ your Chrome profile to other computers. All of it is kept per Gmail account.
   subfolder, or deletes it - only once it is empty. Move a note by dragging it
   onto a folder (onto **All notes** to take it out of its folder), or with the
   folder button above the note. A new note starts in the folder you are
-  looking at. Each folder is a Gmail label under `_Notes` - `_Notes/Work`,
+  looking at. A folder with subfolders has a small arrow beside it that folds
+  them away (or the left and right arrow keys, on a folder): handy once the
+  tree grows long. Which ones are folded is remembered on that computer. Each
+  folder is a Gmail label under `_Notes` - `_Notes/Work`,
   `_Notes/Work/Clients` - so the same tree shows in Gmail's label list on the
   phone.
 - The list in the middle shows your notes, newest first, with their first lines.
@@ -283,8 +286,9 @@ laid out for a phone:
   list, one button says which folder you are in ("Work › Clients"); tap it
   and the folder tree opens, nested as on a computer, with its counts and each
   folder's ⋯ menu (rename, new subfolder, delete); pick a folder and it folds
-  away again. The arrow at the top left, or Android's
-  back gesture, goes from a note back to the list.
+  away again. Tap the arrow beside a folder to fold its subfolders away, or
+  open them again; the phone remembers which are folded. The arrow at the top
+  left, or Android's back gesture, goes from a note back to the list.
 - **Saving.** As in Chrome, a moment after you stop typing - and at once when
   you go back to the list or switch to another app, since a phone does not
   close pages.

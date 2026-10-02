@@ -45,6 +45,9 @@
   .folders-head { background: var(--col); padding: 0 6px 0 16px; }
   .folder-items { flex: none; max-height: 55vh; background: var(--col); border-radius: 0 0 14px 14px; padding: 2px 8px 10px; }
   .folder-btn { height: 44px; }
+  .folder-twisty { width: 34px; height: 44px; margin-right: 0; }
+  .folder-items[data-nested] .folder-edit { padding-left: 44px; }
+  .folder-items[data-nested] .folder-error { padding-left: 70px; }
   /* No hover on a phone: each folder's ⋯ is always there, next to its count. */
   .folder-menu { opacity: 1; right: 4px; }
   .folder-row .folder-count, .folder-row:hover .folder-count, .folder-row:focus-within .folder-count { visibility: visible; margin-right: 34px; }
@@ -98,6 +101,16 @@
       onLoaded() {},
       closeBoard() {},
       barChanged() {},
+      // Which folders are folded, on this phone. The page is only ever
+      // opened by its owner, so there is no account to key it by.
+      prefs: {
+        get(name) {
+          try { return JSON.parse(localStorage.getItem(`supermail.${name}`) || 'null'); } catch (err) { return null; }
+        },
+        set(name, value) {
+          try { localStorage.setItem(`supermail.${name}`, JSON.stringify(value)); } catch (err) { /* storage off: not remembered */ }
+        },
+      },
       onViewChange(view) {
         app.dataset.view = view;
         if (!history) return;

@@ -120,6 +120,14 @@
       },
       closeBoard: close,
       barChanged: updateBar,
+      // Which folders are folded, on this computer, for this account.
+      prefs: {
+        async get(name) {
+          const key = KEYS.pref(hooks.getAccount(), name);
+          return (await chrome.storage.local.get(key))[key];
+        },
+        set: (name, value) => chrome.storage.local.set({ [KEYS.pref(hooks.getAccount(), name)]: value }),
+      },
     });
 
     // A move made from the dock (or another tab) makes what the board last
