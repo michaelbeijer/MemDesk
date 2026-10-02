@@ -299,8 +299,9 @@ as the extension.
    the icon is in the row of add-ons there. If it is not there yet, close and
    reopen the app.
 
-**Updating**: paste the new `Code.gs` (and `appsscript.json`, if it changed)
-over the old ones and save. A test deployment always runs the latest saved
+**Updating**: open [script.google.com/home](https://script.google.com/home)
+(your Apps Script projects), click the Supermail project, paste the new
+`Code.gs` (and `appsscript.json`, if it changed) over the old ones and save. A test deployment always runs the latest saved
 code, so there is nothing to reinstall. The first line of `Code.gs` says which
 version it is.
 
