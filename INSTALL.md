@@ -37,8 +37,9 @@ everything they do.
 2. Google asks you to allow access, as on the computer (the same
    **Advanced → Go to …** if it says it hasn't verified the app).
 3. Your Scratchpad opens; the **Board** and **Calendar** tabs at the top have
-   the board and your week. To put the app on your home screen: **⋮ → Add to
-   Home screen → Add**.
+   the board and your week. (If the calendar says it needs your permission,
+   click **Allow** and allow it on Google's page.) To put the app on your home
+   screen: **⋮ → Add to Home screen → Add**.
 
 ## If something is not right
 

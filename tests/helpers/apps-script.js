@@ -91,7 +91,10 @@ function urlFetch(fake, log) {
     }
     const method = String(opts.method || 'get').toUpperCase();
     log.push({ service, method, path: apiPath, query });
-    if (method !== 'GET') return response(403, JSON.stringify({ error: { code: 403, message: 'Request had insufficient authentication scopes.' } }));
+    const scope = `https://www.googleapis.com/auth/${service === 'tasks' ? 'tasks' : 'calendar'}.readonly`;
+    if (method !== 'GET' || (fake.denied && fake.denied.has(scope))) {
+      return response(403, JSON.stringify({ error: { code: 403, message: 'Request had insufficient authentication scopes.' } }));
+    }
     try {
       return response(200, JSON.stringify(fake.googleRoute(service, apiPath, query)));
     } catch (err) {
@@ -330,6 +333,40 @@ function propertiesService(fake) {
   return { getUserProperties: () => user };
 }
 
+// ── ScriptApp ────────────────────────────────────────────────────────
+//
+// The token, and what the script has been allowed. Google lets someone
+// allow some of a script's permissions and not others; a test says
+// which with fake.denied, a set of scopes (all allowed when empty).
+
+const AUTHORIZE_URL = 'https://script.google.com/macros/d/test-script/authorize';
+
+function scriptApp(fake) {
+  fake.denied = fake.denied || new Set();
+  const AuthMode = { FULL: 'FULL', LIMITED: 'LIMITED', NONE: 'NONE' };
+  const AuthorizationStatus = { REQUIRED: 'REQUIRED', NOT_REQUIRED: 'NOT_REQUIRED' };
+  const info = scopes => {
+    const missing = [...fake.denied].filter(sc => !scopes || scopes.includes(sc));
+    return {
+      getAuthorizationStatus: () => (missing.length ? AuthorizationStatus.REQUIRED : AuthorizationStatus.NOT_REQUIRED),
+      getAuthorizationUrl: () => (missing.length ? AUTHORIZE_URL : null),
+    };
+  };
+  return {
+    AuthMode,
+    AuthorizationStatus,
+    getOAuthToken: () => TOKEN,
+    getAuthorizationInfo(mode, scopes) {
+      if (!AuthMode[mode]) throw new Error('ScriptApp.getAuthorizationInfo: unknown AuthMode');
+      return info(scopes);
+    },
+    requireAllScopes(mode) {
+      if (!AuthMode[mode]) throw new Error('ScriptApp.requireAllScopes: unknown AuthMode');
+      if (fake.denied.size) throw new Error('Authorization is required to perform that action.');
+    },
+  };
+}
+
 // ── The add-on, loaded ───────────────────────────────────────────────
 
 function loadAddon(fake) {
@@ -338,7 +375,7 @@ function loadAddon(fake) {
   const sandbox = {
     console: { log: () => {}, info: () => {}, warn: m => logged.push(['warn', String(m)]), error: m => logged.push(['error', String(m)]) },
     UrlFetchApp: urlFetch(fake, log),
-    ScriptApp: { getOAuthToken: () => TOKEN },
+    ScriptApp: scriptApp(fake),
     HtmlService: htmlService(),
     PropertiesService: propertiesService(fake),
   };
@@ -533,4 +570,4 @@ class Phone {
   }
 }
 
-module.exports = { Phone, fakeGmail, loadAddon, stripTags, widgets, fields, plain };
+module.exports = { AUTHORIZE_URL, Phone, fakeGmail, loadAddon, stripTags, widgets, fields, plain };

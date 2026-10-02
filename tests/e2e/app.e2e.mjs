@@ -21,7 +21,7 @@ import { REPO, loadPlaywright, findChromium, screensDir, runner, until, watchErr
 import { appHtml } from '../../tools/build-addon.mjs';
 
 const require = createRequire(import.meta.url);
-const { Phone, plain } = require('../helpers/apps-script.js');
+const { Phone, plain, AUTHORIZE_URL } = require('../helpers/apps-script.js');
 
 const { chromium } = await loadPlaywright();
 const SCREENS = screensDir();
@@ -464,6 +464,55 @@ await r.step('a chip hides a calendar, the phone remembers it; a swipe goes to t
   await until(async () => (await weekText(page)).includes('Pub quiz'), 'Family back');
   await q(page, '[data-key="view:notes"]').tap();
   await scratchReady(page);
+});
+
+await r.step('the days can run across, then down, instead; the phone remembers', async () => {
+  await q(page, '[data-key="view:calendar"]').tap();
+  await q(page, '.cal .ev').first().waitFor();
+  const days = q(page, '.cal-week > .day:not(.mini-tile)');
+  const box = i => days.nth(i).boundingBox();
+  const btn = q(page, '[data-key="cal-order"]');
+  const b = await btn.boundingBox();
+  assert.ok(b && b.x + b.width <= 412, 'the button fits the header');
+  assert.match(await btn.getAttribute('title'), /down, then across\. Tap for across/);
+  await btn.tap();
+  await until(async () => (await q(page, '.cal').getAttribute('data-order')) === 'across', 'across');
+  const [mon, tue, wed] = [await box(0), await box(1), await box(2)];
+  assert.ok(Math.abs(tue.y - mon.y) < 2 && tue.x > mon.x, 'Tuesday beside Monday');
+  assert.ok(wed.y > mon.y && Math.abs(wed.x - mon.x) < 2, 'Wednesday under Monday');
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('supermail.calendarOrder'))), 'across');
+  await page.screenshot({ path: join(SCREENS, 'app-calendar-across.png'), animations: 'disabled' });
+  await page.reload();
+  await scratchReady(page).catch(() => {});
+  await q(page, '[data-key="view:calendar"]').tap();
+  await q(page, '.cal .ev').first().waitFor();
+  assert.equal(await q(page, '.cal').getAttribute('data-order'), 'across', 'kept after a reload');
+  await q(page, '[data-key="cal-order"]').tap();
+  await until(async () => (await q(page, '.cal').getAttribute('data-order')) === 'down', 'down again');
+  await q(page, '[data-key="view:notes"]').tap();
+  await scratchReady(page);
+});
+
+await r.step('not allowed yet: one line, an Allow button to Google’s page, and the week once it is allowed', async () => {
+  const d = await openApp();
+  await scratchReady(d.page);
+  d.phone.fake.denied.add('https://www.googleapis.com/auth/calendar.readonly');
+  d.phone.fake.denied.add('https://www.googleapis.com/auth/tasks.readonly');
+  await d.page.context().route('https://script.google.com/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<p>Allowed</p>' }));
+  await q(d.page, '[data-key="view:calendar"]').tap();
+  const note = q(d.page, '.cal-note');
+  await until(async () => /Google Calendar and Google Tasks need your permission/.test(await note.innerText()), 'the note');
+  const allow = q(d.page, '[data-key="cal-allow"]');
+  assert.equal(await allow.getAttribute('href'), AUTHORIZE_URL);
+  assert.equal(await allow.getAttribute('target'), '_blank');
+  const [popup] = await Promise.all([d.page.waitForEvent('popup'), allow.tap()]);
+  await popup.close();
+  // Allowed on Google's page; back in the app, it reads again by itself.
+  d.phone.fake.denied.clear();
+  await d.page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await q(d.page, '.cal .ev').first().waitFor();
+  assert.equal(await q(d.page, '.cal-note').isVisible(), false);
+  await d.page.context().close();
 });
 
 await r.step('nothing on the page but the app once it has started; a broken history does not stop it', async () => {

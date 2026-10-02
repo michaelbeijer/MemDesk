@@ -1185,6 +1185,8 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 }
 .cal-head { display: flex; align-items: center; gap: 8px; height: 52px; flex: none; }
 .cal-nav { display: flex; align-items: center; gap: 2px; flex: none; }
+.cal-order { display: none; }
+.cal[data-narrow="true"] .cal-order { display: inline-flex; }
 .btn-outline { height: 34px; padding: 0 16px; border: 1px solid var(--border-strong); color: var(--fg); margin-right: 4px; }
 .btn-outline:hover { background: var(--hover); }
 .cal-title {
@@ -1218,6 +1220,7 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .cal-note strong { color: var(--fg); font-weight: 500; }
 .cal-note a, .cal .panel a { color: var(--accent); word-break: break-all; }
 .cal-note .btn { height: 28px; margin-left: 4px; }
+.cal-note a.btn { text-decoration: none; word-break: normal; }
 
 .cal-body { flex: 1; display: flex; gap: 12px; min-height: 0; }
 .cal-side { width: 228px; flex: none; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
@@ -1447,6 +1450,7 @@ a.item:hover { background-image: linear-gradient(var(--hover), var(--hover)); }
   grid-template-rows: repeat(4, auto);
   grid-auto-flow: column;
 }
+.cal[data-narrow="true"][data-order="across"] .cal-week { grid-template-rows: none; grid-auto-flow: row; }
 .cal[data-narrow="true"] .day { min-height: 120px; }
 .cal[data-narrow="true"] .cal-week .day .cal-items { overflow: visible; }
 .cal[data-narrow="true"] .mini-tile { display: flex; }

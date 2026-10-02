@@ -11,7 +11,9 @@
 // and task lists to show or hide, and the tasks with no date. Narrow, as
 // on a phone, it is always the week: two columns of days with the month
 // as the eighth tile, the sources as a row of chips above, and the tasks
-// with no date below. A swipe goes to the next or previous week.
+// with no date below. A swipe goes to the next or previous week, and a
+// button turns the order of the days from down-then-across to
+// across-then-down.
 //
 // Keys, as in Google Calendar: t today, j / n next, k / p previous,
 // w / m / a for the views.
@@ -38,6 +40,7 @@
   const C = {
     ctx: null,          // { root, onStateError, onLoaded, barChanged, prefs, connect }
     view: 'week',       // the view chosen on a wide screen
+    order: 'down',      // narrow: the days down then across, or 'across' then down
     anchor: '',         // the day in focus
     today: '',
     narrow: false,
@@ -52,6 +55,7 @@
     loading: null,
     loadedAt: 0,
     seq: 0,
+    recheck: false,     // Allow was pressed: read everything again on return
   };
 
   const els = {};
@@ -63,6 +67,8 @@
     C.ctx = ctx;
     C.today = cal.dateKey(new Date());
     C.anchor = C.today;
+    // Back from Google's permission page (opened by Allow): read again.
+    window.addEventListener('focus', () => { if (C.recheck) load(); });
   }
 
   function element() {
@@ -86,7 +92,11 @@
           title: 'Today (T)', onclick: () => go(cal.dateKey(new Date())),
         }),
         nav(-1, 'Previous', 'prev'),
-        nav(1, 'Next', 'next')),
+        nav(1, 'Next', 'next'),
+        // Narrow only: which way the days run in the two columns.
+        els.order = h('button', {
+          class: 'icon-btn cal-order', type: 'button', dataset: { key: 'cal-order' }, onclick: toggleOrder,
+        })),
       els.title,
       els.views);
 
@@ -133,9 +143,10 @@
     if (C.prefsRead) return;
     C.prefsRead = true;
     try {
-      const [v, o] = await Promise.all([C.ctx.prefs.get('calendarView'), C.ctx.prefs.get('calendarSources')]);
+      const [v, o, order] = await Promise.all(['calendarView', 'calendarSources', 'calendarOrder'].map(n => C.ctx.prefs.get(n)));
       if (cal.VIEWS.includes(v)) C.view = v;
       if (o && typeof o === 'object') C.overrides = o;
+      if (order === 'across' || order === 'down') C.order = order;
     } catch { /* storage gone (extension reloaded); defaults will do */ }
   }
 
@@ -156,7 +167,7 @@
 
   function isStale() {
     const entry = C.cache.get(rangeKey(range()));
-    return C.status !== 'ready' || !covers(entry) || Date.now() - entry.at > STALE_MS;
+    return C.recheck || C.status !== 'ready' || !covers(entry) || Date.now() - entry.at > STALE_MS;
   }
 
   // Shows whatever is cached for the range at once, then reads Google
@@ -166,6 +177,13 @@
     if (!els.wrap) element();
     // The view chosen last time decides which days to read.
     if (!C.prefsRead) return readPrefs().then(() => load({ force }));
+    // Permission may have been given since: nothing cached counts.
+    if (C.recheck) {
+      C.recheck = false;
+      force = true;
+      C.cache.clear();
+      store.forget();
+    }
     const r = range();
     const key = rangeKey(r);
     const cached = C.cache.get(key);
@@ -258,6 +276,14 @@
     load();
   }
 
+  // In two columns, the days run down then across (Monday to Thursday on
+  // the left), or across then down (Monday beside Tuesday).
+  function toggleOrder() {
+    C.order = C.order === 'across' ? 'down' : 'across';
+    savePref('calendarOrder', C.order);
+    draw();
+  }
+
   function setView(v) {
     if (!cal.VIEWS.includes(v)) return;
     C.view = v;
@@ -312,6 +338,11 @@
     const v = view();
     els.wrap.dataset.narrow = String(C.narrow);
     els.wrap.dataset.view = v;
+    els.wrap.dataset.order = C.order;
+    const across = C.order === 'across';
+    els.order.replaceChildren(icon(across ? 'rows' : 'columns', 20));
+    els.order.title = across ? 'Days run across, then down. Tap for down, then across.' : 'Days run down, then across. Tap for across, then down.';
+    els.order.setAttribute('aria-label', els.order.title);
     els.title.textContent = cal.title(v, C.anchor, C.today);
     for (const b of els.views.children) b.setAttribute('aria-selected', String(b.dataset.view === v));
     const panel = statusPanel();
@@ -380,15 +411,30 @@
     return out;
   }
 
-  // One line above the days for a service that could not be read.
+  // A line above the days for a service that could not be read. Not
+  // allowed is one line for both, with the way to allow it: in Chrome,
+  // connecting again; in the phone app, Google's page for the script.
   function drawNote() {
     const lines = [];
     if (!statusPanel()) {
-      for (const [service, err] of Object.entries(C.errors || {})) {
-        const what = service === 'tasks' ? 'Google Tasks' : 'Google Calendar';
+      const name = service => (service === 'tasks' ? 'Google Tasks' : 'Google Calendar');
+      const errors = Object.entries(C.errors || {});
+      const denied = errors.filter(([, err]) => err.code === 'calendar_scope');
+      if (denied.length) {
+        const url = (denied.find(([, err]) => err.allowUrl) || [])[1];
+        const fix = C.ctx.connect ? button('Connect again', 'text', connect)
+          : url ? h('a', {
+            class: 'btn btn-text', href: url.allowUrl, target: '_blank', rel: 'noopener noreferrer', text: 'Allow',
+            dataset: { key: 'cal-allow' }, onclick: () => { C.recheck = true; },
+          })
+          : h('span', { text: ' In the script editor, run allowCalendar once.' });
         lines.push(h('p', {},
-          h('strong', { text: `${what}: ` }), linked(err.message || String(err)),
-          err.code === 'calendar_scope' && C.ctx.connect ? button('Connect again', 'text', connect) : null));
+          h('strong', { text: denied.map(([service]) => name(service)).join(' and ') }),
+          ` ${denied.length > 1 ? 'need' : 'needs'} your permission. `, fix));
+      }
+      for (const [service, err] of errors) {
+        if (err.code === 'calendar_scope') continue;
+        lines.push(h('p', {}, h('strong', { text: `${name(service)}: ` }), linked(err.message || String(err))));
       }
     }
     els.note.replaceChildren(...lines);

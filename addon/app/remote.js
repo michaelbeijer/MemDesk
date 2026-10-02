@@ -143,6 +143,7 @@
   function googleError(e) {
     const err = new Error(String(e.message || 'Google did not answer.'));
     err.code = e.code || (e.status ? `http_${e.status}` : 'google');
+    if (e.url) err.allowUrl = String(e.url);
     return err;
   }
 

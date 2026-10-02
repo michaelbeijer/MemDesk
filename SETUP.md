@@ -185,8 +185,11 @@ with just this account.
 - **Updating to 0.17.0 (the calendar)**: turn on the Google Calendar API and
   the Google Tasks API in your Cloud project (step 3b), and paste the new
   `appsscript.json` as well as `Code.gs`: it asks for read-only access to
-  Calendar and Tasks, so the panel asks you to **Authorize access** once
-  more, and the phone app to allow it.
+  Calendar and Tasks. Google does not ask for these by itself, so the first
+  time, the phone app's **Calendar** tab says Google Calendar and Google
+  Tasks need your permission: click **Allow**, allow both on Google's page,
+  and go back to the app. (Or, in the script editor, choose `allowCalendar`
+  next to **Run**, and run it once.)
 
 ## When something goes wrong
 
@@ -200,6 +203,7 @@ with just this account.
 | The panel says "Run time error … Required permissions" | `appsscript.json` is not the current one. Paste it again. |
 | The panel says the Gmail API is not switched on | In the Apps Script editor, open **Services** (left) and check that Gmail is listed; if not, paste `appsscript.json` again and save. |
 | The phone app's calendar says an API is not switched on | The same: **Services** should list Gmail, Google Calendar and Tasks. |
+| The phone app's calendar says it needs your permission | Click **Allow** next to it and allow both on Google's page. If that does not help: in the script editor, choose `allowCalendar` next to **Run**, run it, and allow what Google asks. |
 | The Board, Notes and Calendar buttons are gone from Gmail | Gmail changed its page. The board still opens from the toolbar icon or Alt+Shift+K; please report it. |
 
 ## Removing it

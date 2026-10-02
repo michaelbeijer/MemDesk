@@ -112,8 +112,8 @@ Give people the store link and the phone-app link, with
    changed), **Ctrl+S**, then **Deploy → Manage deployments** → the web
    app's pencil → **Version: New version** → **Deploy**. The link stays the
    same. When `appsscript.json` asks for more (0.17.0 added read-only
-   Calendar and Tasks), everyone is asked to allow it once more the next time
-   they open the app.
+   Calendar and Tasks), Google does not ask people by itself: the app's
+   calendar shows an **Allow** button that opens Google's page for it.
 
 ## Beyond 100 people: Google's verification
 

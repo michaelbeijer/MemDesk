@@ -301,10 +301,13 @@ const pngSize = name => { const b = readFileSync(join(RAW, `${name}.png`)); retu
 const framed = (name, width) => Math.round(width * pngSize(name).h / pngSize(name).w + 80);
 const at = (html, left, top) => `<div style="position:absolute;left:${left}px;top:${top}px">${html}</div>`;
 
-// The top of the README: Gmail with the board, the phone app in front.
-await compose('hero', 1200, 660, { cls: 'violet dots', html:
-  at(browserWindow('board', { width: 900 }), 64, 64) +
-  at(phoneFrame('phone-home', { width: 252 }), 892, 128) });
+// The top of the README: the three tabs, Board, Notes and Calendar, one
+// window each, and the phone app's week in front.
+await compose('hero', 1200, 730, { cls: 'violet dots', html:
+  at(browserWindow('board', { width: 700 }), 36, 32) +
+  at(browserWindow('notes', { width: 700 }), 236, 104) +
+  at(browserWindow('calendar', { width: 700 }), 436, 176) +
+  at(phoneFrame('phone-calendar', { width: 214 }), 966, 150) });
 
 // One window each, on the soft backdrop.
 const single = (img, opts = {}) => ({ cls: 'soft dots', html: at(browserWindow(img, { width: 1088, ...opts }), 56, 56) });
@@ -329,11 +332,11 @@ await compose('calendar', 1200, 760, { cls: 'violet dots', html:
   at(browserWindow('calendar', { width: 900 }), 56, 56) +
   at(phoneFrame('phone-calendar', { width: 262 }), 884, 74) });
 
-// The phone app: the folders, a note, and search in the dark.
+// The phone app: the board, the Scratchpad and the week.
 await compose('phone', 1200, 760, { cls: 'violet dots', html:
   at(phoneFrame('phone-board', { width: 300 }), 90, 70) +
   at(phoneFrame('phone-home', { width: 300 }), 450, 30) +
-  at(phoneFrame('phone-search-dark', { width: 300 }), 810, 70) });
+  at(phoneFrame('phone-calendar', { width: 300 }), 810, 70) });
 
 // ── The Chrome Web Store: 1280×800 screenshots, and the small tile ────
 //

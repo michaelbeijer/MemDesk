@@ -268,15 +268,47 @@
       }
       return cal.buildUrl(service, path, query || null);
     });
+    let allow = null;
     return gmail.getAll(urls).map(r => {
       if (!r || !r.error) return r;
       const e = r.error;
-      // Google's consent screen lets people untick Calendar or Tasks.
+      // Not allowed (yet): the script was authorised before it asked for
+      // the calendar, or the box was unticked on Google's page. Google
+      // lets a script run with some of its permissions, and does not ask
+      // again by itself, so the app offers the page that asks.
       if (e.status === 403 && /insufficient.*scope/i.test(e.detail || e.message)) {
-        return { error: { code: 'calendar_scope', status: 403, message: 'It was not allowed when the app was authorised. Open the app again, and allow it when Google asks.' } };
+        if (allow === null) allow = allowUrl();
+        return { error: { code: 'calendar_scope', status: 403, url: allow, message: 'Not allowed for this app yet.' } };
       }
       return { error: { message: e.detail || e.message, status: e.status || 0 } };
     });
+  }
+
+  const CALENDAR_SCOPES = [
+    'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/tasks.readonly',
+  ];
+
+  // Google's page that asks for what the script has not been allowed:
+  // for the calendar's two permissions if this Apps Script can say so,
+  // otherwise for all of them. '' if there is none to give.
+  function allowUrl() {
+    const mode = ScriptApp.AuthMode.FULL;
+    for (const ask of [() => ScriptApp.getAuthorizationInfo(mode, CALENDAR_SCOPES), () => ScriptApp.getAuthorizationInfo(mode)]) {
+      try {
+        const url = ask().getAuthorizationUrl();
+        if (url) return String(url);
+      } catch (err) { /* an older Apps Script: try the next */ }
+    }
+    return '';
+  }
+
+  // Run once from the script editor, if the app's Allow button is not
+  // there or does not help: asks for every permission not yet given.
+  function allowCalendar() {
+    ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL);
+    console.log('All permissions granted');
+    return true;
   }
 
   // ── The app's settings ───────────────────────────────────────────────
@@ -320,6 +352,6 @@
 
   ns.app = {
     page, list, body, save, retire, restore, move, createFolder, renameFolder, deleteFolder,
-    account, boardGmail, boardGmailMany, boardColumns, googleMany, prefsGet, prefsSet, prefsRemove,
+    account, boardGmail, boardGmailMany, boardColumns, googleMany, allowCalendar, prefsGet, prefsSet, prefsRemove,
   };
 })();

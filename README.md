@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.17.0" src="https://img.shields.io/badge/version-0.17.0-6D28D9">
+  <img alt="Version 0.17.1" src="https://img.shields.io/badge/version-0.17.1-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <img src="images/hero.jpg" width="100%" alt="The board inside Gmail on a computer, with the notes app on a phone in front of it, open on its Scratchpad">
+  <img src="images/hero.jpg" width="100%" alt="Three Chrome windows, one for each tab - the board, the notes and the calendar - with the phone app's week in front of them">
 </p>
 
 ## What it does
@@ -94,7 +94,7 @@ Scratchpad, ready to type, with the same editor, folders and search as in
 Chrome; your week as two columns of days. And a panel in the Gmail app files
 the open email on the board, ticks your checklists and adds to a note.
 
-<img src="images/phone.jpg" width="100%" alt="Three phones: the board, the Scratchpad, and search results in dark mode">
+<img src="images/phone.jpg" width="100%" alt="Three phones: the board, the Scratchpad, and the week as two columns of days">
 
 ### 🔒 Yours alone
 
@@ -127,7 +127,7 @@ The **Calendar** tab reads Google Calendar and Google Tasks with a sign-in of
 its own (read-only), asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.17.0. Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.17.1. Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -335,7 +335,9 @@ in Gmail and the notes follow.
 - **On a phone**, or in a narrow window, it is always the week: two columns
   of days, Monday to Thursday and then Friday to Sunday, with the month as the
   eighth; the calendars are a row of chips above, and the tasks with no date
-  below. Swipe sideways for the next or previous week.
+  below. Swipe sideways for the next or previous week. The button beside
+  **›** turns the order round: Monday beside Tuesday, then Wednesday beside
+  Thursday, and so on; the phone remembers which you chose.
 - It only reads, for now. Ticking tasks off, due dates on cards and adding
   events are the next steps.
 
@@ -466,9 +468,11 @@ notes as in Gmail, in a tab of their own.)
 - **Search** marks the words in the results and in the open note, with the
   arrows to step from one match to the next.
 - **The calendar**, the week as two columns of days with the month as the
-  eighth: swipe sideways for the next week, and tap a chip to show or hide a
-  calendar or task list (the phone remembers). It reads Calendar and Tasks
-  with the script's own access, so there is nothing to connect.
+  eighth: swipe sideways for the next week, tap a chip to show or hide a
+  calendar or task list, and the button beside **›** to have the days run
+  across rather than down (the phone remembers both). It reads Calendar and
+  Tasks with the script's own access, so there is nothing to connect; the
+  first time, it may ask you to **Allow** it.
 
 **Setting it up** is one more step in the phone panel's project: **Deploy →
 Test deployments → Web app**, open its address in Chrome on the phone, and
@@ -500,7 +504,10 @@ the extension (the calendar list, a calendar's events, the task lists, a
 list's tasks) and nothing else. The app's column layout and card edits are
 kept in the script's user properties. It runs as you, under the phone panel's
 permissions, which since 0.17.0 include read-only access to Calendar and
-Tasks: Google asks once more, the first time after the update.
+Tasks. Google does not ask for new permissions by itself once a script has
+been allowed some, so if the calendar has not been allowed yet, it says so
+with an **Allow** button, which opens Google's page for the script (the
+function `allowCalendar`, run once in the script editor, does the same).
 
 ## Privacy
 
