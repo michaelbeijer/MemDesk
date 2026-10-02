@@ -154,6 +154,12 @@ const q = (page, sel) => page.locator(`#gkb-app-host >> ${sel}`);
   await q(page, '.ne-body .blk').first().waitFor();
   await pause(300);
   await phoneShot(page, 'phone-note');
+  // And the board, one column to a screen.
+  await q(page, '[data-key="note-back"]').tap();
+  await q(page, '[data-key="view:board"]').tap();
+  await q(page, '.card .subject').first().waitFor();
+  await pause(400);
+  await phoneShot(page, 'phone-board');
   await page.context().close();
 }
 
@@ -308,8 +314,8 @@ await compose('scratchpad', 1200, 760, { cls: 'soft dots', html:
 
 // The phone app: the folders, a note, and search in the dark.
 await compose('phone', 1200, 760, { cls: 'violet dots', html:
-  at(phoneFrame('phone-folders', { width: 300 }), 90, 70) +
-  at(phoneFrame('phone-note', { width: 300 }), 450, 30) +
+  at(phoneFrame('phone-board', { width: 300 }), 90, 70) +
+  at(phoneFrame('phone-home', { width: 300 }), 450, 30) +
   at(phoneFrame('phone-search-dark', { width: 300 }), 810, 70) });
 
 // ── The Chrome Web Store: 1280×800 screenshots, and the small tile ────

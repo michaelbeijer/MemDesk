@@ -218,7 +218,7 @@ await r.step('tapping a note opens it full-screen; Back returns to the list', as
   await q(page, '.ne-body .blk').first().waitFor();
   await until(async () => (await q(page, '.ne-title').inputValue()) === 'Launch checklist', 'title in');
   assert.equal(await visible(page, '.notes-list'), false);
-  assert.equal(await visible(page, '.app-head'), false, 'the note has the whole screen');
+  assert.equal(await visible(page, '.bar'), false, 'the note has the whole screen');
   assert.equal(await visible(page, '[data-key="note-back"]'), true);
   assert.equal(await q(page, '.ne-body .blk[data-type="check"][data-checked="1"]').count(), 1);
   assert.deepEqual(await page.evaluate(() => window.__history), [{ depth: 1 }, { depth: 2 }], 'on the history, for the back gesture');
@@ -329,6 +329,80 @@ await r.step('switching away from the app saves at once', async () => {
   });
   await settled(page);
   await until(async () => /bread/.test(phone.fake.box.messageText(phone.fake.box.findMessageBySubject('Written on the train'))), 'saved on hide', 3000);
+});
+
+// ── The board ──
+
+const column = (p, title) => q(p, 'section.column').filter({ has: p.locator('.col-title').filter({ hasText: new RegExp(`^${title}$`) }) });
+const cardTitles = (p, title) => column(p, title).locator('.card .subject').allInnerTexts();
+const boardLabels = id => plain(phone.fake.box.threadLabelNames(id)).filter(n => n.startsWith('_Board'));
+
+await r.step('the board tab: the _Board labels as columns, one to a screen, swiped sideways', async () => {
+  // A note has the whole screen, tabs and all: back to the Scratchpad first.
+  await page.evaluate(() => window.__historyHandler({ state: {} }));
+  await until(async () => (await view(page)) === 'home', 'home');
+  await q(page, '[data-key="view:board"]').tap();
+  await q(page, '.card .subject').first().waitFor(); // real cards, not the placeholders shown while loading
+  assert.deepEqual((await q(page, '.col-head .col-title').allInnerTexts()), ['To do', 'Doing', 'Waiting', 'Done']);
+  assert.equal((await cardTitles(page, 'To do')).length, 6);
+  assert.ok((await cardTitles(page, 'Doing')).includes('Termbase export won’t open'));
+  const width = (await column(page, 'To do').boundingBox()).width;
+  assert.ok(Math.abs(width - (412 - 44)) < 2, `a column is a screen wide (${width})`);
+  assert.match(await q(page, '.columns').evaluate(el => getComputedStyle(el).scrollSnapType), /x/);
+  assert.equal(await visible(page, '[data-key="view:notes"]'), true, 'the tabs, to get back to the notes');
+  assert.equal(await visible(page, '.account'), false, 'no room for the address on a phone');
+  await page.screenshot({ path: join(SCREENS, 'app-board.png'), animations: 'disabled' });
+});
+
+await r.step('a card moves with its ⋯ menu, and Gmail’s labels follow', async () => {
+  const id = phone.fake.box.findThread('Termbase export');
+  assert.deepEqual(boardLabels(id), ['_Board/Doing']);
+  await q(page, `[data-key="menu:${id}"]`).tap();
+  const waiting = await column(page, 'Waiting').getAttribute('data-col');
+  await q(page, `.menu [data-key="move:${waiting}"]`).tap();
+  await until(async () => (await cardTitles(page, 'Waiting')).includes('Termbase export won’t open'), 'moved on screen');
+  await until(async () => JSON.stringify(boardLabels(id)) === '["_Board/Waiting"]', 'and in Gmail');
+  assert.ok(!(await cardTitles(page, 'Doing')).includes('Termbase export won’t open'));
+});
+
+await r.step('an email goes on the board from a column’s + search', async () => {
+  const todo = await column(page, 'To do').getAttribute('data-col');
+  await q(page, `[data-key="add:${todo}"]`).tap();
+  await q(page, `[data-key="search:${todo}"]`).fill('NDA');
+  await q(page, `[data-key="search:${todo}"]`).press('Enter');
+  const id = phone.fake.box.findThread('3,000-word NDA');
+  await q(page, `[data-key="result:${id}"]`).tap();
+  await until(async () => (await cardTitles(page, 'To do')).includes('Can you take a 3,000-word NDA this week?'), 'added');
+  await until(async () => JSON.stringify(boardLabels(id)) === '["_Board/To do"]', 'labelled in Gmail');
+});
+
+await r.step('a card’s own title is kept by the script, for every phone and computer the app is opened on', async () => {
+  const id = phone.fake.box.findThread('Termbase export');
+  await q(page, `[data-key="menu:${id}"]`).tap();
+  await q(page, '.menu [data-key="edit"]').tap();
+  await q(page, '[data-key="edit-title"]').fill('Call Hendrik about the .tbx');
+  await q(page, '[data-key="edit-save"]').tap();
+  await until(async () => (await cardTitles(page, 'Waiting')).includes('Call Hendrik about the .tbx'), 'renamed');
+  await settled(page);
+  assert.deepEqual(JSON.parse(phone.fake.userProperties.get(`gkb.card:test@example.com:${id}`)).title, 'Call Hendrik about the .tbx');
+
+  const other = await openApp({ phone });
+  await scratchReady(other.page);
+  await q(other.page, '[data-key="view:board"]').tap();
+  await until(async () => (await cardTitles(other.page, 'Waiting')).includes('Call Hendrik about the .tbx'), 'on the other phone too');
+  await other.page.context().close();
+});
+
+await r.step('tapping a card opens the conversation in Gmail; the app remembers the board tab', async () => {
+  await page.evaluate(() => { window.__opened = []; window.open = url => { window.__opened.push(url); return null; }; });
+  const id = phone.fake.box.findThread('3,000-word NDA');
+  await q(page, `[data-key="card:${id}"]`).tap();
+  assert.deepEqual(await page.evaluate(() => window.__opened), [`https://mail.google.com/mail/?authuser=test%40example.com#all/${id}`]);
+  await page.reload();
+  await q(page, '.card .subject').first().waitFor();
+  assert.equal(await q(page, '[data-key="view:board"]').getAttribute('aria-selected'), 'true');
+  await q(page, '[data-key="view:notes"]').tap();
+  await scratchReady(page);
 });
 
 await r.step('nothing on the page but the app once it has started; a broken history does not stop it', async () => {

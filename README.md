@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.15.0" src="https://img.shields.io/badge/version-0.15.0-6D28D9">
+  <img alt="Version 0.16.0" src="https://img.shields.io/badge/version-0.16.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -75,12 +75,13 @@ a find bar to step from one to the next.
 
 ### 📱 And on your phone
 
-A panel in the Gmail app files the open email on the board, ticks your
-checklists and adds to a note. A home-screen app opens straight onto your
-Scratchpad, ready to type, and has the notes themselves a tap away, with the
-same editor, folders and search.
+A home-screen app with the board and the notes: the board one column to a
+screen, swiped sideways; the notes opening straight onto your Scratchpad,
+ready to type, with the same editor, folders and search as in Chrome. And a
+panel in the Gmail app files the open email on the board, ticks your
+checklists and adds to a note.
 
-<img src="images/phone.jpg" width="100%" alt="Three phones: the folder tree above the Scratchpad, a checklist note, and search results in dark mode">
+<img src="images/phone.jpg" width="100%" alt="Three phones: the board, the Scratchpad, and search results in dark mode">
 
 ### 🔒 Yours alone
 
@@ -108,7 +109,7 @@ open email in a column, ticks checklist items, adds lines to a note, files it
 in a folder and starts new notes from inside the Gmail app, and the **phone
 app** puts the notes themselves, with the full editor, on your home screen.
 
-Version 0.15.0. Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.16.0. Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -377,13 +378,23 @@ for Apps Script (`tests/addon.test.js`).
 
 ## The phone app
 
-The notes on your phone's home screen: the extension's own Notes view, served
-full-screen by the same Apps Script project as the phone panel, and added to
-the home screen from Chrome. It is the same list, folders, search with the
-words marked, formatting editor, checklists, find and autosave as in Chrome,
-laid out for a phone:
+The board and the notes on your phone's home screen: the extension's own
+board and Notes view, served full-screen by the same Apps Script project as
+the phone panel, and added to the home screen from Chrome. The same
+**Board** and **Notes** tabs, columns and cards, notes, folders, search with
+the words marked, formatting editor, checklists, find and autosave as in
+Chrome, laid out for a phone. (Opened on a computer, it is the board and
+notes as in Gmail, in a tab of their own.)
 
-- **It opens on the Scratchpad.** The search box and **New** at the top, and
+- **The board**, one column to a screen: swipe sideways for the next. A
+  card's **⋯** opens it in Gmail, moves it to another column, edits its
+  title, note and colour, or takes it off the board; the **+** on a column
+  finds an email and adds it; the settings button changes the columns.
+  The first time, the columns are your `_Board` labels as Gmail has them;
+  after that the app keeps its own column layout and card edits, the same
+  on every phone and computer you open it on (but separate from the
+  extension's, which Chrome keeps).
+- **The notes open on the Scratchpad.** The search box and **New** at the top, and
   the Scratchpad below them, filling the screen: tap it and type.
 - **One thing at a time.** Above the search box, one button says which folder
   you are in ("All notes"); tap it and the folder tree opens, nested as on a
@@ -410,18 +421,26 @@ can open it.
 
 **How it works**: `doGet` in `Code.gs` serves the page, which is
 `addon/app/index.html` with the extension's own files packed into it
-(`src/content/notes.js`, `note-editor.js`, `ui.js`, `styles.js` and the shared
-note code). They go in as base64 inside one small loader script, which runs
+(`src/content/board.js`, `store.js`, `notes.js`, `note-editor.js`, `ui.js`,
+`styles.js` and the shared code). They go in as base64 inside one small loader script, which runs
 them in order and names any that fails: Apps Script takes a page's inline
 scripts out and runs them itself, and an app made of many plain scripts did
-not survive that (it came up blank). With them come `addon/app/remote.js`, a notes store that asks the script
-through `google.script.run` instead of asking the extension's background
-worker, and `addon/app/shell.js`, the full-screen frame and the phone layout.
+not survive that (it came up blank). With them come `addon/app/remote.js`, which gives the notes a store, and
+the board its Gmail and its settings, that ask the script through
+`google.script.run` instead of the extension's background worker (a board's
+worth of cards in one round trip); `addon/app/remote-board.js`, the first
+column layout from the labels; and `addon/app/shell.js`, which hands the
+page to the board (`ns.boardFrame`) and adds the phone layout and the back
+gesture.
 On the script's side, `addon/src/app-server.js` keeps the worker's rules: it
 inserts only notes, moves to Trash or back only messages it has itself
 checked are notes, takes an email kept as a note off the list without
-touching it otherwise, and deletes a folder only when Gmail says it is empty.
-It runs as you, under the phone panel's permissions; nothing new is asked.
+touching it otherwise, and deletes a folder only when Gmail says it is empty;
+for the board it reads labels and threads, makes and renames labels, and
+changes the labels on a conversation - never Trash, Spam or the Inbox, never
+anything sent or deleted. The app's column layout and card edits are kept in
+the script's user properties. It runs as you, under the phone panel's
+permissions; nothing new is asked.
 
 ## Privacy
 

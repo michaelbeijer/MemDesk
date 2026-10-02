@@ -11,7 +11,7 @@ phone and can be added any time.
 |---|---|---|---|
 | [1. The extension](#part-1-the-extension) | Chrome on a computer: the board and the notes editor inside Gmail | about 15 minutes | a free Google Cloud project of your own |
 | [2. The phone panel](#part-2-the-phone-panel) | the Gmail app on your phone, at the bottom of an open email | about 5 minutes | a free Apps Script project |
-| [3. The phone app](#part-3-the-phone-app) | your phone's home screen: the notes, full-screen, with the editor | about 3 minutes | part 2 |
+| [3. The phone app](#part-3-the-phone-app) | your phone's home screen: the board and the notes, full-screen | about 3 minutes | part 2 |
 
 It works with a Google Workspace account and with an ordinary @gmail.com
 account. Nothing is sent anywhere but Google: there is no Supermail server.
@@ -135,7 +135,7 @@ project: Apps Script brings its own.
 
 ## Part 3: the phone app
 
-The notes on your phone's home screen, full-screen, with the same editor as
+The board and the notes on your phone's home screen, full-screen, with the same editor as
 in Chrome: formatting, checklists, folders, search with the words marked, and
 saving as you type. It is served by the same Apps Script project as the phone
 panel, so do part 2 first.

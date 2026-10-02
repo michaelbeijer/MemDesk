@@ -6,6 +6,11 @@
 // the card moves at once, and moves back with a toast if Gmail refuses.
 // Dragging is the quick way to move things, but every action is also on
 // the card's "⋯" menu, so nothing needs a mouse.
+//
+// The phone app (addon/app) runs this same board as the app itself rather
+// than over Gmail: it sets ns.boardFrame - where to draw, the tab to start
+// on, and what the notes need from it - and there is then nothing to
+// close, and no Gmail page behind to keep the keyboard out of.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -53,13 +58,15 @@
   };
 
   let root = null;
+  let frame = null; // ns.boardFrame, in the phone app
   const els = {};
 
   // ── Mounting ─────────────────────────────────────────────────────────
 
   function mount() {
     if (S.mounted) return;
-    ({ root } = mountShadow(HOST_IDS.board, ns.styles.board));
+    frame = ns.boardFrame || null;
+    ({ root } = frame ? { root: frame.root } : mountShadow(HOST_IDS.board, ns.styles.board));
 
     els.account = h('span', { class: 'account' });
     els.updated = h('span', { class: 'updated' });
@@ -73,7 +80,7 @@
     }, icon('tune'));
     els.close = h('button', {
       class: 'icon-btn', type: 'button', 'aria-label': 'Close board', title: 'Close (Esc)',
-      onclick: close,
+      hidden: !!frame, onclick: close,
     }, icon('close'));
 
     const tab = (view, label, iconName) => h('button', {
@@ -98,14 +105,14 @@
     els.editorLayer = h('div', { class: 'editor-layer' });
 
     els.overlay = h('div', {
-      class: 'overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': `${APP_NAME} board`,
+      class: 'overlay', role: frame ? null : 'dialog', 'aria-modal': frame ? null : 'true', 'aria-label': `${APP_NAME} board`,
       tabindex: '-1', hidden: true, onkeydown: onOverlayKey,
     }, bar, els.body, els.live, els.drawerLayer, els.editorLayer);
 
     root.appendChild(els.overlay);
     S.mounted = true;
 
-    ns.notes.init({
+    ns.notes.init(Object.assign({
       root,
       // Account trouble found by the notes gets the same panel as the board's.
       onStateError: err => {
@@ -128,7 +135,7 @@
         },
         set: (name, value) => chrome.storage.local.set({ [KEYS.pref(hooks.getAccount(), name)]: value }),
       },
-    });
+    }, frame && frame.notes));
 
     // A move made from the dock (or another tab) makes what the board last
     // loaded wrong; the board's own moves are already reflected on screen.
@@ -148,9 +155,9 @@
       return;
     }
     S.open = true;
-    S.returnFocus = deepActiveElement();
+    S.returnFocus = frame ? null : deepActiveElement();
     els.overlay.hidden = false;
-    els.close.focus();
+    if (!frame) els.close.focus();
     document.addEventListener('keydown', onDocumentKey, true);
     S.ticker = setInterval(updateBar, 5000);
 
@@ -159,7 +166,8 @@
       S.viewLoaded = true;
       try {
         const got = await chrome.storage.local.get(KEYS.view);
-        if (got[KEYS.view] === 'notes') S.view = 'notes';
+        if (got[KEYS.view] === 'notes' || got[KEYS.view] === 'board') S.view = got[KEYS.view];
+        else if (frame && frame.view) S.view = frame.view;
       } catch { /* extension reloaded; handled just below */ }
     }
     if (view) S.view = view;
@@ -199,7 +207,7 @@
     if (PANEL_STATES.has(S.status)) S.status = 'idle';
     render();
     ns.notes.load();
-    ns.notes.focusDefault();
+    if (!frame || frame.focus !== false) ns.notes.focusDefault();
   }
 
   function switchView(view) {
@@ -222,7 +230,8 @@
   }
 
   function close() {
-    if (!S.open) return;
+    // In the phone app the board is the app: there is nothing to close to.
+    if (!S.open || frame) return;
     // Whatever was typed in the last second or two is saved on the way out.
     ns.notes.flush();
     closeMenu(root);
@@ -271,7 +280,7 @@
       else close();
       return;
     }
-    if (e.key === 'Tab') trapFocus(e);
+    if (e.key === 'Tab' && !frame) trapFocus(e);
   }
 
   // If focus has escaped to Gmail's page (a click on its edge, say), Esc
@@ -282,7 +291,7 @@
       ns.notes.handleKey(e);
       return;
     }
-    if (e.key !== 'Escape' || !S.open) return;
+    if (e.key !== 'Escape' || !S.open || frame) return;
     if (e.composedPath().includes(els.overlay)) return;
     if (isMenuOpen(root)) return;
     e.preventDefault();
@@ -1373,5 +1382,10 @@
   ns.board = {
     open, close, toggle, toggleView, columnsChanged, cardEditsChanged,
     isOpen: () => S.open,
+    // For the phone app: what is showing, and a refresh if it is stale.
+    view: () => S.view,
+    refreshIfStale() {
+      if (S.open && S.view === 'board' && Date.now() - S.loadedAt > STALE_MS) refresh();
+    },
   };
 })();

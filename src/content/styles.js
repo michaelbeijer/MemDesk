@@ -544,7 +544,9 @@ button:disabled { cursor: default; }
 }
 .card-menu:hover { background: var(--hover); }
 .card:hover .card-menu, .card:focus-within .card-menu, .card-menu[aria-expanded="true"] { opacity: 1; }
-@media (hover: none) { .card-menu { opacity: 1; } .card .date { visibility: visible; } }
+/* No hover on a touch screen: the ⋯ is always there, and the top line
+   makes room for it rather than hiding the date under it. */
+@media (hover: none) { .card-menu { opacity: 1; } .card .date { visibility: visible; } .card-top { padding-right: 30px; } }
 
 .placeholder {
   flex: none;

@@ -38,20 +38,26 @@ export const FILES = [
   'addon/src/triggers.js',
 ];
 
-// The phone app's page: the extension's own Notes view and editor, with
-// a store that reaches Gmail through this script, and a phone layout.
-// remote.js comes before notes.js, which picks up the store as it loads.
+// The phone app's page: the extension's own board, Notes view and editor,
+// with a way to Gmail through this script, and a phone layout. remote.js
+// comes before the files that pick up what it provides as they load
+// (store.js, notes.js and board.js); remote-board.js after store.js,
+// which it adjusts.
 export const APP_FILES = [
   'src/shared/ns.js',
   'src/lib/util.js',
   'src/lib/notes-logic.js',
   'src/lib/note-format.js',
   'src/lib/search-logic.js',
+  'src/lib/board-logic.js',
   'src/content/ui.js',
   'src/content/styles.js',
   'src/content/note-editor.js',
   'addon/app/remote.js',
+  'src/content/store.js',
+  'addon/app/remote-board.js',
   'src/content/notes.js',
+  'src/content/board.js',
   'addon/app/shell.js',
 ];
 

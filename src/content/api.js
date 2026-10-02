@@ -44,6 +44,13 @@
     return send({ type: 'gmail', account: ns.hooks.getAccount(), method, path, query, body });
   }
 
+  // Several reads, six at a time. Each answer is the response, or
+  // { error }: one failure among many is the caller's to judge. (The phone
+  // app sends the lot to its script in one go instead.)
+  function gmailMany(list) {
+    return ns.util.mapPool(list, 6, ([method, path, query]) => gmail(method, path, query).catch(error => ({ error })));
+  }
+
   function connect() {
     return send({ type: 'connect', account: ns.hooks.getAccount() });
   }
@@ -56,5 +63,5 @@
     return send({ type: 'hello' }).catch(() => {});
   }
 
-  ns.api = { ApiError, STATE_CODES, gmail, connect, openOptions, hello };
+  ns.api = { ApiError, STATE_CODES, gmail, gmailMany, connect, openOptions, hello };
 })();
