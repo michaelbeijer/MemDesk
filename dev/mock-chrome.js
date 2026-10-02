@@ -820,5 +820,6 @@
   }
 
   window.__fakeGmail = box;
-  window.__mockChrome = { log, dispatchToTab, account: ACCOUNT };
+  // route: the Gmail API itself, for the phone panel's tests in Node.
+  window.__mockChrome = { log, dispatchToTab, account: ACCOUNT, route };
 })();

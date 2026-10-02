@@ -11,10 +11,14 @@ notes are views of your mailbox. Because they are ordinary labels and messages,
 they show up in the Gmail app on your phone too, so you can file a thread from
 the train and see it on the board later, or look up a note. The leading
 underscore sorts both labels to the top of Gmail's label list. The board and the
-notes editor themselves only exist in desktop Chrome.
+notes editor themselves only exist in desktop Chrome; on a phone, the **phone
+panel** (a small Gmail add-on you install for yourself, see below) ticks
+checklist items, adds lines to a note, files it in a folder and starts new
+notes from inside the Gmail app.
 
-Version 0.7.0. Plain JavaScript, Manifest V3, no build step and no runtime
-dependencies.
+Version 0.8.0. Plain JavaScript, Manifest V3, no build step and no runtime
+dependencies for the extension; the phone panel is one generated Apps Script
+file.
 
 ## Install
 
@@ -221,10 +225,90 @@ titles at 200). Taking a card off the board deletes its edit. Moving it to Done
 keeps it. If the storage ever fills, saving an edit says so rather than failing
 silently.
 
+## The phone panel
+
+A Gmail add-on for your own account, built with Google Apps Script, that shows
+at the bottom of an open email in the Gmail app on your phone (and in the
+side panel of Gmail on a computer). It works on the same notes, in the same way,
+as the extension.
+
+- **Open a note** in the Gmail app (they are under `_Notes`, at the top of the
+  label list), scroll to the bottom and tap the panel's icon. It shows the note
+  with a **check box for each checklist item**, a box for **lines to add at the
+  end** (as checklist items, bullets or text; text understands the same
+  Markdown a paste does), and the note's **folder**. **Save** saves the lot as
+  one new version; the old one goes to Trash, as in the extension. Changing only
+  the folder just moves the note.
+- **Open any other email** and the panel lists your newest notes instead, with
+  a search box (Gmail search, as in the extension), a folder filter, and
+  **New note**. Tap a note to open it.
+- **New note** takes a title, some lines (as text, a checklist or bullets) and a
+  folder. From a folder's list or from a note, it starts in that folder.
+- **All notes** and **New note** are also on the panel's own menu (⋮).
+- If the note was changed elsewhere since the panel showed it, Save does not
+  overwrite it: you get the latest version, with your new lines still in their
+  box, and tick again.
+- What the panel cannot do: edit or format text that is already in a note (it
+  only adds at the end), rename or create folders, or delete notes. Those stay
+  in the extension. A note longer than 80 lines shows its first 80; ticks
+  further down are left as they were.
+
+### Setting it up (once, about five minutes)
+
+1. Go to [script.google.com](https://script.google.com), signed in as the
+   account the notes are in, and click **New project**. Click "Untitled
+   project" at the top and call it Supermail.
+2. Click the gear (**Project Settings**) on the left and tick **Show
+   "appsscript.json" manifest file in editor**.
+3. Back in the editor (**< >** on the left):
+   - click `appsscript.json`, select everything in it, and paste the contents
+     of [`addon/appsscript.json`](addon/appsscript.json) over it;
+   - click `Code.gs`, select everything, and paste the contents of
+     [`addon/Code.gs`](addon/Code.gs) over it;
+   - press **Ctrl+S**.
+
+   Two settings, if they need changing: `"timeZone"` in `appsscript.json`
+   (it is `Europe/London`; it only affects "edited 3 h" style times), and
+   `SUPERMAIL_NOTES_LABEL` at the top of `Code.gs` if you renamed `_Notes`.
+4. Click **Deploy > Test deployments**, then **Install**, then **Done**.
+5. Open Gmail on your computer and reload it. The panel's icon is in the strip
+   on the right. Click it, then **Authorize access**, choose your account, and
+   allow what it asks (below). Google may first say it "hasn't verified this
+   app": that is said of every script that has not been through Google's
+   review, including your own. Click **Advanced**, then **Go to Supermail**.
+6. On your phone, open the Gmail app, open any email, and scroll to the bottom:
+   the icon is in the row of add-ons there. If it is not there yet, close and
+   reopen the app.
+
+**Updating**: paste the new `Code.gs` (and `appsscript.json`, if it changed)
+over the old ones and save. A test deployment always runs the latest saved
+code, so there is nothing to reinstall. The first line of `Code.gs` says which
+version it is.
+
+**What it is allowed to do**: read and change your mail's labels and insert
+messages (`gmail.modify`, the same as the extension), run as a Gmail add-on and
+see which message is open (`gmail.addons.execute`,
+`gmail.addons.current.message.metadata`), and call the Gmail API
+(`script.external_request`, only to `gmail.googleapis.com`). It keeps the
+extension's rules in its own code: it inserts only notes, moves to Trash only
+messages it has itself checked are notes, never adds Trash, Spam or Inbox to
+anything, and never sends. It runs in Google's Apps Script under your account;
+nothing goes anywhere else. To remove it: **Deploy > Test deployments >
+Uninstall**, and delete the project.
+
+**How it is built**: `addon/Code.gs` is generated by `node tools/build-addon.mjs`
+from the shared note code in `src/lib/` (the same files the extension loads)
+and the panel's own files in `addon/src/`, with small stand-ins for the browser
+APIs Apps Script lacks (`addon/src/shims.js`). `npm test` fails if it is out of
+date, and runs the whole panel against the preview's fake Gmail in a stand-in
+for Apps Script (`tests/addon.test.js`).
+
 ## Privacy
 
 - **There is no server.** The extension talks only to `gmail.googleapis.com`,
-  from your browser.
+  from your browser. The phone panel runs in Google's Apps Script, under your
+  own account, and also talks only to `gmail.googleapis.com` (see
+  [The phone panel](#the-phone-panel) for what it may do).
 - **The access token lives only in this browser's session storage**
   (`chrome.storage.session`). It is held in memory, is not readable by the Gmail
   page or by the content scripts, and is gone when Chrome closes. The implicit
@@ -290,7 +374,9 @@ The display name appears in exactly these places:
 2. `manifest.json`: `"action"."default_title"`
 3. `src/shared/ns.js`: `APP_NAME`
 4. `README.md`: the title
-5. The setup page title. It is set from `APP_NAME` at runtime, so no edit is needed.
+5. `addon/appsscript.json`: `"addOns"."common"."name"`, the phone panel's name
+   (its cards take theirs from `APP_NAME`; rebuild `addon/Code.gs` after a rename)
+6. The setup page title. It is set from `APP_NAME` at runtime, so no edit is needed.
 
 Nothing internal carries the name: not the `gkb` namespace, the storage keys
 (`clientId`, `columns:<email>`, `order:<email>`), the CSS classes or the element
@@ -379,16 +465,26 @@ src/content/               classic scripts, in manifest order
   main.js                  wiring
 src/options/               setup page
 dev/                       preview page and fake Gmail
-tests/                     unit tests; tests/e2e/ browser checks
+addon/                     the phone panel (a Gmail add-on in Apps Script)
+  appsscript.json          its manifest
+  Code.gs                  generated: shared note code + addon/src, one file
+  src/shims.js             btoa, TextEncoder, URL and friends for Apps Script
+  src/panel-logic.js       pure: a note as card items, ticks, appended lines
+  src/gmail.js, store.js   Gmail over UrlFetchApp, and the notes on it
+  src/cards.js             the cards and what their buttons do
+  src/triggers.js          the top-level functions Apps Script calls
+tests/                     unit tests; tests/e2e/ browser checks;
+                           helpers/apps-script.js, a stand-in Apps Script
 tools/make-icons.mjs       icon generator
+tools/build-addon.mjs      builds addon/Code.gs
 ```
 
 ## Roadmap
 
 - **A to-do view.** One flat list across all columns, oldest first, for days when
   a board is too much.
-- **A panel in the Gmail phone app** (next), as a private Google Workspace add-on: a new
-  note, adding to a note, ticking checklist items, moving a note to a folder.
+- **The board on the phone panel**: moving the open thread to another column
+  from the Gmail app.
 - **A "Needs reply" column**, computed rather than labelled. It would reuse the
   triage and ranking logic in `supervertaler-stats/src/email.js`
   (`classifyBulk`, `scoreThread`): threads whose newest message is inbound and

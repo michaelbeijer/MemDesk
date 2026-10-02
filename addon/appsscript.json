@@ -1,0 +1,43 @@
+{
+  "timeZone": "Europe/London",
+  "runtimeVersion": "V8",
+  "exceptionLogging": "STACKDRIVER",
+  "dependencies": {
+    "enabledAdvancedServices": [
+      { "userSymbol": "Gmail", "serviceId": "gmail", "version": "v1" }
+    ]
+  },
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/gmail.addons.execute",
+    "https://www.googleapis.com/auth/gmail.addons.current.message.metadata",
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/script.external_request"
+  ],
+  "urlFetchWhitelist": [
+    "https://gmail.googleapis.com/"
+  ],
+  "addOns": {
+    "common": {
+      "name": "Supermail",
+      "logoUrl": "https://www.gstatic.com/images/icons/material/system/1x/description_black_48dp.png",
+      "useLocaleFromApp": true,
+      "layoutProperties": {
+        "primaryColor": "#0b57d0",
+        "secondaryColor": "#0b57d0"
+      },
+      "homepageTrigger": {
+        "runFunction": "onHomepage",
+        "enabled": true
+      },
+      "universalActions": [
+        { "label": "All notes", "runFunction": "onUniversalAllNotes" },
+        { "label": "New note", "runFunction": "onUniversalNewNote" }
+      ]
+    },
+    "gmail": {
+      "contextualTriggers": [
+        { "unconditional": {}, "onTriggerFunction": "onGmailMessage" }
+      ]
+    }
+  }
+}
