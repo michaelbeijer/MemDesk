@@ -4,7 +4,7 @@
 // The extension's Notes view, full-screen: the same list, folders,
 // search with the words marked, formatting editor, autosave and find,
 // with the board's styles and a phone layout on top - one pane at a time,
-// the list or the open note, folders as a row of chips.
+// the list or the open note, the folder tree folded away behind a button.
 //
 // A phone leaves pages without closing them, so whatever is pending is
 // saved whenever the page is hidden; and Android's back gesture goes from
@@ -29,19 +29,25 @@
   .notes[data-view="note"] .notes-folders, .notes[data-view="note"] .notes-list { display: none; }
   .notes[data-view="list"] .note-editor { display: none; }
 
-  /* Folders: a row of chips above the list. */
-  .notes-folders { flex: none; flex-direction: row; align-items: center; gap: 4px; padding: 2px 8px 6px; background: none; border-radius: 0; overflow-x: auto; scrollbar-width: none; }
-  .folders-head { order: 2; padding: 0; }
-  .folders-head h2 { display: none; }
-  .folder-items { flex: none; flex-direction: row; gap: 6px; padding: 0; overflow: visible; }
-  .folder-row { flex: none; padding-left: 0; }
-  .folder-btn { height: 34px; padding: 0 14px; border-radius: 17px; border: 1px solid var(--border-strong); white-space: nowrap; }
-  .folder-btn[aria-current="true"] { border-color: transparent; }
-  .folder-title { overflow: visible; }
-  .folder-count, .folder-btn .icon { display: none; }
-  .folder-menu { display: none; position: static; opacity: 1; }
-  .folder-row:has(.folder-btn[aria-current="true"]) .folder-menu { display: inline-flex; background: none; color: var(--fg-2); }
-  .folder-row.editing { flex: 0 0 82vw; }
+  /* Folders: the tree, folded away behind a button that says where you
+     are; open, it is the same tree as on a computer, nesting and all. */
+  .notes-folders { flex: none; background: none; border-radius: 0; padding: 2px 12px 4px; }
+  .folders-toggle {
+    display: flex; align-items: center; gap: 10px; width: 100%; height: 46px; padding: 0 10px 0 14px;
+    border-radius: 14px; background: var(--col); color: var(--fg); font-size: 15px; text-align: left;
+  }
+  .folders-toggle .icon { color: var(--fg-2); flex: none; }
+  .ft-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ft-count { color: var(--fg-3); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .notes[data-folders="open"] .folders-toggle { border-radius: 14px 14px 0 0; }
+  .notes[data-folders="open"] .folders-toggle .icon:last-child { transform: rotate(180deg); }
+  .notes:not([data-folders="open"]) .folders-head, .notes:not([data-folders="open"]) .folder-items { display: none; }
+  .folders-head { background: var(--col); padding: 0 6px 0 16px; }
+  .folder-items { flex: none; max-height: 55vh; background: var(--col); border-radius: 0 0 14px 14px; padding: 2px 8px 10px; }
+  .folder-btn { height: 44px; }
+  /* No hover on a phone: each folder's ⋯ is always there, next to its count. */
+  .folder-menu { opacity: 1; right: 4px; }
+  .folder-row .folder-count, .folder-row:hover .folder-count, .folder-row:focus-within .folder-count { visibility: visible; margin-right: 34px; }
 
   .notes-list { flex: 1; border-radius: 0; background: none; }
   .notes-tools { padding: 4px 12px 8px; }
