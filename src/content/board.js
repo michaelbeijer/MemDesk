@@ -13,7 +13,11 @@
 
   const ns = (globalThis.gkb = globalThis.gkb || {});
   const { h, icon, mountShadow, toast, openMenu, closeMenu, isMenuOpen } = ns.ui;
-  const { util, logic, store, hooks, api, APP_NAME, HOST_IDS } = ns;
+  const { util, logic, store, hooks, api, APP_NAME, HOST_IDS, KEYS } = ns;
+
+  // States with a panel of their own, shown whichever tab is open: they
+  // are about the account, not about the board or the notes.
+  const PANEL_STATES = new Set(['no_account', 'not_configured', 'auth_required', 'account_mismatch']);
 
   // Opening the board re-reads Gmail if what is on screen is older than
   // this. Short enough that a label added on the phone shows up; long
@@ -27,6 +31,8 @@
   const S = {
     mounted: false,
     open: false,
+    view: 'board',    // board | notes - the overlay's two tabs
+    viewLoaded: false,
     account: '',
     columns: [],
     lists: {},        // column id → thread ids, in display order
@@ -37,6 +43,8 @@
     statusMessage: '',
     search: null,     // { colId, query, ids, loading, error, seq }
     drawer: null,     // { draft, error, saving }
+    edits: new Map(), // thread id → { title?, note?, colour? } (see logic.normaliseCardEdit)
+    editor: null,     // { id, subject, draft, error, saving }
     drag: null,       // { id, fromCol, card, placeholder }
     mutations: 0,     // local moves made; a refresh that spans one is stale
     renderDeferred: false,
@@ -57,7 +65,7 @@
     els.updated = h('span', { class: 'updated' });
     els.refresh = h('button', {
       class: 'icon-btn', type: 'button', 'aria-label': 'Refresh', title: 'Refresh',
-      onclick: () => refresh(),
+      onclick: () => (S.view === 'notes' ? ns.notes.load({ force: true }) : refresh()),
     }, icon('refresh'));
     els.settings = h('button', {
       class: 'icon-btn', type: 'button', 'aria-label': 'Column settings', title: 'Column settings',
@@ -68,12 +76,18 @@
       onclick: close,
     }, icon('close'));
 
+    const tab = (view, label, iconName) => h('button', {
+      class: 'tab', type: 'button', role: 'tab', 'aria-selected': String(S.view === view),
+      dataset: { key: `view:${view}`, view }, onclick: () => switchView(view),
+    }, icon(iconName, 18), label);
+    els.tabs = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'View' },
+      tab('board', 'Board', 'board'), tab('notes', 'Notes', 'note'));
+
     const bar = h('header', { class: 'bar' },
       h('h1', { class: 'brand' },
         h('span', { class: 'logo' }, icon('board', 26)),
-        h('span', { text: APP_NAME }),
-        h('span', { class: 'dim', text: '·' }),
-        h('span', { text: 'Board' })),
+        h('span', { text: APP_NAME })),
+      els.tabs,
       els.account,
       h('div', { class: 'spacer' }),
       els.updated, els.refresh, els.settings, els.close);
@@ -81,35 +95,66 @@
     els.body = h('main', { class: 'body' });
     els.live = h('div', { class: 'sr-only', 'aria-live': 'polite' });
     els.drawerLayer = h('div', { class: 'drawer-layer' });
+    els.editorLayer = h('div', { class: 'editor-layer' });
 
     els.overlay = h('div', {
       class: 'overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': `${APP_NAME} board`,
       tabindex: '-1', hidden: true, onkeydown: onOverlayKey,
-    }, bar, els.body, els.live, els.drawerLayer);
+    }, bar, els.body, els.live, els.drawerLayer, els.editorLayer);
 
     root.appendChild(els.overlay);
     S.mounted = true;
+
+    ns.notes.init({
+      root,
+      // Account trouble found by the notes gets the same panel as the board's.
+      onStateError: err => {
+        S.status = err.code;
+        S.statusMessage = err.message;
+        render();
+      },
+      onLoaded: () => {
+        if (!PANEL_STATES.has(S.status)) return;
+        S.status = 'idle';
+        render();
+      },
+      closeBoard: close,
+      barChanged: updateBar,
+    });
 
     // A move made from the dock (or another tab) makes what the board last
     // loaded wrong; the board's own moves are already reflected on screen.
     store.bus.addEventListener('thread-changed', e => {
       if (e.detail && e.detail.source === 'board') return;
       S.loadedAt = 0;
-      if (S.open) refresh();
+      if (S.open && S.view === 'board') refresh();
     });
   }
 
   // ── Open / close ─────────────────────────────────────────────────────
 
-  async function open() {
+  async function open({ view } = {}) {
     mount();
-    if (S.open) return;
+    if (S.open) {
+      if (view) switchView(view);
+      return;
+    }
     S.open = true;
     S.returnFocus = deepActiveElement();
     els.overlay.hidden = false;
     els.close.focus();
     document.addEventListener('keydown', onDocumentKey, true);
     S.ticker = setInterval(updateBar, 5000);
+
+    // The tab last used, unless the caller asked for one.
+    if (!S.viewLoaded) {
+      S.viewLoaded = true;
+      try {
+        const got = await chrome.storage.local.get(KEYS.view);
+        if (got[KEYS.view] === 'notes') S.view = 'notes';
+      } catch { /* extension reloaded; handled just below */ }
+    }
+    if (view) S.view = view;
 
     S.account = hooks.getAccount();
     if (!S.account) {
@@ -127,6 +172,11 @@
       render();
       return;
     }
+    if (S.view === 'notes') showNotes();
+    else showBoard();
+  }
+
+  function showBoard() {
     const stale = S.status !== 'ready' || Date.now() - S.loadedAt > STALE_MS;
     // Skeleton columns while a first (or retried) load runs, rather than
     // leaving an old "Connect Gmail" panel up after the user has connected.
@@ -135,13 +185,45 @@
     if (stale) refresh();
   }
 
+  // An account panel left over from earlier is retried rather than shown
+  // again; if the trouble is still there, the notes' own load says so.
+  function showNotes() {
+    if (PANEL_STATES.has(S.status)) S.status = 'idle';
+    render();
+    ns.notes.load();
+    ns.notes.focusDefault();
+  }
+
+  function switchView(view) {
+    if (view === S.view || !S.open) return;
+    if (S.view === 'notes') ns.notes.flush();
+    closeMenu(root);
+    S.search = null;
+    S.view = view;
+    chrome.storage.local.set({ [KEYS.view]: view }).catch(() => {});
+    if (view === 'notes') showNotes();
+    else showBoard();
+  }
+
+  // The dock's two buttons: open on that tab, switch to it, or - when it
+  // is already showing - close.
+  function toggleView(view) {
+    if (S.open && S.view === view) close();
+    else if (S.open) switchView(view);
+    else open({ view });
+  }
+
   function close() {
     if (!S.open) return;
+    // Whatever was typed in the last second or two is saved on the way out.
+    ns.notes.flush();
     closeMenu(root);
     S.open = false;
     S.search = null;
     S.drawer = null;
+    S.editor = null;
     renderDrawer();
+    renderEditor();
     els.overlay.hidden = true;
     // "Columns saved" means nothing once the board is gone; errors stay
     // until read or timed out, since they may explain a card that moved back.
@@ -168,13 +250,15 @@
 
   // ── Keyboard ─────────────────────────────────────────────────────────
 
-  // Esc peels back one layer at a time: drawer, then search, then board.
-  // Open menus handle their own Esc before it gets here.
+  // Esc peels back one layer at a time: card editor or drawer, then
+  // search, then board. Open menus handle their own Esc before it gets here.
   function onOverlayKey(e) {
+    if (S.view === 'notes' && !S.editor && ns.notes.handleKey(e)) return;
     if (e.key === 'Escape') {
       if (isMenuOpen(root)) return;
       e.preventDefault();
-      if (S.drawer) closeDrawer();
+      if (S.editor) closeEditor();
+      else if (S.drawer) closeDrawer();
       else if (S.search) closeSearch();
       else close();
       return;
@@ -185,6 +269,11 @@
   // If focus has escaped to Gmail's page (a click on its edge, say), Esc
   // should still close the board rather than reach Gmail.
   function onDocumentKey(e) {
+    // F3 steps through search matches wherever the focus has wandered.
+    if (e.key === 'F3' && S.open && S.view === 'notes' && !e.composedPath().includes(els.overlay)) {
+      ns.notes.handleKey(e);
+      return;
+    }
     if (e.key !== 'Escape' || !S.open) return;
     if (e.composedPath().includes(els.overlay)) return;
     if (isMenuOpen(root)) return;
@@ -195,8 +284,8 @@
 
   // A modal that lets Tab wander into the page behind it is not modal.
   function trapFocus(e) {
-    const scope = S.drawer ? els.drawerLayer : els.overlay;
-    const focusable = [...scope.querySelectorAll('button:not([disabled]), input:not([disabled])')]
+    const scope = S.editor ? els.editorLayer : S.drawer ? els.drawerLayer : els.overlay;
+    const focusable = [...scope.querySelectorAll('button:not([disabled]), input:not([disabled]), textarea:not([disabled])')]
       .filter(el => el.getClientRects().length);
     if (!focusable.length) return;
     const first = focusable[0];
@@ -225,10 +314,14 @@
       updateBar();
       try {
         S.columns = await store.loadColumns(S.account);
-        const [board, saved] = await Promise.all([
+        const [board, saved, edits] = await Promise.all([
           store.loadBoard(S.account, S.columns),
           store.loadOrder(S.account),
+          store.loadCardEdits(S.account),
         ]);
+        S.edits = edits;
+        // Label names as Gmail has them now; a column follows a rename.
+        S.columns = board.columns;
         // A card moved while the lists were in flight: what came back may
         // predate that move and would snap the card back. Throw it away and
         // ask again; loadBoard waits for the move to land first.
@@ -293,11 +386,18 @@
     if (!S.mounted) return;
     els.account.textContent = S.account || 'Account not detected';
     els.account.title = S.account ? `Gmail account: ${S.account}` : '';
-    els.updated.textContent = S.loading ? 'Updating…'
-      : S.loadedAt ? `updated ${util.agoText(Date.now() - S.loadedAt)}` : '';
-    els.refresh.classList.toggle('spinning', !!S.loading);
-    els.refresh.disabled = !!S.loading || !S.account;
+    // The refresh button and "updated …" speak for whichever tab is open.
+    const notes = S.view === 'notes';
+    const loading = notes ? ns.notes.isLoading() : !!S.loading;
+    const loadedAt = notes ? ns.notes.loadedAt() : S.loadedAt;
+    els.updated.textContent = loading ? 'Updating…'
+      : loadedAt ? `updated ${util.agoText(Date.now() - loadedAt)}` : '';
+    els.refresh.classList.toggle('spinning', loading);
+    els.refresh.disabled = loading || !S.account;
+    els.settings.hidden = notes;
     els.settings.disabled = S.status !== 'ready';
+    for (const t of els.tabs.children) t.setAttribute('aria-selected', String(t.dataset.view === S.view));
+    if (notes) ns.notes.tick();
   }
 
   function render() {
@@ -311,7 +411,10 @@
 
     const key = focusKey();
     const scroll = captureScroll();
-    els.body.replaceChildren(renderBody());
+    // The notes view hands back the same element every time; putting it
+    // back would blur the text box mid-sentence, so it is left in place.
+    const next = renderBody();
+    if (els.body.firstChild !== next || els.body.childNodes.length !== 1) els.body.replaceChildren(next);
     restoreScroll(scroll);
     restoreFocus(key, els.body);
     // The focused card may be gone (removed, or moved off a column that
@@ -359,6 +462,7 @@
   }
 
   function renderBody() {
+    if (S.view === 'notes' && !PANEL_STATES.has(S.status)) return ns.notes.element();
     switch (S.status) {
       case 'no_account':
         return panel('board', 'Which account is this?',
@@ -403,6 +507,12 @@
     if (btn) btn.disabled = true;
     try {
       await api.connect();
+      if (S.view === 'notes') {
+        S.status = 'idle';
+        render();
+        await ns.notes.load({ force: true });
+        return;
+      }
       S.status = 'loading';
       render();
       await refresh();
@@ -469,14 +579,21 @@
       list);
   }
 
+  // A card shows the user's own title and note when it has them. The
+  // email's subject stays one hover away, so a renamed card can always be
+  // matched to the mail behind it.
   function renderCard(id, col) {
     const t = store.thread(id);
     if (!t) return null;
     const date = util.relativeDate(t.ts);
+    const edit = S.edits.get(id) || null;
+    const title = logic.displayTitle(t, edit);
 
     const main = h('button', {
       class: 'card-main', type: 'button', dataset: { key: `card:${id}` },
-      title: 'Open in Gmail (Ctrl-click for a new tab)',
+      title: edit && edit.title
+        ? `Email subject: ${t.subject}\nOpen in Gmail (Ctrl-click for a new tab)`
+        : 'Open in Gmail (Ctrl-click for a new tab)',
       onclick: e => openThread(id, e),
       onauxclick: e => { if (e.button === 1) { e.preventDefault(); openThread(id, { ctrlKey: true }); } },
     },
@@ -486,22 +603,25 @@
         h('span', { class: 'from', text: t.from }),
         h('span', { class: 'date', text: date, title: util.fullDate(t.ts) })),
       h('span', { class: 'subject-row' },
-        h('span', { class: 'subject', text: t.subject }),
+        h('span', { class: 'subject', text: title }),
         t.hasDraft ? h('span', { class: 'draft', text: 'Draft' }) : null,
         t.starred ? h('span', { class: 'star', title: 'Starred', 'aria-label': 'Starred' }, icon('star', 16)) : null,
         t.count > 1 ? h('span', { class: 'count', text: String(t.count), title: `${t.count} messages` }) : null),
-      t.snippet ? h('span', { class: 'snippet', text: t.snippet }) : null);
+      edit && edit.note
+        ? h('span', { class: 'card-note' }, h('span', { class: 'sr-only', text: 'Note: ' }), edit.note)
+        : t.snippet ? h('span', { class: 'snippet', text: t.snippet }) : null);
 
     const more = h('button', {
       class: 'icon-btn card-menu', type: 'button',
-      'aria-label': `More actions: ${t.subject}`, title: 'More actions',
+      'aria-label': `More actions: ${title}`, title: 'More actions',
       'aria-haspopup': 'menu', 'aria-expanded': 'false',
       dataset: { key: `menu:${id}` },
       onclick: e => openCardMenu(e.currentTarget, id, col.id),
     }, icon('more', 20));
 
     const card = h('div', {
-      class: ['card', t.unread && 'unread'], role: 'listitem', draggable: 'true', dataset: { id },
+      class: ['card', t.unread && 'unread'], role: 'listitem', draggable: 'true',
+      dataset: edit && edit.colour ? { id, colour: edit.colour } : { id },
     }, main, more);
     card.addEventListener('dragstart', e => onDragStart(e, id, col.id, card));
     card.addEventListener('dragend', onDragEnd);
@@ -527,12 +647,16 @@
     return S.columns.find(c => (S.lists[c.id] || []).includes(id)) || null;
   }
 
+  function cardTitle(id) {
+    return logic.displayTitle(store.thread(id), S.edits.get(id));
+  }
+
   function openCardMenu(anchor, id, colId) {
-    const t = store.thread(id) || { subject: '' };
     const list = S.lists[colId] || [];
     const at = list.indexOf(id);
     openMenu(root, anchor, [
       { label: 'Open in Gmail', icon: 'open', key: 'open', onSelect: () => openThread(id) },
+      { label: 'Edit card…', icon: 'edit', key: 'edit', onSelect: () => openEditor(id) },
       { separator: true },
       // Reordering is a drag otherwise; these keep it within reach of the
       // keyboard. Focus returns to this card's menu button afterwards, so
@@ -550,7 +674,7 @@
       })),
       { separator: true },
       { label: 'Remove from board', icon: 'remove', danger: true, key: 'remove', onSelect: () => removeThread(id) },
-    ], { label: `Actions for ${t.subject}` });
+    ], { label: `Actions for ${cardTitle(id)}` });
   }
 
   // Optimistic: the card moves now, and only this card moves back if
@@ -593,7 +717,8 @@
     render();
     announce('Removed from the board.');
     try {
-      await store.removeFromBoard(id, S.columns, 'board');
+      await store.removeFromBoard(id, S.columns, 'board', S.account);
+      S.edits.delete(id);
     } catch (err) {
       S.lists[col.id] = logic.placeId(S.lists[col.id], id, originalIndex);
       persistOrder();
@@ -603,10 +728,9 @@
   }
 
   function failToast(verb, id, err) {
-    const t = store.thread(id) || { subject: 'that thread' };
     const opts = { kind: 'error' };
     if (err.code === 'auth_required') opts.action = { label: 'Connect', onClick: () => connect() };
-    toast(root, `Couldn’t ${verb} “${t.subject}”: ${err.message}`, opts);
+    toast(root, `Couldn’t ${verb} “${store.thread(id) ? cardTitle(id) : 'that thread'}”: ${err.message}`, opts);
   }
 
   // ── Drag and drop ────────────────────────────────────────────────────
@@ -809,7 +933,7 @@
           h('span', { class: 'from', text: t.from }),
           h('span', { class: 'spacer' }),
           h('span', { class: 'date', text: util.relativeDate(t.ts) })),
-        h('span', { class: 'r-subject', text: t.subject }),
+        h('span', { class: 'r-subject', text: logic.displayTitle(t, S.edits.get(id)) }),
         where ? h('span', { class: 'r-where', text: here ? 'Already in this column' : `In ${where.title} · moves here` }) : null);
     }));
   }
@@ -921,7 +1045,7 @@
         rowTitle.textContent = c.title || 'New column';
         // A new column's label follows its title until edited by hand.
         if (c.isNew && !c.labelTouched) {
-          c.label = `Board/${c.title.trim()}`;
+          c.label = `${c.root}/${c.title.trim()}`;
           labelInput.value = c.label;
         }
       },
@@ -978,10 +1102,14 @@
 
   function addDraftColumn() {
     const d = S.drawer.draft;
+    // Under whatever parent the columns already share ("_Board", or one
+    // the user moved them to), not a hard-coded one.
+    const root = logic.labelRoot(S.columns);
     d.push({
       id: logic.newColumnId(d),
       title: 'New column',
-      label: 'Board/New column',
+      label: `${root}/New column`,
+      root,
       archiveOnDrop: false,
       origLabel: '',
       isNew: true,
@@ -1053,6 +1181,160 @@
     }
   }
 
+  // ── Card editor ──────────────────────────────────────────────────────
+  //
+  // The user's own title, note and colour for one card. None of it reaches
+  // Gmail: the record lives in storage.sync, and the email - its subject,
+  // its labels, what correspondents see - is exactly as it was.
+
+  const COLOUR_NAMES = {
+    red: 'Red', orange: 'Orange', yellow: 'Yellow', green: 'Green',
+    blue: 'Blue', purple: 'Purple', grey: 'Grey',
+  };
+
+  function openEditor(id) {
+    const t = store.thread(id);
+    if (!t || S.status !== 'ready') return;
+    closeMenu(root);
+    const edit = S.edits.get(id) || {};
+    S.editor = {
+      id,
+      subject: t.subject,
+      // Pre-filled with the subject rather than left blank, because the
+      // usual edit is trimming a long subject down, not starting afresh.
+      draft: { title: edit.title || t.subject, note: edit.note || '', colour: edit.colour || '' },
+      error: '',
+      saving: false,
+    };
+    renderEditor('edit-title');
+    const input = els.editorLayer.querySelector('[data-key="edit-title"]');
+    if (input) input.select();
+  }
+
+  function closeEditor() {
+    if (!S.editor) return;
+    const id = S.editor.id;
+    S.editor = null;
+    renderEditor();
+    if (S.open) restoreFocus(`menu:${id}`, els.body);
+  }
+
+  function renderEditor(focus) {
+    const ed = S.editor;
+    if (!ed) {
+      els.editorLayer.replaceChildren();
+      return;
+    }
+    const key = focus || focusKey();
+    const d = ed.draft;
+
+    const reset = h('button', {
+      class: 'link-btn', type: 'button', text: 'Use the email subject', dataset: { key: 'edit-reset' },
+      onclick: () => {
+        d.title = ed.subject;
+        titleInput.value = ed.subject;
+        syncReset();
+        titleInput.focus();
+      },
+    });
+    const syncReset = () => {
+      const v = d.title.trim();
+      reset.hidden = !v || v === ed.subject.trim();
+    };
+
+    const titleInput = h('input', {
+      class: 'text-input', type: 'text', value: d.title, maxlength: String(logic.MAX_TITLE),
+      placeholder: ed.subject, 'aria-describedby': 'gkb-edit-subject', dataset: { key: 'edit-title' },
+      oninput: e => { d.title = e.target.value; syncReset(); },
+      onkeydown: e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); saveEditor(); } },
+    });
+    syncReset();
+
+    const noteInput = h('textarea', {
+      class: ['text-input', 'text-area'], rows: '3', maxlength: String(logic.MAX_NOTE), value: d.note,
+      placeholder: 'Optional. Shown on the card in place of the email preview.',
+      dataset: { key: 'edit-note' },
+      oninput: e => { d.note = e.target.value; },
+      // Enter is a new line in a note; Ctrl+Enter saves, as in Gmail's compose.
+      onkeydown: e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveEditor(); } },
+    });
+
+    const swatches = h('div', { class: 'swatches', role: 'radiogroup', 'aria-labelledby': 'gkb-edit-colour' },
+      ['', ...logic.CARD_COLOURS].map(c => {
+        const name = c ? COLOUR_NAMES[c] : 'No colour';
+        return h('label', { class: 'swatch', title: name, dataset: { colour: c || 'none' } },
+          h('input', {
+            type: 'radio', name: 'gkb-card-colour', value: c, checked: d.colour === c, 'aria-label': name,
+            dataset: { key: `edit-colour:${c || 'none'}` },
+            onchange: () => { d.colour = c; },
+          }),
+          h('span', { class: 'swatch-dot', 'aria-hidden': 'true' }));
+      }));
+
+    const dialog = h('div', {
+      class: 'dialog', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'gkb-edit-heading',
+    },
+      h('div', { class: 'dialog-head' },
+        h('h2', { id: 'gkb-edit-heading', text: 'Edit card' }),
+        h('button', {
+          class: 'icon-btn', type: 'button', 'aria-label': 'Close without saving', onclick: closeEditor,
+        }, icon('close'))),
+      h('div', { class: 'dialog-body' },
+        h('div', { class: 'field' },
+          h('label', { class: 'field-label', for: 'gkb-edit-title', text: 'Title on the board' }),
+          Object.assign(titleInput, { id: 'gkb-edit-title' }),
+          h('div', { class: 'help-row', id: 'gkb-edit-subject' },
+            h('span', {}, 'Email subject: ', h('span', { class: 'subject-ref', text: ed.subject })),
+            reset)),
+        h('div', { class: 'field' },
+          h('label', { class: 'field-label', for: 'gkb-edit-note', text: 'Note' }),
+          Object.assign(noteInput, { id: 'gkb-edit-note' })),
+        h('div', { class: 'field' },
+          h('span', { class: 'field-label', id: 'gkb-edit-colour', text: 'Colour' }),
+          swatches)),
+      h('div', { class: 'form-error', role: 'alert', text: ed.error }),
+      h('div', { class: 'dialog-foot' },
+        h('span', {
+          class: 'note',
+          text: 'Only the board changes. The email itself, and what others see, stay as they are.',
+        }),
+        h('button', { class: 'btn btn-text', type: 'button', text: 'Cancel', onclick: closeEditor }),
+        h('button', {
+          class: 'btn btn-primary', type: 'button', disabled: ed.saving, dataset: { key: 'edit-save' },
+          text: 'Save', onclick: saveEditor,
+        })));
+
+    els.editorLayer.replaceChildren(h('div', { class: 'scrim', onclick: closeEditor }), dialog);
+    restoreFocus(key, els.editorLayer);
+  }
+
+  async function saveEditor() {
+    const ed = S.editor;
+    if (!ed || ed.saving) return;
+    const edit = logic.normaliseCardEdit(ed.draft, ed.subject);
+    ed.saving = true;
+    const save = els.editorLayer.querySelector('[data-key="edit-save"]');
+    if (save) save.disabled = true;
+
+    try {
+      await store.saveCardEdit(S.account, ed.id, edit);
+    } catch (err) {
+      if (S.editor !== ed) return;
+      ed.saving = false;
+      ed.error = `Couldn’t save: ${err.message}`;
+      renderEditor('edit-save');
+      return;
+    }
+
+    if (edit) S.edits.set(ed.id, edit);
+    else S.edits.delete(ed.id);
+    if (S.editor === ed) S.editor = null;
+    renderEditor();
+    render();
+    restoreFocus(`menu:${ed.id}`, els.body);
+    announce(edit ? 'Card updated.' : 'Card back to showing the email.');
+  }
+
   // ── External changes ─────────────────────────────────────────────────
 
   // Columns edited in another tab or on another computer (storage.sync).
@@ -1060,11 +1342,28 @@
   function columnsChanged(next) {
     if (next && JSON.stringify(next) === JSON.stringify(S.columns)) return;
     S.loadedAt = 0;
-    if (S.open && !S.drawer) refresh();
+    if (S.open && !S.drawer && S.view === 'board') refresh();
+  }
+
+  // Card edits saved in another tab, or synced from another computer.
+  // This tab's own saves echo back here as well; those are already drawn,
+  // and redrawing for them would close a menu opened in the meantime.
+  function cardEditsChanged(changes, prefix) {
+    let changed = false;
+    for (const [key, change] of Object.entries(changes)) {
+      if (!key.startsWith(prefix)) continue;
+      const id = key.slice(prefix.length);
+      const next = logic.normaliseCardEdit(change && change.newValue);
+      if (JSON.stringify(next) === JSON.stringify(S.edits.get(id) || null)) continue;
+      if (next) S.edits.set(id, next);
+      else S.edits.delete(id);
+      changed = true;
+    }
+    if (changed && S.open && S.status === 'ready' && S.view === 'board') render();
   }
 
   ns.board = {
-    open, close, toggle, columnsChanged,
+    open, close, toggle, toggleView, columnsChanged, cardEditsChanged,
     isOpen: () => S.open,
   };
 })();

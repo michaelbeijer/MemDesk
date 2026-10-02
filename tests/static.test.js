@@ -36,11 +36,12 @@ test('no HTML-string sinks anywhere Gmail’s Trusted Types would apply', () => 
 
 test('the display name lives only in the documented rename spots', () => {
   const NAME = manifest.name;
-  const allowed = new Set(['manifest.json', 'README.md', path.join('src', 'shared', 'ns.js')]);
+  const allowed = new Set(['manifest.json', 'README.md', path.join('src', 'shared', 'ns.js'), path.join('addon', 'appsscript.json')]);
   const candidates = [
     ...files('src', ['.js', '.html', '.css']),
     ...files('dev', ['.js', '.html']),
     ...files('tools', ['.mjs', '.js']),
+    ...files('addon', ['.js', '.json']),
     'manifest.json', 'README.md', 'package.json',
   ];
   for (const f of candidates) {
@@ -48,6 +49,7 @@ test('the display name lives only in the documented rename spots', () => {
     assert.equal(read(f).includes(NAME), false, `${f} mentions “${NAME}”; use APP_NAME instead`);
   }
   assert.equal(manifest.action.default_title, NAME);
+  assert.equal(JSON.parse(read('addon/appsscript.json')).addOns.common.name, NAME, 'the phone panel has the same name');
   assert.match(read('src/shared/ns.js'), new RegExp(`APP_NAME = '${NAME}'`));
   assert.match(read('README.md'), new RegExp(`^# ${NAME}\\b`, 'm'));
 });
@@ -69,7 +71,7 @@ test('the preview loads exactly the manifest’s content scripts, in order', () 
 
 test('manifest: version, permissions and a key whose ID the README reports', () => {
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '0.1.0');
+  assert.equal(manifest.version, '0.10.0');
   assert.deepEqual(manifest.permissions.sort(), ['identity', 'storage']);
   assert.deepEqual(manifest.host_permissions, ['https://gmail.googleapis.com/*']);
   assert.equal(manifest.commands['toggle-board'].suggested_key.default, 'Alt+Shift+K');

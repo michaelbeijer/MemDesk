@@ -2,10 +2,11 @@
 // Board logic (pure)
 //
 // The board has no data of its own. A card is a Gmail thread, a column is
-// a Gmail label, and the only thing stored locally is the order of cards
-// within a column. Everything here is the arithmetic between those: which
-// labels a move adds and removes, where a thread shows up when it carries
-// two column labels, and how a saved order meets a fresh thread list.
+// a Gmail label, and the only things stored outside Gmail are the order of
+// cards within a column and the user's own edits to a card. Everything
+// here is the arithmetic between those: which labels a move adds and
+// removes, where a thread shows up when it carries two column labels, how
+// a saved order meets a fresh thread list, and what an edit looks like.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -16,13 +17,17 @@
 
   // ── Columns ──────────────────────────────────────────────────────────
 
+  // The leading underscore sorts the board's labels above everything else
+  // in Gmail's long, alphabetical label list - on the phone especially.
+  const DEFAULT_ROOT = '_Board';
+
   // Done archives on drop because that is what finishing something in
   // Gmail usually means: out of the Inbox, still findable under its label.
   const DEFAULT_COLUMNS = [
-    { id: 'todo', title: 'To do', label: 'Board/To do', archiveOnDrop: false },
-    { id: 'doing', title: 'Doing', label: 'Board/Doing', archiveOnDrop: false },
-    { id: 'waiting', title: 'Waiting', label: 'Board/Waiting', archiveOnDrop: false },
-    { id: 'done', title: 'Done', label: 'Board/Done', archiveOnDrop: true },
+    { id: 'todo', title: 'To do', label: `${DEFAULT_ROOT}/To do`, archiveOnDrop: false },
+    { id: 'doing', title: 'Doing', label: `${DEFAULT_ROOT}/Doing`, archiveOnDrop: false },
+    { id: 'waiting', title: 'Waiting', label: `${DEFAULT_ROOT}/Waiting`, archiveOnDrop: false },
+    { id: 'done', title: 'Done', label: `${DEFAULT_ROOT}/Done`, archiveOnDrop: true },
   ];
 
   function defaultColumns() {
@@ -42,14 +47,68 @@
       const label = String(c.label || '').trim();
       if (!id || !label || seen.has(id)) continue;
       seen.add(id);
-      out.push({
+      const col = {
         id,
         title: String(c.title || '').trim() || label.split('/').pop(),
         label,
         archiveOnDrop: !!c.archiveOnDrop,
-      });
+      };
+      if (c.labelId && typeof c.labelId === 'string') col.labelId = c.labelId;
+      out.push(col);
     }
     return out.length ? out : defaultColumns();
+  }
+
+  // Where a new column's label goes: under the parent the existing columns
+  // share, so a board moved to "_Board/…" keeps growing there rather than
+  // quietly recreating the old "Board" parent.
+  function labelRoot(columns) {
+    const parents = new Set((columns || []).map(c => {
+      const parts = String(c.label || '').split('/');
+      return parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+    }));
+    if (parents.size === 1) {
+      const [only] = parents;
+      if (only) return only;
+    }
+    return DEFAULT_ROOT;
+  }
+
+  // Columns remember their label's id as well as its name, because Gmail
+  // lets a label be renamed - and renaming "Board" to "_Board" renames
+  // every column label under it. Following the id keeps a column on the
+  // same mail; following the name alone would create a fresh, empty label
+  // with the old name. Returns the columns with names brought up to date
+  // and ids filled in, and whether anything changed (so it can be saved).
+  function resolveColumnLabels(columns, labels) {
+    const byId = new Map((labels || []).map(l => [l.id, l]));
+    const byName = new Map((labels || []).map(l => [String(l.name).toLowerCase(), l]));
+    let changed = false;
+    const out = columns.map(c => {
+      const viaId = c.labelId && byId.get(c.labelId);
+      if (viaId) {
+        if (viaId.name === c.label) return c;
+        changed = true;
+        return { ...c, label: viaId.name };
+      }
+      // Gmail's own spelling wins, so a case-only difference settles here
+      // rather than counting as a rename on the next pass.
+      const viaName = byName.get(String(c.label).toLowerCase());
+      if (viaName) {
+        if (c.labelId === viaName.id && c.label === viaName.name) return c;
+        changed = true;
+        return { ...c, label: viaName.name, labelId: viaName.id };
+      }
+      // Not in Gmail (yet): it is created under this name, and its id is
+      // recorded on the next pass.
+      if (c.labelId) {
+        changed = true;
+        const { labelId, ...rest } = c;
+        return rest;
+      }
+      return c;
+    });
+    return { columns: out, changed };
   }
 
   function newColumnId(existing, rand = Math.random) {
@@ -88,7 +147,7 @@
     return '';
   }
 
-  // "Board/To do" → ["Board"]. Gmail only nests a label in its sidebar
+  // "_Board/To do" → ["_Board"]. Gmail only nests a label in its sidebar
   // when the parent exists, so the parents are created too.
   function labelAncestors(name) {
     const parts = String(name).split('/');
@@ -251,10 +310,64 @@
     return q || 'in:inbox';
   }
 
+  // ── Card edits ───────────────────────────────────────────────────────
+  //
+  // A card can carry the user's own title, a short note and a colour. They
+  // live in storage.sync beside the column layout and never touch the mail:
+  // Gmail has nowhere to put a private title on a thread, and rewriting a
+  // subject would change what correspondents see in their replies.
+
+  const CARD_COLOURS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'grey'];
+
+  // Long enough for a working title or a "4,200 words, due Fri" note, short
+  // enough that hundreds of cards fit sync's 100 KB.
+  const MAX_TITLE = 200;
+  const MAX_NOTE = 500;
+
+  // Returns the edit to store, or null when nothing differs from the
+  // email - so clearing every field deletes the record instead of leaving
+  // an empty one to count against the quota. A title identical to the
+  // subject is not an edit either: the editor opens pre-filled with it.
+  function normaliseCardEdit(raw, subject = '') {
+    if (!raw || typeof raw !== 'object') return null;
+    const title = String(raw.title || '').replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE);
+    const note = String(raw.note || '')
+      .replace(/\r\n?/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+      .slice(0, MAX_NOTE);
+    const colour = CARD_COLOURS.includes(raw.colour) ? raw.colour : '';
+
+    const out = {};
+    if (title && title !== String(subject || '').trim()) out.title = title;
+    if (note) out.note = note;
+    if (colour) out.colour = colour;
+    return Object.keys(out).length ? out : null;
+  }
+
+  function displayTitle(thread, edit) {
+    return (edit && edit.title) || (thread && thread.subject) || '(no subject)';
+  }
+
+  // Picks one account's card edits out of a storage.sync dump, keyed by
+  // thread id. Records that no longer normalise to anything are dropped.
+  function cardEditsFrom(all, prefix) {
+    const out = new Map();
+    for (const [key, value] of Object.entries(all || {})) {
+      if (!key.startsWith(prefix)) continue;
+      const id = key.slice(prefix.length);
+      const edit = normaliseCardEdit(value);
+      if (id && edit) out.set(id, edit);
+    }
+    return out;
+  }
+
   const api = {
-    DEFAULT_COLUMNS, defaultColumns, normaliseColumns, newColumnId, validateColumns,
+    DEFAULT_ROOT, DEFAULT_COLUMNS, defaultColumns, normaliseColumns, labelRoot, resolveColumnLabels,
+    newColumnId, validateColumns,
     labelAncestors, assignColumns, mergeOrder, placeId, pruneOrder,
     moveLabelDiff, removeLabelDiff, columnForLabels, summariseThread, searchQuery,
+    CARD_COLOURS, MAX_TITLE, MAX_NOTE, normaliseCardEdit, displayTitle, cardEditsFrom,
   };
 
   ns.logic = api;

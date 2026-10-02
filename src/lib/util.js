@@ -50,7 +50,14 @@
   // Gmail's Trusted Types policy forbids, and it would also mean feeding
   // untrusted mail text to the HTML parser. A lookup table does the job.
 
-  const NAMED = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+  // The handful every mail needs, plus the typographic ones that HTML
+  // mail written in Gmail or Outlook is full of.
+  const NAMED = {
+    amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0',
+    lsquo: '\u2018', rsquo: '\u2019', ldquo: '\u201c', rdquo: '\u201d',
+    ndash: '\u2013', mdash: '\u2014', hellip: '\u2026', bull: '\u2022', middot: '\u00b7',
+    laquo: '\u00ab', raquo: '\u00bb', euro: '\u20ac', pound: '\u00a3', copy: '\u00a9', reg: '\u00ae', trade: '\u2122',
+  };
 
   function decodeEntities(input) {
     // Single pass, so "&amp;lt;" becomes the literal text "&lt;" and is

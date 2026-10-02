@@ -109,11 +109,13 @@ test('sending, deleting and anything else is refused', () => {
     ['POST', 'drafts/send'],
     ['POST', 'drafts'],
     ['DELETE', 'threads/18c2f7a0b1d2e3f4'],
-    ['DELETE', 'labels/Label_1'],
     ['POST', 'threads/18c2f7a0b1d2e3f4/trash'],
     ['POST', 'messages/batchDelete'],
+    ['POST', 'messages/batchModify'],
     ['POST', 'messages/import'],
-    ['GET', 'messages/abc'],
+    ['DELETE', 'messages/abc'],
+    ['GET', 'messages/abc/attachments/x'],
+    ['POST', 'messages/abc/trash/x'],
     ['GET', 'threads/../messages/send'],
     ['GET', '/threads'],
     ['GET', ''],
@@ -121,6 +123,37 @@ test('sending, deleting and anything else is refused', () => {
     ['POST', 'settings/forwardingAddresses'],
   ];
   for (const [m, p] of refused) assert.equal(auth.isAllowedRequest(m, p), false, `${m} ${p}`);
+});
+
+test('notes: reading, inserting a note, relabelling, trash and untrash', () => {
+  const notes = require('../src/lib/notes-logic.js');
+  const raw = notes.buildNoteRaw({ noteId: 'k3x9q2m8w1z7p4r6t0yb', title: 't', body: 'b', account: 'a@b.example' });
+  assert.equal(auth.isAllowedRequest('GET', 'messages'), true);
+  assert.equal(auth.isAllowedRequest('GET', 'messages/18c2f7a0b1d2e3f4'), true);
+  assert.equal(auth.isAllowedRequest('POST', 'messages', { raw, labelIds: ['Label_9'] }), true);
+  assert.equal(auth.isAllowedRequest('POST', 'messages/18c2f7a0b1d2e3f4/modify', { removeLabelIds: ['Label_9'] }), true);
+  assert.equal(auth.isAllowedRequest('POST', 'messages/18c2f7a0b1d2e3f4/modify', { addLabelIds: ['TRASH'] }), false);
+  assert.equal(auth.isAllowedRequest('POST', 'messages/18c2f7a0b1d2e3f4/trash'), true, 'allowed here, checked by the worker');
+  assert.equal(auth.isAllowedRequest('POST', 'messages/18c2f7a0b1d2e3f4/untrash'), true);
+});
+
+test('inserting anything but a note is refused', () => {
+  const notes = require('../src/lib/notes-logic.js');
+  const raw = notes.buildNoteRaw({ noteId: 'k3x9q2m8w1z7p4r6t0yb', title: 't', body: 'b', account: 'a@b.example' });
+  assert.equal(auth.isAllowedRequest('POST', 'messages', {}), false);
+  assert.equal(auth.isAllowedRequest('POST', 'messages'), false);
+  assert.equal(auth.isAllowedRequest('POST', 'messages', { raw, labelIds: ['INBOX'] }), false, 'not into the Inbox');
+  const phish = notes.base64UrlEncode('From: bank@example.com\r\nSubject: Verify your account\r\n\r\nclick here');
+  assert.equal(auth.isAllowedRequest('POST', 'messages', { raw: phish, labelIds: ['Label_9'] }), false);
+});
+
+test('only a trash request needs the worker’s note check', () => {
+  assert.equal(auth.noteCheckId('POST', 'messages/18c2f7a0b1d2e3f4/trash'), '18c2f7a0b1d2e3f4');
+  assert.equal(auth.noteCheckId('post', 'messages/abc/trash'), 'abc');
+  assert.equal(auth.noteCheckId('POST', 'messages/abc/untrash'), '');
+  assert.equal(auth.noteCheckId('GET', 'messages/abc/trash'), '');
+  assert.equal(auth.noteCheckId('POST', 'threads/abc/trash'), '');
+  assert.equal(auth.noteCheckId('POST', 'messages'), '');
 });
 
 test('modify may not add TRASH or SPAM', () => {
@@ -143,4 +176,15 @@ test('API URLs repeat array parameters and skip empty ones', () => {
   assert.deepEqual(u.searchParams.getAll('metadataHeaders'), ['Subject', 'From', 'Date']);
   assert.equal(u.searchParams.has('q'), false);
   assert.equal(auth.buildApiUrl('labels'), 'https://gmail.googleapis.com/gmail/v1/users/me/labels');
+});
+
+test('deleting a label passes the request check only to meet the worker’s folder check', () => {
+  assert.equal(auth.isAllowedRequest('DELETE', 'labels/Label_12'), true);
+  assert.equal(auth.folderDeleteId('DELETE', 'labels/Label_12'), 'Label_12');
+  assert.equal(auth.folderDeleteId('delete', 'labels/Label_12'), 'Label_12');
+  assert.equal(auth.folderDeleteId('PATCH', 'labels/Label_12'), '');
+  assert.equal(auth.folderDeleteId('DELETE', 'messages/abc'), '');
+  assert.equal(auth.isAllowedRequest('DELETE', 'labels'), false);
+  assert.equal(auth.isAllowedRequest('DELETE', 'labels/../threads/x'), false);
+  assert.equal(auth.isAllowedRequest('GET', 'labels/Label_12'), true, 'reading one label, for its counts');
 });

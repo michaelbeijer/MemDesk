@@ -43,5 +43,9 @@
       ns.board.columnsChanged(changes[KEYS.columns(account)].newValue);
       ns.dock.columnsChanged();
     }
+    const prefix = account && KEYS.cardPrefix(account);
+    if (prefix && Object.keys(changes).some(k => k.startsWith(prefix))) {
+      ns.board.cardEditsChanged(changes, prefix);
+    }
   });
 })();

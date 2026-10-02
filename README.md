@@ -1,16 +1,24 @@
 # Supermail
 
-A Kanban board inside Gmail, for one person, backed entirely by Gmail labels.
+A Kanban board and a notes system inside Gmail, for one person, backed
+entirely by Gmail itself.
 
-Every card is a Gmail thread and every column is a Gmail label (`Board/To do`,
-`Board/Doing`, `Board/Waiting` and `Board/Done` to start with). Moving a card
-moves the label. There is no separate database and no server: the board is a
-view of your mailbox. Because the columns are ordinary labels, they show up in
-the Gmail app on your phone too, so you can file a thread from the train and see
-it on the board later. The board itself only exists in desktop Chrome.
+Every card is a Gmail thread and every column is a Gmail label (`_Board/To do`,
+`_Board/Doing`, `_Board/Waiting` and `_Board/Done` to start with). Moving a card
+moves the label. Every note is a message in your own mailbox, never sent, filed
+under `_Notes`. There is no separate database and no server: the board and the
+notes are views of your mailbox. Because they are ordinary labels and messages,
+they show up in the Gmail app on your phone too, so you can file a thread from
+the train and see it on the board later, or look up a note. The leading
+underscore sorts both labels to the top of Gmail's label list. The board and the
+notes editor themselves only exist in desktop Chrome; on a phone, the **phone
+panel** (a small Gmail add-on you install for yourself, see below) puts the
+open email in a column, ticks checklist items, adds lines to a note, files it
+in a folder and starts new notes from inside the Gmail app.
 
-Version 0.1.0. Plain JavaScript, Manifest V3, no build step and no runtime
-dependencies.
+Version 0.10.0. Plain JavaScript, Manifest V3, no build step and no runtime
+dependencies for the extension; the phone panel is one generated Apps Script
+file.
 
 ## Install
 
@@ -78,11 +86,23 @@ search (`q=`) stops working.
   toolbar icon, or **Alt+Shift+K**. Change the shortcut at
   `chrome://extensions/shortcuts`. Press **Esc** to close it.
 - The first time you open it, the board creates any column labels that are
-  missing, plus their parent (`Board`) so Gmail nests them in the sidebar.
+  missing, plus their parent (`_Board`) so Gmail nests them in the sidebar.
+- Columns remember their label's id as well as its name, so renaming a label in
+  Gmail itself (say `Board` to `_Board`, which renames every column label under
+  it) is followed rather than answered with a fresh, empty label. New columns
+  go under whatever parent the existing ones share.
 - **Drag** a card to another column, or within a column to reorder it. A
   placeholder shows where it will land.
 - Each card's **⋯** menu offers the same actions without a mouse: Open in Gmail,
   Move to another column, and Remove from board.
+- **Edit card…** on the same menu gives a card your own title, a note and a
+  colour. The title replaces the subject on the board, the note replaces the
+  email preview, and the colour shows as a stripe down the card's left edge.
+  None of it touches the email: the subject, the labels and what your
+  correspondents see stay exactly as they were. Hover over a renamed card to see
+  the email's real subject. "Use the email subject" in the editor, an empty note
+  and "No colour" put the card back as it was. Enter saves from the title field,
+  Ctrl+Enter from the note, and Esc cancels.
 - **Click** a card to open the thread in Gmail. Ctrl-click or middle-click opens
   it in a new tab.
 - The **+** on a column opens a search box that takes Gmail search syntax
@@ -106,13 +126,209 @@ search (`q=`) stops working.
 - The setup page can move the buttons to the bottom right or hide them.
 
 Card order within each column is stored in this browser (`storage.local`). The
-column layout is stored in `storage.sync`, so it follows your Chrome profile to
-other computers. Both are kept per Gmail account.
+column layout and your card edits are stored in `storage.sync`, so they follow
+your Chrome profile to other computers. All of it is kept per Gmail account.
+
+### Notes
+
+- **Open the notes** with the **Notes** tab next to **Board** at the top of the
+  board, or the **Notes** button beside **Board** at the bottom left of Gmail.
+  The board reopens on whichever tab you used last.
+- **Folders** are in the column on the left: **All notes**, then your folders
+  as a tree, each with how many notes it holds. Choose one to see only its
+  notes (and to search only inside it). The **+** at the top makes a folder;
+  a folder's **⋯** menu renames it (its subfolders come along), makes a
+  subfolder, or deletes it - only once it is empty. Move a note by dragging it
+  onto a folder (onto **All notes** to take it out of its folder), or with the
+  folder button above the note. A new note starts in the folder you are
+  looking at. Each folder is a Gmail label under `_Notes` - `_Notes/Work`,
+  `_Notes/Work/Clients` - so the same tree shows in Gmail's label list on the
+  phone.
+- The list in the middle shows your notes, newest first, with their first lines.
+- **Search** shows where the words are. While a search is on, each result shows
+  short excerpts around its matches with the words highlighted, and how many
+  matches it has; words in titles are highlighted too. Case and accents do not
+  matter ("cafe" finds "Café"), a word matches at the start of a word ("gloss"
+  finds "glossary"), and "a phrase in quotes" matches as a phrase. Gmail still
+  does the finding - operators like `from:` or `before:` work, they are just
+  not highlighted. Open a result and every match in the note is highlighted,
+  without touching its text: a bar above the title says "2 of 5", and its
+  arrows, F3 and Shift+F3 step through them. The ✕ on that bar clears the
+  search.
+  The **search box** above it runs Gmail's own search inside your notes, so it
+  finds words anywhere in a note and takes Gmail syntax (`before:2026/09/01`).
+  **New** starts a note.
+- The open note is on the right: a title and the text. It **saves itself** a
+  couple of seconds after you stop typing, and again when you switch notes or
+  tabs or close the board; **Ctrl+S** saves at once. The line above the title
+  says "Unsaved changes", "Saving…" or "Saved". Closing the Gmail tab with an
+  unsaved change asks before leaving. Enter in the title moves to the text.
+- A note with no title is filed under its first line.
+- **Delete** moves the note to Gmail's Trash, with an **Undo**. **Open in Gmail**
+  shows the note as Gmail stores it.
+- **Formatting.** The toolbar above the text has a text style menu (normal text
+  and three heading sizes), bold, italic, strike-through, bulleted, numbered and
+  check lists, less and more indent (three levels deep), links and clear
+  formatting. Keyboard: Ctrl+B and Ctrl+I; Ctrl+K for a link; Ctrl+Shift+7, 8
+  and 9 for numbered, bulleted and check lists; Tab and Shift+Tab to indent a
+  list item; Ctrl+Enter ticks a check box, as does clicking it. Typing `- `,
+  `1. `, `[] `, `[x] ` or `#`, `##`, `###` and a space at the start of a line
+  turns it into that list or heading. Enter on an empty list item ends the list;
+  Backspace at the start of a list item or heading turns it back into text.
+  Ctrl-click a link to open it.
+- **Pasting keeps the formatting a note can hold.** From Word, Google Docs, a
+  web page or an email: headings, bold, italic, strike-through, links, and
+  bulleted, numbered and check lists (nested, too) come across; fonts, colours,
+  sizes, images and scripts never do. Spreadsheets and tables arrive as one line
+  per row with ` | ` between the cells, heading cells in bold. Paragraphs that
+  had space between them keep an empty line between them. Text written in
+  Markdown - an answer copied from a chat assistant, say - becomes formatting:
+  `**bold**`, `*italic*`, `~~struck~~`, `[links](…)`, `#` headings, `- `,
+  `1. ` and `- [ ]` lists, and `| tables |`. A list pasted into a list item
+  goes in at that item's level, and pasting in the middle of a line carries
+  the rest of the line along after it. **Ctrl+Shift+V** pastes the text alone,
+  exactly as copied. **Ctrl+Z** straight after a paste takes it back (one paste
+  at a time). Dropping text onto a note does nothing.
+
+How it works: a note is a message placed straight into your mailbox with
+`messages.insert`, labelled `_Notes` (and its folder's label, if it is in one)
+and nothing else - not Inbox, not unread. It is addressed to you, with you as
+Reply-To, but it is from "Notes" at a reserved address that can never send or
+receive mail (`notes@notes.invalid`): Gmail files anything from your own address
+under Sent, whatever labels it was given. A note is two renderings of the same
+content: an HTML part, which is the record - Gmail shows it, formatting and all,
+and the editor reads it back - and a plain-text part with bullets, numbers and
+☐ / ☑ for Gmail's previews and plain-text mail clients. The editor reads the HTML
+with its own small reader rather than the browser's HTML parser, and keeps only
+what the toolbar can make: anything else becomes text. It carries an `X-Gkb-Note` header with the note's own id.
+Gmail messages cannot be changed once stored, so saving inserts a new version
+and moves the previous one to Trash. That makes Gmail's Trash a 30-day version
+history: open an old version there to copy text back. If two versions are ever
+both live (a save cut short, or two computers saving at once), the newest wins
+and the other is moved to Trash the next time the list loads.
+
+Anything else filed under `_Notes` shows up too - an email you sent yourself
+from your phone, say. Its bold, italic, lists and links come across; the rest
+reads as text. It is marked "From an email".
+Editing it saves a new note in its place and takes the email off the list
+(it keeps the email, just without the `_Notes` label); Delete does the same.
+
+Like the columns, the notes label is followed by id, so you can rename `_Notes`
+in Gmail and the notes follow.
+
+### Storage
+
+Chrome's sync storage is small: 100 KB in all, and at most 512 entries. Each
+edited card takes one entry, so there is room for hundreds of renamed cards,
+fewer if every one carries a long note (notes are capped at 500 characters,
+titles at 200). Taking a card off the board deletes its edit. Moving it to Done
+keeps it. If the storage ever fills, saving an edit says so rather than failing
+silently.
+
+## The phone panel
+
+A Gmail add-on for your own account, built with Google Apps Script, that shows
+at the bottom of an open email in the Gmail app on your phone (and in the
+side panel of Gmail on a computer). It works on the same notes, in the same way,
+as the extension.
+
+- **Open a note** in the Gmail app (they are under `_Notes`, at the top of the
+  label list), scroll to the bottom and tap the panel's icon. It shows the note
+  with a **check box for each checklist item**, a box for **lines to add at the
+  end** (as checklist items, bullets or text; text understands the same
+  Markdown a paste does), and the note's **folder**. **Save** saves the lot as
+  one new version; the old one goes to Trash, as in the extension. Changing only
+  the folder just moves the note.
+- **Open any other email** and the panel starts with **This email on the
+  board**: the column it is in, or "Not on the board". Choose another and it
+  moves at once, as with the button next to **Board** in Chrome: into that
+  column only (out of any other), and out of the Inbox when the column is
+  Done. "Not on the board" takes the column label off and leaves the email
+  where it is.
+- Below that, the panel lists your newest notes, with a search box (Gmail
+  search, as in the extension), a folder filter, and **New note**. Tap a note
+  to open it.
+- **Search results show where the words are**, as in Chrome: each note with
+  up to two short excerpts around its matches and a match count, the words in
+  bold orange (cards cannot colour a background). A note opened from the
+  results has every match marked and says how many there are, or that the
+  words are only in its title. Operators such as `from:` or `before:` narrow
+  the search but are not marked. There is no stepping from match to match: a
+  card cannot scroll itself.
+- **New note** takes a title, some lines (as text, a checklist or bullets) and a
+  folder. From a folder's list or from a note, it starts in that folder.
+- **All notes** and **New note** are also on the panel's own menu (⋮).
+- If the note was changed elsewhere since the panel showed it, Save does not
+  overwrite it: you get the latest version, with your new lines still in their
+  box, and tick again.
+- What the panel cannot do: edit or format text that is already in a note (it
+  only adds at the end), rename or create folders, or delete notes. Those stay
+  in the extension. A note longer than 80 lines shows its first 80; ticks
+  further down are left as they were.
+- The board's column settings live in Chrome, where the panel cannot see
+  them, so it reads the columns from your labels: every label directly under
+  `_Board` is a column, To do, Doing, Waiting and Done first in that order,
+  any others after them alphabetically, and only Done archives. If you change
+  which column archives in the extension, the panel will not know.
+
+### Setting it up (once, about five minutes)
+
+1. Go to [script.google.com](https://script.google.com), signed in as the
+   account the notes are in, and click **New project**. Click "Untitled
+   project" at the top and call it Supermail.
+2. Click the gear (**Project Settings**) on the left and tick **Show
+   "appsscript.json" manifest file in editor**.
+3. Back in the editor (**< >** on the left):
+   - click `appsscript.json`, select everything in it, and paste the contents
+     of [`addon/appsscript.json`](addon/appsscript.json) over it;
+   - click `Code.gs`, select everything, and paste the contents of
+     [`addon/Code.gs`](addon/Code.gs) over it;
+   - press **Ctrl+S**.
+
+   Settings, if they need changing: `"timeZone"` in `appsscript.json`
+   (it is `Europe/London`; it only affects "edited 3 h" style times), and
+   `SUPERMAIL_NOTES_LABEL` and `SUPERMAIL_BOARD_LABEL` at the top of
+   `Code.gs` if you renamed `_Notes` or `_Board`.
+4. Click **Deploy > Test deployments**, then **Install**, then **Done**.
+5. Open Gmail on your computer and reload it. The panel's icon is in the strip
+   on the right. Click it, then **Authorize access**, choose your account, and
+   allow what it asks (below). Google may first say it "hasn't verified this
+   app": that is said of every script that has not been through Google's
+   review, including your own. Click **Advanced**, then **Go to Supermail**.
+6. On your phone, open the Gmail app, open any email, and scroll to the bottom:
+   the icon is in the row of add-ons there. If it is not there yet, close and
+   reopen the app.
+
+**Updating**: open [script.google.com/home](https://script.google.com/home)
+(your Apps Script projects), click the Supermail project, paste the new
+`Code.gs` (and `appsscript.json`, if it changed) over the old ones and save. A test deployment always runs the latest saved
+code, so there is nothing to reinstall. The first line of `Code.gs` says which
+version it is.
+
+**What it is allowed to do**: read and change your mail's labels and insert
+messages (`gmail.modify`, the same as the extension), run as a Gmail add-on and
+see which message is open (`gmail.addons.execute`,
+`gmail.addons.current.message.metadata`), and call the Gmail API
+(`script.external_request`, only to `gmail.googleapis.com`). It keeps the
+extension's rules in its own code: it inserts only notes, moves to Trash only
+messages it has itself checked are notes, never adds Trash, Spam or Inbox to
+anything, and never sends. It runs in Google's Apps Script under your account;
+nothing goes anywhere else. To remove it: **Deploy > Test deployments >
+Uninstall**, and delete the project.
+
+**How it is built**: `addon/Code.gs` is generated by `node tools/build-addon.mjs`
+from the shared note code in `src/lib/` (the same files the extension loads)
+and the panel's own files in `addon/src/`, with small stand-ins for the browser
+APIs Apps Script lacks (`addon/src/shims.js`). `npm test` fails if it is out of
+date, and runs the whole panel against the preview's fake Gmail in a stand-in
+for Apps Script (`tests/addon.test.js`).
 
 ## Privacy
 
 - **There is no server.** The extension talks only to `gmail.googleapis.com`,
-  from your browser.
+  from your browser. The phone panel runs in Google's Apps Script, under your
+  own account, and also talks only to `gmail.googleapis.com` (see
+  [The phone panel](#the-phone-panel) for what it may do).
 - **The access token lives only in this browser's session storage**
   (`chrome.storage.session`). It is held in memory, is not readable by the Gmail
   page or by the content scripts, and is gone when Chrome closes. The implicit
@@ -122,13 +338,24 @@ other computers. Both are kept per Gmail account.
   (including message bodies), changing labels, archiving, moving to Trash, and
   technically sending mail. It does **not** permit permanent deletion; that
   needs the full `https://mail.google.com/` scope.
-- **What this code does.** It reads thread metadata (subject, sender, date,
-  label ids and Gmail's snippet), creates and renames labels, and adds or
-  removes labels on threads, including `INBOX` when archiving. It **never sends
-  and never deletes**, and never moves anything to Trash or Spam. The background
-  worker enforces this with an allow-list: any other Gmail API call, any
-  `DELETE`, and any attempt to add `TRASH` or `SPAM` is refused before a token
-  is even fetched.
+- **What this code does.** For the board, it reads thread metadata (subject,
+  sender, date, label ids and Gmail's snippet), creates and renames labels, and
+  adds or removes labels on threads, including `INBOX` when archiving. For the
+  notes, it reads the messages under `_Notes` and its folders (bodies
+  included), inserts new notes, moves notes between folders, moves its own old
+  versions and deleted notes to Trash, and creates, renames and deletes empty
+  folders under `_Notes`. It **never
+  sends and never permanently deletes**, never touches Spam, and moves nothing
+  to Trash but its own notes. The background worker enforces this with an
+  allow-list: any other Gmail API call, any `DELETE`, any attempt to add `TRASH`
+  or `SPAM` as a label, and any insert that is not a note (a message carrying
+  the `X-Gkb-Note` header, filed under user labels only - never Inbox, Sent,
+  Drafts, Spam, Trash or unread) is refused before a token is even fetched.
+  Before trashing a message, the worker reads that message's headers itself and
+  refuses unless it is a note. The only label it will delete is an empty notes
+  folder: before a `DELETE`, it reads the label, the full label list, and
+  whether any message is still filed under it, and refuses anything that is not
+  a folder under the notes label with no notes and no subfolders.
 - Every token is checked against Gmail's own profile before use. If Google
   signs in a different account from the one in the Gmail tab, the token is
   discarded and the board says so, rather than acting on the wrong mailbox.
@@ -167,7 +394,9 @@ The display name appears in exactly these places:
 2. `manifest.json`: `"action"."default_title"`
 3. `src/shared/ns.js`: `APP_NAME`
 4. `README.md`: the title
-5. The setup page title. It is set from `APP_NAME` at runtime, so no edit is needed.
+5. `addon/appsscript.json`: `"addOns"."common"."name"`, the phone panel's name
+   (its cards take theirs from `APP_NAME`; rebuild `addon/Code.gs` after a rename)
+6. The setup page title. It is set from `APP_NAME` at runtime, so no edit is needed.
 
 Nothing internal carries the name: not the `gkb` namespace, the storage keys
 (`clientId`, `columns:<email>`, `order:<email>`), the CSS classes or the element
@@ -239,28 +468,42 @@ src/shared/ns.js           namespace, APP_NAME, storage keys
 src/lib/                   pure logic, shared by content scripts, worker and tests
   util.js                  entities, addresses, account detection, dates, pool
   auth.js                  auth URL, redirect parsing, API allow-list
-  board-logic.js           columns, order merge, move label diffs, summaries
+  board-logic.js           columns, order merge, move label diffs, summaries, card edits
+  notes-logic.js           building and reading note messages, what may be inserted
+  note-format.js           the formatting model: HTML out and back in, plain text,
+                           Markdown and pasted HTML in
+  search-logic.js          the words in a query, where they occur, excerpts
 src/background/sw.js       OAuth (launchWebAuthFlow) and the Gmail API proxy
 src/content/               classic scripts, in manifest order
   gmail-hooks.js           every assumption about Gmail's page
   api.js, store.js         messaging and the shared data layer
+  notes-store.js           notes: list, read, save (insert + trash), delete
   ui.js, styles.js         DOM builder, icons, menus, toasts, shadow hosts
-  board.js, dock.js        the board overlay and the corner buttons
+  board.js, dock.js        the overlay (header, tabs, board) and the corner buttons
+  note-editor.js           the formatted editor and its toolbar
+  notes.js                 the Notes tab: list, editor, autosave
   main.js                  wiring
 src/options/               setup page
 dev/                       preview page and fake Gmail
-tests/                     unit tests; tests/e2e/ browser checks
+addon/                     the phone panel (a Gmail add-on in Apps Script)
+  appsscript.json          its manifest
+  Code.gs                  generated: shared note code + addon/src, one file
+  src/shims.js             btoa, TextEncoder, URL and friends for Apps Script
+  src/panel-logic.js       pure: a note as card items, ticks, appended lines,
+                           board columns from labels
+  src/gmail.js, store.js   Gmail over UrlFetchApp, and the notes on it
+  src/cards.js             the cards and what their buttons do
+  src/triggers.js          the top-level functions Apps Script calls
+tests/                     unit tests; tests/e2e/ browser checks;
+                           helpers/apps-script.js, a stand-in Apps Script
 tools/make-icons.mjs       icon generator
+tools/build-addon.mjs      builds addon/Code.gs
 ```
 
 ## Roadmap
 
 - **A to-do view.** One flat list across all columns, oldest first, for days when
   a board is too much.
-- **Notes on cards**, stored as messages inserted into your own mailbox with
-  `messages.insert` under a `Notes` label and linked to the thread. They stay in
-  Gmail, sync everywhere, and still need no server. This needs `messages.insert`
-  added to the worker's allow-list.
 - **A "Needs reply" column**, computed rather than labelled. It would reuse the
   triage and ranking logic in `supervertaler-stats/src/email.js`
   (`classifyBulk`, `scoreThread`): threads whose newest message is inbound and

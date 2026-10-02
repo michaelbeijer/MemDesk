@@ -7,10 +7,10 @@ const logic = require('../src/lib/board-logic.js');
 
 const COLUMNS = logic.defaultColumns();
 const IDS = {
-  'Board/To do': 'Label_1',
-  'Board/Doing': 'Label_2',
-  'Board/Waiting': 'Label_3',
-  'Board/Done': 'Label_4',
+  '_Board/To do': 'Label_1',
+  '_Board/Doing': 'Label_2',
+  '_Board/Waiting': 'Label_3',
+  '_Board/Done': 'Label_4',
 };
 
 // ── Order ────────────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ test('moving out of an archiving column does not touch INBOX', () => {
 });
 
 test('column labels without an id yet are skipped, not sent as undefined', () => {
-  const partial = { 'Board/To do': 'Label_1', 'Board/Doing': 'Label_2' };
+  const partial = { '_Board/To do': 'Label_1', '_Board/Doing': 'Label_2' };
   const diff = logic.moveLabelDiff(COLUMNS, 'todo', partial);
   assert.deepEqual(diff.removeLabelIds, ['Label_2']);
 });
@@ -105,10 +105,10 @@ test('columnForLabels picks the left-most matching column', () => {
 
 test('default columns', () => {
   assert.deepEqual(COLUMNS.map(c => [c.title, c.label, c.archiveOnDrop]), [
-    ['To do', 'Board/To do', false],
-    ['Doing', 'Board/Doing', false],
-    ['Waiting', 'Board/Waiting', false],
-    ['Done', 'Board/Done', true],
+    ['To do', '_Board/To do', false],
+    ['Doing', '_Board/Doing', false],
+    ['Waiting', '_Board/Waiting', false],
+    ['Done', '_Board/Done', true],
   ]);
   const copy = logic.defaultColumns();
   copy[0].title = 'mutated';
@@ -229,4 +229,100 @@ test('summary: blank subject and empty threads', () => {
   assert.equal(empty.subject, '(no subject)');
   assert.equal(empty.snippet, 'a & b');
   assert.equal(empty.count, 0);
+});
+
+// ── Card edits ───────────────────────────────────────────────────────
+
+test('card edit: trims, collapses whitespace and caps lengths', () => {
+  const e = logic.normaliseCardEdit({
+    title: '  Genpact   EN>NL \n ',
+    note: '\r\n 4,200 words\r\n\r\n\r\n\r\ndue Fri  ',
+    colour: 'green',
+  }, 'PO2627669 | Genpact- Translation| EN to Dutch');
+  assert.deepEqual(e, { title: 'Genpact EN>NL', note: '4,200 words\n\ndue Fri', colour: 'green' });
+
+  const long = logic.normaliseCardEdit({ title: 'x'.repeat(500), note: 'y'.repeat(900) });
+  assert.equal(long.title.length, logic.MAX_TITLE);
+  assert.equal(long.note.length, logic.MAX_NOTE);
+});
+
+test('card edit: nothing that differs from the email is not an edit', () => {
+  assert.equal(logic.normaliseCardEdit({ title: 'Quote request', note: ' ', colour: '' }, 'Quote request'), null);
+  assert.equal(logic.normaliseCardEdit({ title: '  Quote request ' }, 'Quote request'), null, 'subject, padded');
+  assert.equal(logic.normaliseCardEdit({}), null);
+  assert.equal(logic.normaliseCardEdit(null), null);
+  assert.equal(logic.normaliseCardEdit('a string'), null);
+  // Keeping the subject but adding a colour stores just the colour.
+  assert.deepEqual(logic.normaliseCardEdit({ title: 'Quote request', colour: 'red' }, 'Quote request'), { colour: 'red' });
+});
+
+test('card edit: unknown colours are dropped, known ones kept', () => {
+  assert.equal(logic.normaliseCardEdit({ colour: 'chartreuse' }), null);
+  assert.equal(logic.normaliseCardEdit({ colour: 'javascript:alert(1)' }), null);
+  for (const c of logic.CARD_COLOURS) assert.deepEqual(logic.normaliseCardEdit({ colour: c }), { colour: c });
+});
+
+test('card edit: display title falls back to the subject', () => {
+  const t = { subject: 'Termbase export won’t open' };
+  assert.equal(logic.displayTitle(t, null), 'Termbase export won’t open');
+  assert.equal(logic.displayTitle(t, { note: 'only a note' }), 'Termbase export won’t open');
+  assert.equal(logic.displayTitle(t, { title: 'Termbase bug' }), 'Termbase bug');
+  assert.equal(logic.displayTitle(null, null), '(no subject)');
+});
+
+test('card edits are read per account out of a storage.sync dump', () => {
+  const all = {
+    clientId: 'x.apps.googleusercontent.com',
+    'columns:me@example.com': [],
+    'card:me@example.com:18c2f': { title: 'Mine', colour: 'blue' },
+    'card:me@example.com:18c30': { colour: 'not-a-colour' },
+    'card:other@example.com:18c2f': { title: 'Someone else’s' },
+    'card:me@example.com:': { title: 'no thread id' },
+  };
+  const edits = logic.cardEditsFrom(all, 'card:me@example.com:');
+  assert.deepEqual([...edits.entries()], [['18c2f', { title: 'Mine', colour: 'blue' }]]);
+});
+
+test('a card’s storage key sits under its account’s prefix, case-insensitively', () => {
+  const { KEYS } = require('../src/shared/ns.js');
+  const key = KEYS.card('Michael@Example.com', '18c2f');
+  assert.equal(key, 'card:michael@example.com:18c2f');
+  assert.ok(key.startsWith(KEYS.cardPrefix('MICHAEL@example.com')));
+  assert.equal(KEYS.card('a@b.example', 'x').startsWith(KEYS.cardPrefix('ab@b.example')), false);
+});
+
+// ── Column labels: renames and roots ─────────────────────────────────
+
+test('new columns go under the parent the existing ones share', () => {
+  assert.equal(logic.labelRoot(logic.defaultColumns()), '_Board');
+  assert.equal(logic.labelRoot([{ label: 'Work/Board/To do' }, { label: 'Work/Board/Done' }]), 'Work/Board');
+  assert.equal(logic.labelRoot([{ label: 'Board/To do' }, { label: '_Board/Done' }]), '_Board', 'mixed parents: the default');
+  assert.equal(logic.labelRoot([{ label: 'Top level' }]), '_Board');
+  assert.equal(logic.labelRoot([]), '_Board');
+});
+
+test('a column follows its label when Gmail renames it, by id', () => {
+  const cols = [
+    { id: 'todo', title: 'To do', label: 'Board/To do', labelId: 'Label_1', archiveOnDrop: false },
+    { id: 'done', title: 'Done', label: 'Board/Done', archiveOnDrop: true },
+    { id: 'gone', title: 'Gone', label: 'Board/Gone', labelId: 'Label_99', archiveOnDrop: false },
+  ];
+  const labels = [
+    { id: 'Label_1', name: '_Board/To do' },
+    { id: 'Label_2', name: 'board/done' },
+  ];
+  const { columns, changed } = logic.resolveColumnLabels(cols, labels);
+  assert.equal(changed, true);
+  assert.deepEqual(columns[0], { ...cols[0], label: '_Board/To do' }, 'renamed in Gmail: followed by id');
+  assert.deepEqual(columns[1], { ...cols[1], label: 'board/done', labelId: 'Label_2' }, 'matched by name: id and Gmail’s spelling recorded');
+  assert.deepEqual(columns[2], { id: 'gone', title: 'Gone', label: 'Board/Gone', archiveOnDrop: false }, 'stale id dropped');
+
+  const again = logic.resolveColumnLabels(columns.slice(0, 2), labels);
+  assert.equal(again.changed, false, 'nothing to save the second time');
+});
+
+test('normaliseColumns keeps a stored label id', () => {
+  const [c] = logic.normaliseColumns([{ id: 'a', title: 'A', label: '_Board/A', labelId: 'Label_5' }, { id: 'b', label: 'x', labelId: 7 }]);
+  assert.equal(c.labelId, 'Label_5');
+  assert.equal('labelId' in logic.normaliseColumns([{ id: 'b', label: 'x', labelId: 7 }])[0], false);
 });

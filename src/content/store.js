@@ -4,10 +4,10 @@
 // Shared by the board and the dock, so a move made from either is seen by
 // both. Gmail is the source of truth for which column a thread is in;
 // what lives here is a cache of label ids and thread summaries, plus the
-// two small things Gmail cannot hold - the column layout (storage.sync,
-// so it follows the user between computers) and card order within each
-// column (storage.local, because it changes on every drag and sync has a
-// tight write quota).
+// small things Gmail cannot hold - the column layout and the user's own
+// card titles, notes and colours (storage.sync, so they follow the user
+// between computers) and card order within each column (storage.local,
+// because it changes on every drag and sync has a tight write quota).
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -55,6 +55,30 @@
     await chrome.storage.local.set({ [KEYS.order(account)]: logic.pruneOrder(lists, columns) });
   }
 
+  // ── Card edits ───────────────────────────────────────────────────────
+
+  async function loadCardEdits(account) {
+    const all = await chrome.storage.sync.get(null);
+    return logic.cardEditsFrom(all, KEYS.cardPrefix(account));
+  }
+
+  // A null edit deletes the record. Sync's own quota message ("QUOTA_BYTES
+  // quota exceeded") says nothing about what to do, so it is rephrased.
+  async function saveCardEdit(account, threadId, edit) {
+    const key = KEYS.card(account, threadId);
+    try {
+      if (edit) await chrome.storage.sync.set({ [key]: edit });
+      else await chrome.storage.sync.remove(key);
+    } catch (err) {
+      if (/quota/i.test((err && err.message) || '')) {
+        throw Object.assign(new Error(
+          'Chrome’s synced storage is full. Clear the notes on cards you no longer need, or take finished cards off the board.'
+        ), { code: 'quota' });
+      }
+      throw err;
+    }
+  }
+
   async function loadDockPosition() {
     const got = await chrome.storage.sync.get(KEYS.dockPosition);
     const v = got[KEYS.dockPosition];
@@ -67,6 +91,10 @@
     const r = await api.gmail('GET', 'labels');
     S.labels = new Map((r.labels || []).map(l => [l.name.toLowerCase(), l]));
     S.labelsAt = Date.now();
+  }
+
+  function allLabels() {
+    return [...S.labels.values()];
   }
 
   // Gmail label names are unique case-insensitively, so lookups are too.
@@ -149,13 +177,28 @@
     });
   }
 
+  // Brings the columns' label names in line with Gmail (a label renamed
+  // there is followed by its id) and records ids for labels that have
+  // them. Saved only when something changed.
+  async function syncColumnLabels(account, columns) {
+    const { columns: next, changed } = logic.resolveColumnLabels(columns, [...S.labels.values()]);
+    if (changed) await saveColumns(account, next);
+    return next;
+  }
+
   // Everything the board needs for one render: per-column thread ids
-  // (each thread in exactly one column) and which columns were cut off.
-  async function loadBoard(account, columns) {
+  // (each thread in exactly one column), which columns were cut off, and
+  // the columns themselves, in case a label was renamed in Gmail.
+  async function loadBoard(account, columnsIn) {
     // Let any move still in flight land first, or the list could show the
     // thread back in the column it is leaving.
     await Promise.allSettled([...S.pending]);
-    await ensureLabels(columns.map(c => c.label), { fresh: true });
+    // Renames first: ensuring labels by their stale names would recreate
+    // the old ones, empty.
+    await refreshLabels();
+    let columns = await syncColumnLabels(account, columnsIn);
+    await ensureLabels(columns.map(c => c.label));
+    columns = await syncColumnLabels(account, columns);
 
     const results = await util.mapPool(columns, 6, col =>
       api.gmail('GET', 'threads', { labelIds: labelId(col.label), maxResults: 100 })
@@ -176,7 +219,7 @@
     const lists = logic.assignColumns(columns, raw);
     for (const id of Object.keys(lists)) lists[id] = lists[id].filter(t => S.meta.has(t));
     emit('board-loaded', {});
-    return { lists, truncated };
+    return { lists, truncated, columns };
   }
 
   // `source` lets listeners ignore echoes of their own changes: the board
@@ -207,9 +250,14 @@
     await modify(threadId, logic.moveLabelDiff(columns, columnId, labelId), source);
   }
 
-  async function removeFromBoard(threadId, columns, source) {
+  // Taking a card off the board also forgets its title, note and colour.
+  // Edits would otherwise outlive their card, and sync's quota is small
+  // enough that leftovers would eventually crowd out the ones in use. A
+  // card that merely moves to Done keeps them.
+  async function removeFromBoard(threadId, columns, source, account) {
     if (!S.labelsAt) await refreshLabels();
     await modify(threadId, logic.removeLabelDiff(columns, labelId), source);
+    if (account) await saveCardEdit(account, threadId, null).catch(() => {});
   }
 
   async function search(text, account) {
@@ -230,8 +278,8 @@
   }
 
   ns.store = {
-    bus, loadColumns, saveColumns, loadOrder, saveOrder, loadDockPosition,
-    refreshLabels, ensureLabels, renameLabel, labelId,
+    bus, loadColumns, saveColumns, loadOrder, saveOrder, loadCardEdits, saveCardEdit, loadDockPosition,
+    refreshLabels, ensureLabels, renameLabel, labelId, allLabels,
     thread, loadBoard, moveToColumn, removeFromBoard, search, threadColumn,
   };
 })();
