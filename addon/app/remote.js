@@ -175,6 +175,7 @@
     return out;
   }
 
+  // The app's old name, kept so prefs saved before the rename still count.
   const LOCAL = 'supermail.';
   function localAll() {
     const out = {};

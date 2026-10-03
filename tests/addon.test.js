@@ -524,9 +524,9 @@ test('a failed move says so and changes nothing', () => {
 test('the app page: served by doGet, titled, sized for a phone, with the notes view inside', () => {
   const p = new Phone();
   const out = p.addon.doGet({}).output;
-  assert.equal(out.title, 'Supermail');
+  assert.equal(out.title, 'MemDesk');
   assert.deepEqual(out.meta, [['viewport', 'width=device-width, initial-scale=1, viewport-fit=cover']]);
-  assert.equal(out.favicon, 'https://raw.githubusercontent.com/michaelbeijer/Supermail/main/icons/icon-192.png', 'our icon, not Apps Script\'s');
+  assert.equal(out.favicon, 'https://raw.githubusercontent.com/michaelbeijer/MemDesk/main/icons/icon-192.png', 'our icon, not Apps Script\'s');
   assert.match(out.html, /^<!DOCTYPE html>/);
   // The modules are packed in base64url inside one loader script, in order,
   // each exactly its source file.
@@ -546,7 +546,7 @@ test('the app page: served by doGet, titled, sized for a phone, with the notes v
   }
   assert.match(out.html, /<div id="boot"[^>]*>Loading/, 'something to see before the scripts run');
   const ping = p.addon.doGet({ parameter: { ping: '1' } }).output;
-  assert.match(ping.html, new RegExp(`Supermail ${require('../manifest.json').version}: the script runs, and its page is ${out.html.length} characters long`));
+  assert.match(ping.html, new RegExp(`MemDesk ${require('../manifest.json').version}: the script runs, and its page is ${out.html.length} characters long`));
 });
 
 test('appList: every note once, newest first, with its folder; stale versions tidied; a search brings content', () => {

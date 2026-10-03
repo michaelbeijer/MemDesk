@@ -87,7 +87,7 @@ try {
     assert.equal((await ids(page, 'done')).length, 3);
     const dup = await findThread(page, 'Drawing labels');
     assert.ok((await ids(page, 'todo')).includes(dup), 'thread with two column labels sits in the left-most');
-    assert.match(await page.locator('.brand').innerText(), /Supermail/);
+    assert.match(await page.locator('.brand').innerText(), /MemDesk/);
     assert.equal(await page.locator('.tab[aria-selected="true"]').innerText(), 'Board');
     assert.equal(await page.locator('.account').innerText(), 'test@example.com');
     // Entities decoded, not shown raw.

@@ -12,7 +12,7 @@ redraws them. See [PUBLISHING.md](../PUBLISHING.md) for the whole process.
 
 **Description:**
 
-> Supermail turns Gmail into a Kanban board, a notebook and a calendar, without moving your mail anywhere.
+> MemDesk turns Gmail into a Kanban board, a notebook and a calendar, without moving your mail anywhere.
 >
 > THE BOARD
 > • Every card is an email conversation, every column a Gmail label (To do, Doing, Waiting, Done – or your own).
@@ -35,10 +35,10 @@ redraws them. See [PUBLISHING.md](../PUBLISHING.md) for the whole process.
 > • A home-screen app with the board, your notes, the Scratchpad and your week, and a panel in the Gmail app.
 >
 > PRIVATE BY DESIGN
-> • There is no Supermail server. Everything is in your own Gmail, as labels and messages, and Supermail talks only to Google (Gmail, and Calendar and Tasks for the calendar), from your browser.
+> • There is no MemDesk server. Everything is in your own Gmail, as labels and messages, and MemDesk talks only to Google (Gmail, and Calendar and Tasks for the calendar), from your browser.
 > • It never sends mail and never deletes anything for good.
 >
-> Open source: https://github.com/michaelbeijer/Supermail
+> Open source: https://github.com/michaelbeijer/MemDesk
 
 **Category:** Productivity › Workflow & Planning
 **Language:** English
@@ -78,7 +78,7 @@ stored). Then certify all three statements: the data is not sold, not
 used or transferred for purposes unrelated to the single purpose, and not
 used to determine creditworthiness.
 
-**Privacy policy URL:** https://github.com/michaelbeijer/Supermail/blob/main/PRIVACY.md
+**Privacy policy URL:** https://github.com/michaelbeijer/MemDesk/blob/main/PRIVACY.md
 
 ## Distribution
 

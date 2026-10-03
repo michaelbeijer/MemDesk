@@ -1,6 +1,6 @@
-# Publishing Supermail for other people
+# Publishing MemDesk for other people
 
-For the publisher: how to give Supermail to people who should not need a
+For the publisher: how to give MemDesk to people who should not need a
 Google Cloud project of their own. They get two links - one to the Chrome
 Web Store, one to the phone app - and [INSTALL.md](INSTALL.md) walks them
 through the rest.
@@ -21,17 +21,17 @@ Use a **new** project, not the one your own copy uses (that one is
 *Internal*, which only lets in your own Workspace domain).
 
 1. [Create a project](https://console.cloud.google.com/projectcreate) called
-   "Supermail", and select it at the top of the console for the next steps.
+   "MemDesk", and select it at the top of the console for the next steps.
 2. Enable [the Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com),
    [the Google Calendar API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com)
    and [the Google Tasks API](https://console.cloud.google.com/apis/library/tasks.googleapis.com) in it.
 3. Open [Google Auth Platform](https://console.cloud.google.com/auth/overview), **Get started**:
-   - App name **Supermail**, user support email: yours.
+   - App name **MemDesk**, user support email: yours.
    - Audience: **External**.
    - Contact information: your email. Agree, **Create**.
 4. **Branding**: upload `icons/icon-128.png` as the logo; application home
-   page `https://github.com/michaelbeijer/Supermail`; privacy policy
-   `https://github.com/michaelbeijer/Supermail/blob/main/PRIVACY.md`. Save.
+   page `https://github.com/michaelbeijer/MemDesk`; privacy policy
+   `https://github.com/michaelbeijer/MemDesk/blob/main/PRIVACY.md`. Save.
 5. **Data access** → **Add or remove scopes**: add
    `https://www.googleapis.com/auth/gmail.modify`, and for the calendar
    `https://www.googleapis.com/auth/calendar.readonly`,
@@ -40,7 +40,7 @@ Use a **new** project, not the one your own copy uses (that one is
 6. **Audience** → **Publish app** → **Confirm** (status "In production").
    No review starts unless you ask for one.
 7. **Clients** → **Create client**: type **Web application**, name
-   "Supermail extension". Under **Authorised redirect URIs** add
+   "MemDesk extension". Under **Authorised redirect URIs** add
    `https://lfeogecmdohgofbifobhkolapmjikdih.chromiumapp.org/`
    (the repository copy, for trying the build yourself). **Create**, and copy
    the **Client ID**. It is not a secret: it ends up inside the extension.
@@ -51,7 +51,7 @@ Use a **new** project, not the one your own copy uses (that one is
 node tools/package-extension.mjs --client-id=YOUR-CLIENT-ID.apps.googleusercontent.com
 ```
 
-This writes `dist/supermail-<version>.zip`: the extension with your client
+This writes `dist/memdesk-<version>.zip`: the extension with your client
 built in (so its setup page is one **Connect Gmail** button) and without the
 manifest's `key` (the store gives it an ID of its own). Or send the client
 ID to whoever maintains the code and ask for the zip.
@@ -81,7 +81,7 @@ project" section) to the client from step 1.7.
 ## 4. The phone app, for everyone
 
 In the Apps Script project your own phone panel runs from
-([script.google.com/home](https://script.google.com/home) → Supermail):
+([script.google.com/home](https://script.google.com/home) → MemDesk):
 
 1. **Deploy → New deployment**, gear → **Web app**.
 2. **Execute as: User accessing the web app** - so each person's app works
@@ -120,7 +120,7 @@ Give people the store link and the phone-app link, with
 To lift the 100-person limit and the warning screen, Google has to verify
 the app: in Google Auth Platform → **Verification centre**, with a home page
 and privacy policy on a domain you own (supervertaler.com or beijer.uk
-would do), a short video showing the sign-in and what Supermail does with
+would do), a short video showing the sign-in and what MemDesk does with
 Gmail and with the calendar, and a reason for each permission: `gmail.modify`
 (restricted) for the board and the notes, `calendar.readonly` and
 `tasks.readonly` (sensitive, which need the review but no security

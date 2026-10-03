@@ -1,6 +1,6 @@
-# Installing Supermail
+# Installing MemDesk
 
-Supermail puts a Kanban board, a notebook and your calendar inside Gmail. This page is for
+MemDesk puts a Kanban board, a notebook and your calendar inside Gmail. This page is for
 people who were sent links to it. It takes about two minutes, and you need
 nothing but Chrome and your Google account.
 
@@ -11,13 +11,13 @@ Google Cloud project? That is [SETUP.md](SETUP.md).)
 
 1. Open the **Chrome Web Store link** you were sent, in Chrome, and click
    **Add to Chrome**, then **Add extension**.
-2. A Supermail page opens. Click **Connect Gmail**, and choose your Google
+2. A MemDesk page opens. Click **Connect Gmail**, and choose your Google
    account.
 3. Google may say **"Google hasn't verified this app"**. That is because
-   Google has not reviewed Supermail yet, not because something is wrong.
-   Click **Advanced**, then **Go to Supermail**.
-4. Google lists what Supermail may do with your Gmail and asks you to
-   allow it. The list is broader than what Supermail does: it never sends
+   Google has not reviewed MemDesk yet, not because something is wrong.
+   Click **Advanced**, then **Go to MemDesk**.
+4. Google lists what MemDesk may do with your Gmail and asks you to
+   allow it. The list is broader than what MemDesk does: it never sends
    mail and never deletes anything for good. Click **Continue**.
 5. The page says **Connected as** your address. Open
    [Gmail](https://mail.google.com/): the **Board**, **Notes** and
@@ -57,4 +57,4 @@ home screen. To withdraw its access to your Google account too, see
 [myaccount.google.com/connections](https://myaccount.google.com/connections).
 Your board and notes stay in Gmail as labels and messages either way.
 
-How Supermail handles your data: [PRIVACY.md](PRIVACY.md).
+How MemDesk handles your data: [PRIVACY.md](PRIVACY.md).
