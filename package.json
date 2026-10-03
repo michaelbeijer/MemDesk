@@ -9,6 +9,7 @@
     "test:extension": "node tests/e2e/extension.e2e.mjs",
     "test:app": "node tests/e2e/app.e2e.mjs",
     "icons": "node tools/make-icons.mjs",
-    "build:addon": "node tools/build-addon.mjs"
+    "build:addon": "node tools/build-addon.mjs",
+    "build:site": "node tools/build-site.mjs"
   }
 }

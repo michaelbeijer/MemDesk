@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MemDesk – your board, notes and week, inside Gmail</title>
+<meta name="description" content="A Kanban board, a notebook and your calendar inside Gmail. Every card is an email, every note a message in your own mailbox. No server, no database, nothing to sign up for.">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="icon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta property="og:title" content="MemDesk">
+<meta property="og:description" content="Your board, your notes and your week, inside Gmail. No server, no database, nothing to sign up for.">
+<meta property="og:image" content="https://memdesk.app/img/hero.jpg">
+<meta property="og:url" content="https://memdesk.app/">
+<meta name="theme-color" content="#4c1d95">
+<style>
+  :root {
+    --violet: #6d28d9;
+    --violet-dark: #4c1d95;
+    --violet-light: #9f67fa;
+    --ink: #1f1f1f;
+    --muted: #5f6368;
+    --page: #ffffff;
+    --soft: #f5f3ff;
+    --line: #e8e5f3;
+    --card: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #ececf1;
+      --muted: #b4b0c4;
+      --page: #131217;
+      --soft: #1c1a24;
+      --line: #2c2938;
+      --card: #1c1a24;
+      --violet-light: #b794fb;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font: 17px/1.6 Roboto, "Segoe UI", Arial, sans-serif;
+  }
+  a { color: var(--violet); }
+  @media (prefers-color-scheme: dark) { a { color: var(--violet-light); } }
+  img { max-width: 100%; height: auto; display: block; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+
+  /* The top: the same violet as the pictures, so they sit in it */
+  .hero {
+    position: relative; overflow: hidden; color: #fff;
+    background:
+      radial-gradient(1200px 500px at 85% -10%, rgba(196, 181, 253, .45), transparent 60%),
+      radial-gradient(900px 600px at 0% 110%, rgba(99, 102, 241, .45), transparent 60%),
+      linear-gradient(135deg, #2e1065 0%, #4c1d95 45%, #6d28d9 100%);
+  }
+  .hero::before {
+    content: ''; position: absolute; inset: 0; opacity: .18; pointer-events: none;
+    background-image: radial-gradient(rgba(255,255,255,.9) 1px, transparent 1.4px); background-size: 22px 22px;
+  }
+  .hero > * { position: relative; }
+  .top { display: flex; align-items: center; justify-content: space-between; padding-top: 18px; padding-bottom: 18px; }
+  .brand { display: flex; align-items: center; gap: 10px; color: #fff; text-decoration: none; font-size: 22px; font-weight: 500; }
+  .brand img { width: 34px; height: 34px; }
+  .top nav a { color: #fff; text-decoration: none; opacity: .85; margin-left: 22px; font-size: 15px; }
+  .top nav a:hover { opacity: 1; text-decoration: underline; }
+  .intro { text-align: center; padding-top: 48px; padding-bottom: 36px; }
+  .intro h1 { font-size: clamp(32px, 5.2vw, 54px); line-height: 1.12; margin: 0 auto 18px; max-width: 16em; font-weight: 600; letter-spacing: -.5px; }
+  .intro p { font-size: clamp(17px, 2vw, 20px); margin: 0 auto; max-width: 36em; color: #ede9fe; }
+  .buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin: 30px 0 14px; }
+  .btn {
+    display: inline-block; padding: 12px 24px; border-radius: 999px; font-weight: 500; text-decoration: none; font-size: 16px;
+  }
+  .btn-main { background: #fff; color: var(--violet-dark) !important; }
+  .btn-main:hover { background: #f5f3ff; }
+  .btn-ghost { color: #fff !important; box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.7); }
+  .btn-ghost:hover { background: rgba(255,255,255,.1); }
+  .intro .platforms { font-size: 14px; color: #ddd6fe; margin: 0; }
+  .shot { margin: 18px auto 0; max-width: 1040px; padding-bottom: 64px; }
+  .shot img { width: 100%; border-radius: 16px; box-shadow: 0 24px 60px rgba(20, 6, 50, .45), 0 0 0 1px rgba(255, 255, 255, .12); }
+
+  /* What it does */
+  section { padding: 72px 0; }
+  section h2 { font-size: clamp(26px, 3.4vw, 36px); line-height: 1.2; margin: 0 0 14px; font-weight: 600; letter-spacing: -.3px; }
+  .feature { display: grid; grid-template-columns: 5fr 7fr; gap: 48px; align-items: center; }
+  .feature + .feature { margin-top: 88px; }
+  .feature.flip { grid-template-columns: 7fr 5fr; }
+  .feature.flip .text { order: 2; }
+  .feature .text p { color: var(--muted); margin: 0 0 12px; }
+  .feature img { border-radius: 14px; box-shadow: 0 10px 40px rgba(46, 16, 101, .18); }
+  .tag { display: inline-block; font-size: 13px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--violet); margin-bottom: 8px; }
+  @media (prefers-color-scheme: dark) { .tag { color: var(--violet-light); } }
+
+  /* Yours alone */
+  .private { background: var(--soft); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .private .lead { color: var(--muted); max-width: 40em; margin: 0 0 36px; }
+  .points { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+  .point { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+  .point b { display: block; margin-bottom: 6px; }
+  .point span { color: var(--muted); font-size: 15px; }
+
+  /* Get it */
+  .get { text-align: center; }
+  .get p { color: var(--muted); max-width: 36em; margin: 0 auto 10px; }
+  .get .buttons { margin-top: 26px; }
+  .get .btn-main { background: var(--violet); color: #fff !important; }
+  .get .btn-main:hover { background: var(--violet-dark); }
+  .get .btn-ghost { color: var(--violet) !important; box-shadow: inset 0 0 0 1.5px var(--violet); }
+  @media (prefers-color-scheme: dark) { .get .btn-ghost { color: var(--violet-light) !important; box-shadow: inset 0 0 0 1.5px var(--violet-light); } }
+
+  footer { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--muted); font-size: 14px; }
+  footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  footer a { color: var(--muted); }
+
+  @media (max-width: 860px) {
+    .feature, .feature.flip { grid-template-columns: 1fr; gap: 22px; }
+    .feature.flip .text { order: 0; }
+    .feature + .feature { margin-top: 64px; }
+    .points { grid-template-columns: 1fr 1fr; }
+    section { padding: 56px 0; }
+  }
+  @media (max-width: 520px) {
+    body { font-size: 16px; }
+    .top nav a { margin-left: 16px; }
+    .top nav .hide-small { display: none; }
+    .intro { padding-top: 30px; padding-bottom: 26px; }
+    .points { grid-template-columns: 1fr; }
+    .feature img, .shot img { border-radius: 10px; }
+    .shot { padding-bottom: 40px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap top">
+    <a class="brand" href="./"><img src="icon.svg" alt="" width="34" height="34">MemDesk</a>
+    <nav>
+      <a class="hide-small" href="#what">What it does</a>
+      <a href="privacy/">Privacy</a>
+      <a href="https://github.com/michaelbeijer/MemDesk">GitHub</a>
+    </nav>
+  </div>
+  <div class="wrap intro">
+    <h1>Your board, your notes and your week, inside Gmail.</h1>
+    <p>Every card is an email. Every note is a message in your own mailbox.
+      Your calendar, with your tasks in it. No server, no database, nothing to sign up for.</p>
+    <div class="buttons">
+      <a class="btn btn-main" href="#get">Get MemDesk</a>
+      <a class="btn btn-ghost" href="https://github.com/michaelbeijer/MemDesk">See it on GitHub</a>
+    </div>
+    <p class="platforms">Chrome on your computer · the Gmail app and a home‑screen app on Android</p>
+  </div>
+  <div class="wrap shot">
+    <img src="img/hero.jpg" width="2400" height="1460"
+      alt="MemDesk in three Chrome windows - the board, the notes and the calendar - with the phone app's week in front of them">
+  </div>
+</header>
+
+<main>
+  <section id="what">
+    <div class="wrap">
+      <div class="feature">
+        <div class="text">
+          <span class="tag">Board</span>
+          <h2>A board made of your email</h2>
+          <p>Columns are Gmail labels and cards are threads. Drag a card and its label moves with it;
+            drop it on Done and it leaves the Inbox.</p>
+          <p>Give a card your own title, a note and a colour without touching the email itself.
+            And while you read an email, one button at the bottom of Gmail files it in a column.</p>
+        </div>
+        <img src="img/board.jpg" width="2400" height="1744" loading="lazy"
+          alt="The board in Gmail: To do, Doing, Waiting and Done, half in light mode and half in dark">
+      </div>
+
+      <div class="feature flip">
+        <div class="text">
+          <span class="tag">Notes</span>
+          <h2>Notes that live in Gmail</h2>
+          <p>Headings, bold and italics, lists, checklists you tick, links. Notes save as you type,
+            and a paste from Word, Google Docs, a web page or Markdown arrives formatted.</p>
+          <p>Folders nest as deep as you like. The Scratchpad is always open: one note for whatever
+            needs writing down right now, the same on every computer and phone.</p>
+        </div>
+        <img src="img/notes.jpg" width="2400" height="1744" loading="lazy"
+          alt="The notes: nested folders on the left, the list in the middle, a checklist note open on the right">
+      </div>
+
+      <div class="feature">
+        <div class="text">
+          <span class="tag">Calendar</span>
+          <h2>Your week, tasks and all</h2>
+          <p>Your Google Calendar with Google Tasks woven into it: the week, the month, or the
+            next four weeks as one list.</p>
+          <p>A task with a date sits in its day, ready to tick. The ones without a date, and any
+            that are overdue, wait at the side. A task made from an email opens the email.</p>
+        </div>
+        <img src="img/calendar.jpg" width="2400" height="1520" loading="lazy"
+          alt="The calendar in Gmail: a week of events and tasks beside a small month, and on a phone the same week as two columns of days">
+      </div>
+
+      <div class="feature flip">
+        <div class="text">
+          <span class="tag">Phone</span>
+          <h2>And on your phone</h2>
+          <p>A home-screen app with the board, the notes and the calendar. The notes open straight
+            onto your Scratchpad, ready to type, with the same editor, folders and search as in Chrome.</p>
+          <p>And a panel in the Gmail app files the open email on the board, ticks your checklists
+            and adds to a note.</p>
+        </div>
+        <img src="img/phone.jpg" width="2400" height="1520" loading="lazy"
+          alt="Three phones: the board, the Scratchpad, and the week as two columns of days">
+      </div>
+    </div>
+  </section>
+
+  <section class="private" id="private">
+    <div class="wrap">
+      <h2>Yours alone</h2>
+      <p class="lead">The board and the notes are views of your own mailbox, and the calendar of your
+        own Google Calendar and Tasks. Nothing passes through anyone else.</p>
+      <div class="points">
+        <div class="point"><b>No MemDesk server</b><span>It talks only to Google, from your own browser or your own Apps Script.</span></div>
+        <div class="point"><b>Nothing to sign up for</b><span>No account, no database, no analytics, no tracking.</span></div>
+        <div class="point"><b>Never sends mail</b><span>And never deletes anything for good: only its own notes go to Trash.</span></div>
+        <div class="point"><b>Calendar read-only</b><span>It reads your events and tasks to show them, and cannot change them.</span></div>
+      </div>
+      <p style="margin: 28px 0 0"><a href="privacy/">Read the privacy policy</a></p>
+    </div>
+  </section>
+
+  <section class="get" id="get">
+    <div class="wrap">
+      <h2>Get MemDesk</h2>
+      <p>MemDesk is not in the Chrome Web Store yet. Until it is, you can set it up yourself from
+        GitHub: about ten minutes, once, with pictures of every step.</p>
+      <p>Did someone send you a link to their copy? Then you only need the short install guide.</p>
+      <div class="buttons">
+        <a class="btn btn-main" href="https://github.com/michaelbeijer/MemDesk/blob/main/SETUP.md">Set it up</a>
+        <a class="btn btn-ghost" href="https://github.com/michaelbeijer/MemDesk/blob/main/INSTALL.md">Install guide</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>MemDesk is made by Michael Beijer, who also makes <a href="https://supervertaler.com">Supervertaler</a>.</span>
+    <span><a href="privacy/">Privacy</a> · <a href="https://github.com/michaelbeijer/MemDesk">GitHub</a> · <a href="https://beijer.uk/contact/">Contact</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

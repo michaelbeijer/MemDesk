@@ -19,6 +19,7 @@
 </p>
 
 <p align="center">
+  <a href="https://memdesk.app">memdesk.app</a> ·
   <a href="#what-it-does">What it does</a> ·
   <a href="SETUP.md">Set it up</a> ·
   <a href="#usage">How to use it</a> ·
@@ -606,9 +607,9 @@ The display name appears in exactly these places:
    `tools/make-icons.mjs` again, and copy the new path into `LOGO` in
    `src/content/ui.js` (a test says if they differ).
 
-The guides (`INSTALL.md`, `SETUP.md`, `PUBLISHING.md`, `PRIVACY.md`) and
-`store/listing.md` use the name in their text, and link to the repository by
-its address. The pictures take the name from `APP_NAME`: run
+The guides (`INSTALL.md`, `SETUP.md`, `PUBLISHING.md`, `PRIVACY.md`),
+`store/listing.md` and the website (`site/index.html`) use the name in their
+text, and link to the repository by its address. The pictures take the name from `APP_NAME`: run
 `tools/readme-shots.mjs` again.
 
 Nothing internal carries the name: not the `gkb` namespace, the storage keys

@@ -30,8 +30,11 @@ Use a **new** project, not the one your own copy uses (that one is
    - Audience: **External**.
    - Contact information: your email. Agree, **Create**.
 4. **Branding**: upload `icons/icon-128.png` as the logo; application home
-   page `https://github.com/michaelbeijer/MemDesk`; privacy policy
-   `https://github.com/michaelbeijer/MemDesk/blob/main/PRIVACY.md`. Save.
+   page `https://memdesk.app`; privacy policy `https://memdesk.app/privacy/`;
+   authorised domain `memdesk.app`. Save. Google's review wants both pages on
+   a domain you own, so prove that it is yours in
+   [Google Search Console](https://search.google.com/search-console) (a TXT
+   record at the registrar) with the same Google account.
 5. **Data access** → **Add or remove scopes**: add
    `https://www.googleapis.com/auth/gmail.modify`, and for the calendar
    `https://www.googleapis.com/auth/calendar.readonly`,
