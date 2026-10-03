@@ -78,7 +78,9 @@ stored). Then certify all three statements: the data is not sold, not
 used or transferred for purposes unrelated to the single purpose, and not
 used to determine creditworthiness.
 
-**Privacy policy URL:** https://github.com/michaelbeijer/MemDesk/blob/main/PRIVACY.md
+**Privacy policy URL:** https://memdesk.app/privacy/
+
+**Homepage URL** (Store listing tab, additional fields): https://memdesk.app
 
 ## Distribution
 
