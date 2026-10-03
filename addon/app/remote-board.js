@@ -19,7 +19,7 @@
   store.loadColumns = async account => {
     const key = KEYS.columns(account);
     if ((await chrome.storage.sync.get(key))[key]) return saved(account);
-    const fromLabels = await ns.appRemote.call('appBoardColumns');
+    const fromLabels = await ns.appRemote.firstColumns();
     return logic.normaliseColumns(fromLabels || undefined);
   };
 })();

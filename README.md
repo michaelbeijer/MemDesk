@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.18.0" src="https://img.shields.io/badge/version-0.18.0-6D28D9">
+  <img alt="Version 0.19.0" src="https://img.shields.io/badge/version-0.19.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -92,7 +92,9 @@ adding events are next.
 A home-screen app with the board, the notes and the calendar: the board one
 column to a screen, swiped sideways; the notes opening straight onto your
 Scratchpad, ready to type, with the same editor, folders and search as in
-Chrome; your week as two columns of days. And a panel in the Gmail app files
+Chrome; your week as two columns of days. It opens on the phone's own copy of
+the Scratchpad, so you can type before Gmail has even answered; if it was
+changed on your computer meanwhile, both changes are kept. And a panel in the Gmail app files
 the open email on the board, ticks your checklists and adds to a note.
 
 <img src="images/phone.jpg" width="100%" alt="Three phones: the board, the Scratchpad, and the week as two columns of days">
@@ -128,7 +130,7 @@ The **Calendar** tab reads Google Calendar and Google Tasks with a sign-in of
 its own (read-only), asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.18.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.19.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 

@@ -364,3 +364,94 @@ test('what a paste becomes', () => {
   const evil = fmt.pasteDoc({ html: '<b style="color:red">loud</b><img src=x onerror="alert(1)"><script>alert(2)</script><a href="javascript:alert(3)">click</a>' });
   assert.deepEqual(shape(evil), [['p', 0, false, '*loud*click']]);
 });
+
+// ── Merging two edits of one note ────────────────────────────────────
+
+const P = text => B('p', text ? [T(text)] : []);
+const texts = doc => doc.map(b => b.runs.map(r => r.text).join(''));
+const merge = (base, mine, theirs) => fmt.mergeDocs(base.map(P), mine.map(P), theirs.map(P));
+
+test('merge: one side changed, or neither, or both the same way', () => {
+  assert.deepEqual(texts(merge(['a', 'b'], ['a', 'b'], ['a', 'b']).doc), ['a', 'b']);
+  assert.deepEqual(texts(merge(['a', 'b'], ['a', 'b'], ['a', 'B', 'c']).doc), ['a', 'B', 'c'], 'theirs only');
+  assert.deepEqual(texts(merge(['a', 'b'], ['x', 'a', 'b'], ['a', 'b']).doc), ['x', 'a', 'b'], 'mine only');
+  const same = merge(['a'], ['a', 'z'], ['a', 'z']);
+  assert.deepEqual(texts(same.doc), ['a', 'z'], 'not twice');
+  assert.equal(same.clean, true);
+});
+
+test('merge: changes in different places both stay', () => {
+  // A line jotted at the top on the phone; the last line edited on the computer.
+  const r = merge(['milk', 'eggs', 'call Sam'], ['bread', 'milk', 'eggs', 'call Sam'], ['milk', 'eggs', 'call Sam at 3']);
+  assert.deepEqual(texts(r.doc), ['bread', 'milk', 'eggs', 'call Sam at 3']);
+  assert.equal(r.clean, true);
+  // A line added under a paragraph on one side, the paragraph changed on the other.
+  assert.deepEqual(texts(merge(['a', 'b'], ['a', 'b', 'c'], ['a', 'B']).doc), ['a', 'B', 'c']);
+  assert.deepEqual(texts(merge(['a', 'b'], ['a', 'B'], ['a', 'z', 'b']).doc), ['a', 'z', 'B']);
+  // Deletions on either side are kept as deletions.
+  assert.deepEqual(texts(merge(['a', 'b', 'c', 'd'], ['a', 'c', 'd'], ['a', 'b', 'c', 'D']).doc), ['a', 'c', 'D']);
+});
+
+test('merge: the same paragraph changed on both sides keeps both versions', () => {
+  const r = merge(['intro', 'plan', 'end'], ['intro', 'plan: Monday', 'end'], ['intro', 'plan: Tuesday', 'end']);
+  assert.deepEqual(texts(r.doc), ['intro', 'plan: Tuesday', 'plan: Monday', 'end']);
+  assert.equal(r.clean, false);
+  // A scratchpad started on two devices at once: both texts.
+  assert.deepEqual(texts(merge([''], ['from the phone'], ['from the computer', 'second line']).doc),
+    ['from the computer', 'second line', 'from the phone']);
+});
+
+test('merge: formatting counts as a change, and the map says where each of my blocks went', () => {
+  const base = [P('title'), P('body')];
+  const mine = [P('new first'), P('title'), B('p', [T('body', { b: true })])];
+  const theirs = [P('title'), P('body'), P('added on the computer')];
+  const r = fmt.mergeDocs(base, mine, theirs);
+  assert.deepEqual(r.doc.map(b => b.runs.map(x => (x.b ? `*${x.text}*` : x.text)).join('')), ['new first', 'title', '*body*', 'added on the computer']);
+  assert.deepEqual(r.map, [0, 1, 2]);
+  // A block of mine they rewrote: the cursor goes to their version.
+  const moved = merge(['a', 'b', 'c'], ['a', 'b', 'c'], ['a', 'B', 'c']);
+  assert.deepEqual(moved.map, [0, 1, 2]);
+  const gone = merge(['a', 'b', 'c'], ['a', 'b', 'c'], ['a', 'c']);
+  assert.deepEqual(texts(gone.doc), ['a', 'c']);
+  assert.deepEqual(gone.map, [0, 1, 1], 'a deleted block sends the cursor to the next one');
+});
+
+test('merge: long notes and empty ones', () => {
+  const long = Array.from({ length: 3000 }, (_, i) => `line ${i}`);
+  const mine = long.slice(); mine.splice(10, 0, 'mine');
+  const theirs = long.slice(); theirs[2990] = 'theirs';
+  const r = merge(long, mine, theirs);
+  assert.equal(r.doc.length, 3001);
+  assert.equal(texts(r.doc)[10], 'mine');
+  assert.equal(texts(r.doc)[2991], 'theirs');
+  assert.deepEqual(texts(merge([], [], []).doc), ['']);
+  assert.equal(fmt.sameDoc([P('a')], [P('a')]), true);
+  assert.equal(fmt.sameDoc([P('a')], [P('b')]), false);
+});
+
+test('merge: whatever either side wrote is in the result (random edits)', () => {
+  let seed = 7;
+  const rnd = n => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+  const edit = (doc, tag) => {
+    const out = doc.slice();
+    for (let e = rnd(4); e >= 0; e--) {
+      const at = rnd(out.length + 1);
+      const op = rnd(3);
+      if (op === 0) out.splice(at, 0, `${tag}${rnd(1000)}`);
+      else if (op === 1 && out.length) out.splice(Math.min(at, out.length - 1), 1);
+      else if (out.length) out[Math.min(at, out.length - 1)] += tag;
+    }
+    return out;
+  };
+  for (let round = 0; round < 400; round++) {
+    const base = Array.from({ length: rnd(8) }, (_, i) => `b${i}`);
+    const mine = edit(base, 'm');
+    const theirs = edit(base, 't');
+    const r = merge(base, mine, theirs);
+    const got = texts(r.doc);
+    for (const line of mine) if (!base.includes(line)) assert.ok(got.includes(line), `mine: ${line} in ${JSON.stringify({ base, mine, theirs, got })}`);
+    for (const line of theirs) if (!base.includes(line)) assert.ok(got.includes(line), `theirs: ${line} in ${JSON.stringify({ base, mine, theirs, got })}`);
+    assert.equal(r.map.length, Math.max(1, mine.length), "an empty note is one empty paragraph");
+    for (const at of r.map) assert.ok(at >= 0 && at < r.doc.length);
+  }
+});

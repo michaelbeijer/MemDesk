@@ -24,10 +24,10 @@
   // What one card needs to know about the mailbox, read once per trigger
   // or button press: the notes label (made if it is missing), its
   // folders, the board's columns, and - only if a save needs it - the
-  // account's address.
-  function context() {
+  // account's address. `labels`: Gmail's list of them, if already read.
+  function context(labels) {
     const name = rootName();
-    let all = gmail.call('GET', 'labels').labels || [];
+    let all = labels || gmail.call('GET', 'labels').labels || [];
     let root = all.find(l => l.name.toLowerCase() === name.toLowerCase());
     if (!root) {
       root = gmail.call('POST', 'labels', null, { name, labelListVisibility: 'labelShow', messageListVisibility: 'show' });

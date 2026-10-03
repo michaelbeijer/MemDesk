@@ -749,10 +749,134 @@
     return fromPlain(plain || '');
   }
 
+  // ── Merging ──────────────────────────────────────────────────────────
+  //
+  // A note edited here while another computer or phone saved a newer
+  // version of it: both sets of changes, block by block. `base` is the
+  // version the edits here started from, `mine` the text here now, and
+  // `theirs` the newer version. A stretch only one side changed takes
+  // that side's blocks; a stretch both changed keeps theirs and then
+  // whatever of mine they do not already have, so nothing typed on
+  // either is lost - at worst a paragraph appears twice.
+
+  const blockKey = b => JSON.stringify(b);
+  const sameDoc = (a, b) => JSON.stringify(normaliseDoc(a)) === JSON.stringify(normaliseDoc(b));
+
+  // The longest common subsequence of two lists of keys, as pairs of
+  // indices [i in a, j in b], in order. The ends both lists share are
+  // matched first, so the table only spans the stretch that differs.
+  function commonPairs(a, b) {
+    let lo = 0;
+    while (lo < a.length && lo < b.length && a[lo] === b[lo]) lo++;
+    let ea = a.length;
+    let eb = b.length;
+    while (ea > lo && eb > lo && a[ea - 1] === b[eb - 1]) { ea--; eb--; }
+    const pairs = [];
+    for (let i = 0; i < lo; i++) pairs.push([i, i]);
+    const n = ea - lo;
+    const m = eb - lo;
+    // Too big a table to be worth it: no matches in the middle, which
+    // only makes the merge keep more of both sides.
+    if (n && m && n * m <= 4e6) {
+      const len = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+      for (let i = n - 1; i >= 0; i--) {
+        for (let j = m - 1; j >= 0; j--) {
+          len[i][j] = a[lo + i] === b[lo + j] ? len[i + 1][j + 1] + 1 : Math.max(len[i + 1][j], len[i][j + 1]);
+        }
+      }
+      let i = 0;
+      let j = 0;
+      while (i < n && j < m) {
+        if (a[lo + i] === b[lo + j]) { pairs.push([lo + i, lo + j]); i++; j++; } else if (len[i + 1][j] >= len[i][j + 1]) i++; else j++;
+      }
+    }
+    for (let k = 0; k < a.length - ea; k++) pairs.push([ea + k, eb + k]);
+    return pairs;
+  }
+
+  // { doc, map, clean }: the merged blocks; for each of mine's blocks,
+  // where it is in them (so a cursor can stay put); and whether no
+  // stretch was changed on both sides.
+  function mergeDocs(baseIn, mineIn, theirsIn) {
+    const base = normaliseDoc(baseIn);
+    const mine = normaliseDoc(mineIn);
+    const theirs = normaliseDoc(theirsIn);
+    const kb = base.map(blockKey);
+    const km = mine.map(blockKey);
+    const kt = theirs.map(blockKey);
+    const toMine = new Map(commonPairs(kb, km));
+    const toTheirs = new Map(commonPairs(kb, kt));
+    // The blocks neither side touched, in order on all three.
+    const anchors = [];
+    let lastM = -1;
+    let lastT = -1;
+    for (let i = 0; i < kb.length; i++) {
+      if (!toMine.has(i) || !toTheirs.has(i)) continue;
+      const m = toMine.get(i);
+      const t = toTheirs.get(i);
+      if (m > lastM && t > lastT) { anchors.push(i); lastM = m; lastT = t; }
+    }
+    const out = [];
+    const map = new Array(mine.length).fill(-1);
+    let clean = true;
+    const same = (x, y) => x.length === y.length && x.every((v, k) => v === y[k]);
+    let b0 = 0;
+    let m0 = 0;
+    let t0 = 0;
+    for (const a of anchors.concat([kb.length])) {
+      const m1 = a < kb.length ? toMine.get(a) : km.length;
+      const t1 = a < kb.length ? toTheirs.get(a) : kt.length;
+      const B = kb.slice(b0, a);
+      const M = km.slice(m0, m1);
+      const T = kt.slice(t0, t1);
+      const start = out.length;
+      if (same(M, B) && !same(T, B)) {
+        // Only they changed this stretch.
+        for (let k = t0; k < t1; k++) out.push(theirs[k]);
+        for (let k = m0; k < m1; k++) map[k] = Math.min(start + (k - m0), Math.max(start, out.length - 1));
+      } else if (same(T, B) || same(M, T)) {
+        // Only this side changed it, or both the same way.
+        for (let k = m0; k < m1; k++) { map[k] = out.length; out.push(mine[k]); }
+      } else if (B.length && (same(T.slice(0, B.length), B) || same(T.slice(T.length - B.length), B))) {
+        // They only added before or after it, and this side changed it.
+        const after = same(T.slice(0, B.length), B);
+        if (!after) for (let k = t0; k < t1 - B.length; k++) out.push(theirs[k]);
+        for (let k = m0; k < m1; k++) { map[k] = out.length; out.push(mine[k]); }
+        if (after) for (let k = t0 + B.length; k < t1; k++) out.push(theirs[k]);
+      } else if (B.length && (same(M.slice(0, B.length), B) || same(M.slice(M.length - B.length), B))) {
+        // This side only added before or after it, and they changed it.
+        const after = same(M.slice(0, B.length), B);
+        if (!after) for (let k = m0; k < m1 - B.length; k++) { map[k] = out.length; out.push(mine[k]); }
+        const theirsAt = out.length;
+        for (let k = t0; k < t1; k++) out.push(theirs[k]);
+        const kept = after ? [m0, m0 + B.length] : [m1 - B.length, m1];
+        for (let k = kept[0]; k < kept[1]; k++) map[k] = Math.min(theirsAt + (k - kept[0]), Math.max(theirsAt, out.length - 1));
+        if (after) for (let k = m0 + B.length; k < m1; k++) { map[k] = out.length; out.push(mine[k]); }
+      } else {
+        // Both changed it: theirs, then what of mine is new to it.
+        clean = false;
+        for (let k = t0; k < t1; k++) out.push(theirs[k]);
+        for (let k = m0; k < m1; k++) {
+          const there = T.indexOf(km[k]);
+          if (there >= 0) map[k] = start + there;
+          else { map[k] = out.length; out.push(mine[k]); }
+        }
+      }
+      if (a < kb.length) { map[m1] = out.length; out.push(mine[m1]); }
+      b0 = a + 1;
+      m0 = m1 + 1;
+      t0 = t1 + 1;
+    }
+    if (!out.length) out.push(block('p'));
+    for (let k = 0; k < map.length; k++) map[k] = Math.max(0, Math.min(out.length - 1, map[k]));
+    return { doc: out, map, clean };
+  }
+
   const api = {
     TYPES, LISTS, MAX_LEVEL,
     block, emptyDoc, normaliseRuns, normaliseDoc, docText, isEmpty, safeHref,
     toHtml, toPlain, fromPlain, parseHtml, docFromParts, fromMarkdown, looksLikeMarkdown, hasFormatting, pasteDoc,
+    mergeDocs, sameDoc,
   };
 
   ns.noteFormat = api;

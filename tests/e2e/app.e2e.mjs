@@ -331,6 +331,136 @@ await r.step('switching away from the app saves at once', async () => {
   await until(async () => /bread/.test(phone.fake.box.messageText(phone.fake.box.findMessageBySubject('Written on the train'))), 'saved on hide', 3000);
 });
 
+// ── Opening fast: the phone's own copy ──
+
+// One phone, kept between visits (its browser storage stays), on the same
+// mailbox. `hold`: the script answers nothing until let go, as Apps Script
+// taking its time. `saves: false`: saves never get through, as a page the
+// phone closes before they could.
+async function visit(ctx, { hold = false, saves = true } = {}) {
+  const p = await ctx.newPage();
+  watchErrors(p, errors);
+  const at = new Phone({ fake: phone.fake });
+  let release;
+  const gate = new Promise(res => { release = res; });
+  if (!hold) release();
+  const calls = [];
+  await p.exposeFunction('__gas', async (fn, args) => {
+    calls.push(fn);
+    if (fn === 'appSave' && !saves) await new Promise(() => {});
+    await gate;
+    return at.server(fn, ...args);
+  });
+  await p.addInitScript(installGoogle);
+  await p.goto(pathToFileURL(PAGE).href);
+  return { page: p, release, calls };
+}
+const phoneContext = () => browser.newContext({ viewport: { width: 412, height: 860 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+const scratchText = p => q(p, '.note-editor.scratch .ne-body').innerText();
+const savedScratch = p => until(async () => /^Saved/.test(await q(p, '.scratch-title .ne-status').innerText()), 'saved', 10000);
+const keep = await phoneContext();
+
+await r.step('a first visit asks the script once, not four times, before the scratchpad can be typed in', async () => {
+  const v = await visit(keep);
+  await scratchReady(v.page);
+  assert.equal(v.calls[0], 'appStart');
+  for (const fn of ['appAccount', 'appPrefsGet', 'appBoardColumns']) assert.equal(v.calls.includes(fn), false, fn);
+  await settled(v.page);
+  await v.page.close();
+});
+
+await r.step('the next visit opens on the phone’s copy at once, typing and all, before the script has answered', async () => {
+  const v = await visit(keep, { hold: true });
+  await scratchReady(v.page);
+  assert.match(await scratchText(v.page), /Ring the garage about the tyres, and the MOT/);
+  assert.equal(await v.page.locator('#boot').count(), 0, 'no loading line');
+  assert.ok(v.calls.includes('appStart'), 'the check is under way');
+  // The tab, the columns and the settings came from the copy too.
+  for (const fn of ['appAccount', 'appPrefsGet', 'appBoardColumns']) assert.equal(v.calls.includes(fn), false, fn);
+  v.release();
+  await settled(v.page);
+  assert.equal(v.calls.includes('appBody'), false, 'still current: the text did not have to come again');
+  await q(v.page, '.brand .logo').tap();
+  await until(async () => /Opened in \d+\.\d s: .*ready to type \d+\.\d s, checked with Gmail \d+\.\d s/.test(await q(v.page, '.toast').innerText()), 'the timing, on tapping the logo');
+  await v.page.close();
+});
+
+await r.step('changed on another device while this phone was away, and typed into before it heard: both kept', async () => {
+  const desk = await openApp({ phone });
+  await scratchReady(desk.page);
+  await q(desk.page, '.ne-body').tap();
+  await desk.page.keyboard.press('Control+End');
+  await desk.page.keyboard.type(', and the oil');
+  await savedScratch(desk.page);
+  await settled(desk.page);
+  await desk.page.context().close();
+
+  const v = await visit(keep, { hold: true });
+  await scratchReady(v.page);
+  assert.doesNotMatch(await scratchText(v.page), /the oil/, 'the copy is older');
+  await q(v.page, '.ne-body').tap();
+  await v.page.keyboard.press('Control+Home');
+  await v.page.keyboard.type('Buy stamps');
+  await v.page.keyboard.press('Enter');
+  v.release();
+  await until(async () => /Buy stamps\s+Ring the garage about the tyres, and the MOT, and the oil/.test(await scratchText(v.page)), 'merged on screen');
+  await until(async () => /both changes are kept/.test(await q(v.page, '.toast').innerText()), 'and said so');
+  // The cursor stayed where it was: typing carries on in place.
+  await v.page.keyboard.type('Then ');
+  await savedScratch(v.page);
+  await settled(v.page);
+  assert.equal(live(phone, SCRATCH).length, 1, 'one scratchpad');
+  assert.equal(live(phone, SCRATCH)[0].text, 'Buy stamps\nThen Ring the garage about the tyres, and the MOT, and the oil');
+  await v.page.close();
+});
+
+await r.step('text typed and not yet saved survives the phone closing the page', async () => {
+  const v = await visit(keep, { saves: false });
+  await scratchReady(v.page);
+  await q(v.page, '.ne-body').tap();
+  await v.page.keyboard.press('Control+End');
+  await v.page.keyboard.type(' - and post the parcel');
+  await v.page.waitForTimeout(500);
+  await v.page.close();
+  assert.doesNotMatch(live(phone, SCRATCH)[0].text, /parcel/, 'never reached Gmail');
+
+  const w = await visit(keep, { hold: true });
+  await scratchReady(w.page);
+  assert.match(await scratchText(w.page), /and the oil - and post the parcel$/, 'there at once');
+  w.release();
+  await savedScratch(w.page);
+  await settled(w.page);
+  assert.match(live(phone, SCRATCH)[0].text, /and the oil - and post the parcel$/, 'and saved');
+  assert.equal(live(phone, SCRATCH).length, 1);
+  await w.page.close();
+});
+
+await r.step('a save that would overwrite a newer version from another phone merges with it instead', async () => {
+  const a = await openApp({ phone });
+  const b = await openApp({ phone });
+  await scratchReady(a.page);
+  await scratchReady(b.page);
+  await q(a.page, '.ne-body').tap();
+  await a.page.keyboard.press('Control+End');
+  await a.page.keyboard.press('Enter');
+  await a.page.keyboard.type('From phone A');
+  await savedScratch(a.page);
+  await settled(a.page);
+  // B still has the version before A's, and saves on top of it.
+  await q(b.page, '.ne-body').tap();
+  await b.page.keyboard.press('Control+Home');
+  await b.page.keyboard.type('From phone B');
+  await b.page.keyboard.press('Enter');
+  await until(async () => /^From phone B[\s\S]*From phone A$/.test(await scratchText(b.page)), 'merged on B');
+  await savedScratch(b.page);
+  await settled(b.page);
+  assert.equal(live(phone, SCRATCH).length, 1);
+  assert.match(live(phone, SCRATCH)[0].text, /^From phone B\n[\s\S]*\nFrom phone A$/);
+  await a.page.context().close();
+  await b.page.context().close();
+  await keep.close();
+});
+
 // ── The board ──
 
 const column = (p, title) => q(p, 'section.column').filter({ has: p.locator('.col-title').filter({ hasText: new RegExp(`^${title}$`) }) });

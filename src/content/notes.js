@@ -143,11 +143,51 @@
 
     els.editor = h('section', { class: 'note-editor', 'aria-label': 'Note' });
     els.wrap = h('div', { class: 'notes', dataset: { folders: 'closed' } }, els.foldersPane, els.list, els.editor);
-    if (!N.current) N.current = pendingScratch();
+    if (!N.current) N.current = fromCopy() || pendingScratch();
     drawFolders();
     drawList();
     drawEditor();
+    // Text typed last time and not saved before the page went.
+    const c = N.current;
+    if (c && c.dirty) saveTimer = setTimeout(() => save(c), AUTOSAVE_MS);
     return els.wrap;
+  }
+
+  // The phone app's own copy (notesStore.cached): the list and the
+  // scratchpad as they were when it last heard from Gmail, and any text
+  // typed and not yet saved. The scratchpad takes typing at once; Gmail's
+  // answer catches up with it after (catchUpCurrent, adoptNewer).
+  function fromCopy() {
+    const copy = notesStore.cached ? notesStore.cached() : null;
+    if (!copy) return null;
+    if (copy.notes) {
+      N.notes = copy.notes;
+      N.truncated = !!copy.truncated;
+      N.folders = copy.folders || [];
+      N.status = 'ready';
+      N.loadedAt = 0; // still to be asked for
+    }
+    if (copy.scratch) {
+      N.scratchNote = copy.scratch.note || null;
+      N.scratchKnown = true;
+    }
+    const from = copy.draft || copy.scratch;
+    if (!from) return null;
+    const c = scratchCurrent(from.note || null);
+    c.base = copy.draft ? copy.draft.base || fmt.emptyDoc() : from.doc || fmt.emptyDoc();
+    c.doc = from.doc || fmt.emptyDoc();
+    c.bodyState = 'ready';
+    c.dirty = !!copy.draft;
+    return c;
+  }
+
+  // What the phone app's first call found the scratchpad to be: in Gmail
+  // already, perhaps newer than the copy it opened with.
+  function scratchFound(note) {
+    if (!note || !isNewer(note, N.scratchNote)) return;
+    N.scratchNote = note;
+    N.scratchKnown = true;
+    catchUpCurrent();
   }
 
   // ── Loading ──────────────────────────────────────────────────────────
@@ -228,16 +268,80 @@
     return p.then(() => (query !== N.query ? load({ force: true }) : undefined));
   }
 
-  // The open note was saved on another computer since it was opened here:
-  // show the newer text, unless there are edits here that would be lost.
+  // Whether `fresh` is a later version than the one `note` is (or than
+  // none at all). Gmail's own date for each message decides.
+  const isNewer = (fresh, note) => !!fresh && (!note || (fresh.messageId !== note.messageId && fresh.updated > note.updated));
+
+  // The open note was saved on another computer or phone since it was
+  // opened here (or, for the scratchpad, started there): the newer text,
+  // merged with whatever was typed here meanwhile.
   function catchUpCurrent() {
     const c = N.current;
-    if (!c || c.dirty || c.saving) return;
-    // A scratchpad never saved here, which another computer has since started.
-    if (c.scratch && !c.note && c.bodyState === 'ready' && N.scratchNote) { openNote(N.scratchNote, { force: true }); return; }
-    if (!c.note) return;
-    const fresh = N.notes.find(n => n.key === c.key);
-    if (fresh && fresh.messageId !== c.note.messageId) openNote(fresh, { force: true });
+    if (!c) return;
+    const fresh = c.scratch ? N.scratchNote : c.note ? N.notes.find(n => n.key === c.key) : null;
+    if (!isNewer(fresh, c.note)) return;
+    if (c.bodyState !== 'ready') {
+      if (!c.dirty && !c.saving) openNote(fresh, { force: true });
+      return;
+    }
+    adoptNewer(c, fresh);
+  }
+
+  // A newer version of a note being edited, taken in place: the edits
+  // made here since `c.base` merged into it (noteFormat.mergeDocs), in
+  // the same text box, so the cursor and a phone's keyboard stay put. It
+  // waits for a save in flight, and the merged text is saved in turn.
+  function adoptNewer(c, fresh) {
+    N.chain = N.chain.then(async () => {
+      if (!isNewer(fresh, c.note)) return;
+      let theirs;
+      try {
+        theirs = await notesStore.body(fresh);
+      } catch (err) {
+        return; // the next listing tries again
+      }
+      if (!isNewer(fresh, c.note)) return;
+      const base = c.base || fmt.emptyDoc();
+      const mine = c.doc || base;
+      const typed = c.dirty && !fmt.sameDoc(mine, base);
+      const titled = !c.scratch && c.dirty && c.title !== c.baseTitle;
+      const merged = typed ? fmt.mergeDocs(base, mine, theirs) : { doc: theirs, map: null };
+      c.note = fresh;
+      c.key = fresh.key;
+      c.base = theirs;
+      c.baseTitle = fresh.title;
+      c.doc = merged.doc;
+      c.savedAt = 0;
+      c.error = '';
+      if (!titled && !c.scratch) c.title = fresh.title !== 'Untitled note' ? fresh.title : '';
+      if (!c.scratch) c.folderId = fresh.folderId || '';
+      c.dirty = (typed && !fmt.sameDoc(merged.doc, theirs)) || titled;
+      if (c.scratch) { N.scratchNote = fresh; N.scratchKnown = true; }
+      if (N.current === c && els.ed) {
+        els.ed.replaceDoc(merged.doc, merged.map);
+        const input = els.editor.querySelector('[data-key="note-title"]');
+        if (input && input.value !== c.title && N.ctx.root.activeElement !== input) input.value = c.title;
+        applyHighlights();
+      }
+      if (typed) toast(N.ctx.root, 'Also changed on another device in the meantime: both changes are kept.');
+      keepDraft(c);
+      if (c.dirty) {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => save(c), AUTOSAVE_MS);
+      }
+      if (N.current === c) drawBar();
+      drawList();
+    });
+    return N.chain;
+  }
+
+  // A phone app keeps the scratchpad's unsaved text on the phone, so that
+  // a page the phone closes mid-sentence loses nothing (notesStore.keepDraft).
+  let draftTimer = 0;
+  function keepDraft(c) {
+    if (!c.scratch || !notesStore.keepDraft) return;
+    clearTimeout(draftTimer);
+    notesStore.keepDraft(c.dirty ? { note: c.note, base: c.base, doc: c.doc } : null);
   }
 
   // ── The list ─────────────────────────────────────────────────────────
@@ -824,6 +928,9 @@
       savedAt: 0,
       // A new note starts in the folder being looked at.
       folderId: note ? note.folderId || '' : N.folder,
+      // The version the edits here started from, for a merge.
+      base: note ? null : fmt.emptyDoc(),
+      baseTitle: note ? note.title : '',
     };
   }
 
@@ -880,6 +987,7 @@
     notesStore.body(note).then(doc => {
       if (N.current !== c) return;
       c.doc = doc;
+      c.base = doc;
       c.bodyState = 'ready';
       drawEditor();
       applyHighlights();
@@ -1056,6 +1164,10 @@
     }
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => save(c), AUTOSAVE_MS);
+    if (c.scratch && notesStore.keepDraft) {
+      clearTimeout(draftTimer);
+      draftTimer = setTimeout(() => keepDraft(c), 300);
+    }
   }
 
   // Saves are chained: each one retires the version the previous one
@@ -1066,34 +1178,45 @@
       // An untouched new note is not worth a message.
       if (!c.note && (c.scratch || !c.title.trim()) && fmt.isEmpty(c.doc)) { c.dirty = false; return; }
       const snap = { title: c.title, doc: c.doc, folderId: c.folderId, noteId: c.scratch ? notesLogic.SCRATCHPAD_ID : '' };
-      // A scratchpad started here while another computer started one too:
-      // the other's version is retired, as any older version is.
-      const before = c.note || (c.scratch ? N.scratchNote : null);
+      // A scratchpad started here while another computer started one too.
+      // Where the store checks for newer versions (the phone app), it says
+      // so and the two are merged; otherwise the other's version is
+      // retired, as any older version is.
+      const before = c.note || (c.scratch && !notesStore.checksConflicts ? N.scratchNote : null);
       c.dirty = false;
       c.saving = true;
       drawStatus();
+      let newer = null;
       try {
         const saved = await notesStore.save(hooks.getAccount(), before, snap);
         const oldKey = c.key;
         const wasOurs = !!(before && before.own);
         c.note = saved;
         c.key = saved.key;
+        c.base = snap.doc;
+        c.baseTitle = snap.title;
         c.savedAt = Date.now();
+        c.conflicts = 0;
         if (c.scratch) { N.scratchNote = saved; N.scratchKnown = true; }
         c.error = '';
         N.notes = [saved, ...N.notes.filter(n => n.key !== oldKey && n.key !== saved.key)];
         // A first save is one more note: the counts by the folders change.
         if (!before) drawFolders();
         if (!wasOurs && N.current === c) drawBar();
+        if (!c.dirty) keepDraft(c);
       } catch (err) {
         c.dirty = true;
-        c.error = err.message;
+        // Saved on another device since: merged, then saved again - unless
+        // it keeps happening, which needs a person to look.
+        if (err.code === 'conflict' && err.newer && (c.conflicts = (c.conflicts || 0) + 1) <= 3) newer = err.newer;
+        else c.error = err.code === 'conflict' ? 'It keeps changing on another device. Try again in a moment.' : err.message;
         if (api.STATE_CODES.has(err.code)) N.ctx.onStateError(err);
       } finally {
         c.saving = false;
         if (N.current === c) drawStatus();
         drawList();
       }
+      if (newer) adoptNewer(c, newer);
     });
     return N.chain;
   }
@@ -1186,7 +1309,7 @@
   }
 
   ns.notes = {
-    init, element, load, isStale, flush, handleKey, tick, focusDefault, closeNote, back, depth,
+    init, element, load, isStale, flush, handleKey, tick, focusDefault, closeNote, back, depth, scratchFound,
     // A note other than the scratchpad.
     isOpen: () => !!(N.current && !N.current.scratch),
     loadedAt: () => N.loadedAt,
