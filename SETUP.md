@@ -118,12 +118,11 @@ project: Apps Script brings its own.
 1. Go to [script.google.com](https://script.google.com), signed in with your
    mail account, and click **New project**. Click "Untitled project" at the
    top and call it MemDesk.
-2. Click the gear (**Project Settings**) on the left. Note the **Time zone**
-   shown there, then tick **Show "appsscript.json" manifest file in editor**.
+2. Click the gear (**Project Settings**) on the left and tick **Show
+   "appsscript.json" manifest file in editor**.
 3. Back in the editor (**< >** on the left):
    - click `appsscript.json`, select everything, and paste the contents of
-     [`addon/appsscript.json`](addon/appsscript.json) over it. Change
-     `"timeZone"` back to the one you noted, so the project keeps its own;
+     [`addon/appsscript.json`](addon/appsscript.json) over it;
    - click `Code.gs`, select everything, and paste the contents of
      [`addon/Code.gs`](addon/Code.gs) over it. (It is long: the phone app's page
      is in it too.) If you renamed `_Notes` or `_Board` in Gmail, change
@@ -179,8 +178,8 @@ with just this account.
   and reload Gmail.
 - **The phone panel and the phone app**: open
   [script.google.com/home](https://script.google.com/home), click MemDesk,
-  paste the new `Code.gs` (and `appsscript.json`, if it changed, keeping your
-  time zone) and press **Ctrl+S**. There is nothing to reinstall. The first line
+  paste the new `Code.gs` (and `appsscript.json`, if it changed) and press
+  **Ctrl+S**. There is nothing to reinstall. The first line
   of `Code.gs` says which version it is.
 - **Updating to 0.17.0 (the calendar)**: turn on the Google Calendar API and
   the Google Tasks API in your Cloud project (step 3b), and paste the new
