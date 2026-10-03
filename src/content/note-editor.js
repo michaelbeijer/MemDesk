@@ -932,6 +932,32 @@
       updateEmpty();
     }
 
+    // New text under someone who may be typing - a newer version merged
+    // in: the same text box, so the focus and a phone's keyboard stay,
+    // and the cursor goes to where its block went (`map`, old block
+    // index → new), as far along it as it was.
+    function replaceDoc(doc, map) {
+      const focused = root.activeElement === els.editor;
+      const r = focused ? range() : null;
+      const at = r && [where(r.startContainer, r.startOffset), where(r.endContainer, r.endOffset)];
+      setDoc(doc);
+      if (!at || !at[0] || !at[1]) return;
+      const kids = els.editor.childNodes;
+      const moved = p => {
+        const b = Math.max(0, Math.min(kids.length - 1, map && map[p.b] !== undefined ? map[p.b] : p.b));
+        return { b, o: Math.min(p.o, kids[b] ? kids[b].textContent.length : 0) };
+      };
+      const a = pointAt(moved(at[0]));
+      const z = pointAt(moved(at[1]));
+      if (!a || !z) return;
+      try {
+        const back = document.createRange();
+        back.setStart(...a);
+        back.setEnd(...z);
+        select(back);
+      } catch { /* the cursor stays where the browser put it */ }
+    }
+
     function setEditable(on, placeholder) {
       editable = !!on;
       els.editor.contentEditable = editable ? 'true' : 'false';
@@ -957,6 +983,7 @@
       toolbar: els.toolbar,
       linkbar: els.linkbar,
       setDoc,
+      replaceDoc,
       getDoc: () => readDoc(els.editor),
       setEditable,
       focus,

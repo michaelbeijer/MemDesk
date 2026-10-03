@@ -20,7 +20,20 @@
   'use strict';
 
   const ns = (globalThis.gkb = globalThis.gkb || {});
-  const { mountShadow } = ns.ui;
+  const { mountShadow, toast } = ns.ui;
+
+  // How long opening took, for anyone curious (tap the logo): from this
+  // page's start, which comes after Google's own page around it.
+  const marks = { code: performance.now() };
+  const mark = name => { if (!(name in marks)) marks[name] = performance.now(); };
+  const secs = ms => `${(ms / 1000).toFixed(1)} s`;
+  function timingText() {
+    const parts = [`page and code ${secs(marks.code)}`];
+    if ('ready' in marks) parts.push(`ready to type ${secs(marks.ready)}`);
+    if ('checked' in marks) parts.push(`checked with Gmail ${secs(marks.checked)}`);
+    if ('listed' in marks) parts.push(`list up to date ${secs(marks.listed)}`);
+    return `Opened in ${secs(marks.ready || marks.code)}: ${parts.join(', ')}.`;
+  }
 
   const PHONE = `
 :host { position: fixed !important; inset: 0 !important; }
@@ -188,11 +201,44 @@
     });
     window.addEventListener('pagehide', () => ns.notes.flush());
 
-    // The board keeps its settings per account: whose, first.
-    return ns.appRemote.loadAccount().then(() => {
+    root.addEventListener('click', e => {
+      if (e.target.closest && e.target.closest('.brand .logo')) toast(root, timingText(), { timeout: 8000 });
+    });
+
+    // One call to the script, sent before anything else (remote.js). With
+    // the phone's copy of the notes, the app opens on that at once and the
+    // call catches it up; without one (a first visit), it waits for it.
+    const remote = ns.appRemote;
+    const begun = remote.start();
+    const show = () => {
       ns.board.open();
       const boot = document.getElementById('boot');
       if (boot) boot.remove();
+      mark('ready');
+    };
+    const caughtUp = r => {
+      mark('checked');
+      if (r.otherAccount && window.__bootFailed) {
+        window.__bootFailed('This phone had notes from another Google account, now cleared. Close the app and open it again.');
+        return;
+      }
+      ns.notes.scratchFound(r.scratch);
+    };
+    let polls = 0;
+    const listed = () => {
+      if (ns.notes.loadedAt()) mark('listed');
+      else if (++polls < 300) setTimeout(listed, 200);
+    };
+    listed();
+    if (remote.hasCopy()) {
+      show();
+      // Offline, or the script unreachable: the copy carries on, and the
+      // notes' own loading says what is wrong.
+      return begun.then(caughtUp, err => console.warn(`The first call failed: ${err.message}`));
+    }
+    return begun.then(r => {
+      show();
+      caughtUp(r);
     }, err => {
       if (window.__bootFailed) window.__bootFailed(`Gmail could not be reached: ${err.message}`);
     });

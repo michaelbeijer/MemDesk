@@ -22,6 +22,7 @@ function onUniversalNewNote(e) { return gkb.panel.onUniversalNewNote(e); }
 
 // The phone app: the page, and what its notes view asks of Gmail.
 function doGet(e) { return gkb.app.page(e); }
+function appStart(hint) { return gkb.app.start(hint); }
 function appList(query) { return gkb.app.list(query); }
 function appBody(messageId) { return gkb.app.body(messageId); }
 function appSave(previousId, snap) { return gkb.app.save(previousId, snap); }

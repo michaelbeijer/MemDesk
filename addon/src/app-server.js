@@ -80,12 +80,82 @@
     return store.open(store.context(), messageId).doc;
   }
 
+  // ── Opening the app ──────────────────────────────────────────────────
+  //
+  // The page's first call: whose mailbox, the app's settings, the board's
+  // first columns if it has none saved, and the scratchpad. The phone
+  // keeps a copy of the scratchpad and says which message it is (`hint`);
+  // if that message is still the scratchpad - nobody has saved it since -
+  // one round of Gmail requests answers everything and the text need not
+  // travel. Otherwise the current one comes back in full.
+
+  const metadataOf = refs => gmail.callAll(refs.map(m => ['GET', `messages/${m.id}`, { format: 'metadata', metadataHeaders: META }]))
+    .filter(m => m && !m.error);
+
+  function noteOf(ctx, msg) {
+    const n = notesLogic.noteFromMessage(msg);
+    n.folderId = notesLogic.folderOf(n.labelIds, ctx.folders);
+    return n;
+  }
+
+  const isScratch = (ctx, n) => n.own && n.noteId === notesLogic.SCRATCHPAD_ID &&
+    n.labelIds.indexOf(ctx.root.id) >= 0 && n.labelIds.indexOf('TRASH') < 0;
+
+  // The scratchpad, newest version: among the newest notes, a few at a
+  // time, or failing that by its name.
+  function findScratch(ctx) {
+    const pick = refs => notesLogic.dedupeNotes(metadataOf(refs).map(m => noteOf(ctx, m)).filter(n => isScratch(ctx, n))).live[0] || null;
+    const refs = gmail.call('GET', 'messages', { labelIds: ctx.root.id, maxResults: LIST_MAX }).messages || [];
+    for (const [from, to] of [[0, 10], [10, 40], [40, refs.length]]) {
+      const found = from < refs.length ? pick(refs.slice(from, to)) : null;
+      if (found) return found;
+    }
+    if (refs.length < LIST_MAX) return null;
+    const named = gmail.call('GET', 'messages', { labelIds: ctx.root.id, q: `subject:"${notesLogic.SCRATCHPAD_TITLE}"`, maxResults: 20 }).messages || [];
+    return named.length ? pick(named) : null;
+  }
+
+  function start(hint) {
+    const kept = String(hint || '');
+    const first = gmail.callAll([['GET', 'labels'], ['GET', 'profile']]
+      .concat(kept ? [['GET', `messages/${encodeURIComponent(kept)}`, { format: 'metadata', metadataHeaders: META }]] : []));
+    const [labels, profile] = ok(first.slice(0, 2));
+    const ctx = store.context(labels.labels || []);
+    const account = String(profile.emailAddress || '');
+    const copy = kept && first[2] && !first[2].error ? noteOf(ctx, first[2]) : null;
+    let scratch = copy && isScratch(ctx, copy) ? copy : null;
+    let doc = null; // the phone has it
+    if (!scratch) {
+      scratch = findScratch(ctx);
+      if (scratch) doc = store.open(ctx, scratch.messageId).doc;
+    }
+    const prefs = prefsGet(null);
+    const columns = prefs[ns.KEYS.columns(account)] ? null : boardColumns(labels.labels || []);
+    return {
+      account, label: ctx.root.name, folders: ctx.folders,
+      scratch: scratch ? plainNote(scratch) : null, doc, prefs, columns,
+    };
+  }
+
+  // A newer version of the note a save starts from, saved on another
+  // device since this page read it - or, for the scratchpad when the page
+  // knew of none, the one there already.
+  function newerThan(ctx, previous, noteId) {
+    if (previous) return previous.own ? store.newerVersion(ctx, previous) : null;
+    if (noteId !== notesLogic.SCRATCHPAD_ID) return null;
+    return store.newerVersion(ctx, { own: true, noteId, messageId: '', inNotes: false, trashed: false, updated: 0 });
+  }
+
   // A new version (or a new note), and the old one retired. What the page
-  // says about the previous version is not taken on trust: it is read.
+  // says about the previous version is not taken on trust: it is read. If
+  // another device has saved a newer one since, nothing is written: the
+  // page is told, merges the two, and saves again.
   function save(previousId, snap) {
     const ctx = store.context();
     const previous = previousId ? store.peek(ctx, previousId) : null;
     const s = snap || {};
+    const newer = newerThan(ctx, previous, String(s.noteId || ''));
+    if (newer) return { conflict: plainNote(newer) };
     const folderId = ctx.folders.some(f => f.id === s.folderId) ? s.folderId : '';
     const id = store.save(ctx, previous, { title: String(s.title || ''), doc: s.doc, folderId, noteId: String(s.noteId || '') });
     return { note: plainNote(store.peek(ctx, id)) };
@@ -248,8 +318,8 @@
   // Gmail has them, so a column renamed in the extension does not come
   // back here as a fresh, empty label of the old name. null: no board
   // labels yet, and the usual columns will be made.
-  function boardColumns() {
-    const labels = gmail.call('GET', 'labels').labels || [];
+  function boardColumns(known) {
+    const labels = Array.isArray(known) ? known : gmail.call('GET', 'labels').labels || [];
     const cols = ns.panelLogic.boardColumns(labels, String(globalThis.MEMDESK_BOARD_LABEL || ns.logic.DEFAULT_ROOT).trim());
     return cols.length ? cols : null;
   }
@@ -351,7 +421,7 @@
   }
 
   ns.app = {
-    page, list, body, save, retire, restore, move, createFolder, renameFolder, deleteFolder,
+    page, start, list, body, save, retire, restore, move, createFolder, renameFolder, deleteFolder,
     account, boardGmail, boardGmailMany, boardColumns, googleMany, allowCalendar, prefsGet, prefsSet, prefsRemove,
   };
 })();

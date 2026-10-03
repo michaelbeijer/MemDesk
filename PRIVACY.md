@@ -1,6 +1,6 @@
 # MemDesk privacy policy
 
-*Last updated: 2 October 2026*
+*Last updated: 3 October 2026*
 
 MemDesk is a Chrome extension, a phone panel in the Gmail app and a
 phone app, made by Michael Beijer. This policy says what they do with your
@@ -58,10 +58,13 @@ Google.
   when Chrome closes.
 - **The phone panel and the phone app** run in Google Apps Script, on
   Google's servers, as you: they read and write your Gmail on your behalf,
-  under the same rules (the calendar read-only), and keep nothing of their
-  own except which folders you have folded and which calendars you show, in
-  your phone's browser, and the board's layout and card edits, in the
-  script's settings for your account.
+  under the same rules (the calendar read-only). In your phone's browser,
+  the phone app keeps which folders you have folded and which calendars you
+  show, and, so that it opens at once, a copy of your Scratchpad, of the
+  list of your notes (titles and first lines) and of the app's settings,
+  plus any Scratchpad text not saved yet. That copy never leaves the phone,
+  and is replaced each time the app hears from Gmail. The board's layout and
+  card edits are kept in the script's settings for your account.
 
 ## Who your data is shared with
 
