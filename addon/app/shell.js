@@ -101,6 +101,8 @@
   .ne-title { padding: 6px 16px 4px; font-size: 22px; }
   .ne-toolbar { margin: 0 8px; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
   .ne-linkbar { margin: 4px 8px 0; }
+  .ne-tablebar { margin: 4px 8px 0; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+  .ne-tablebar .spacer { display: none; }
   .ne-banner { margin: 4px 12px 0; }
   .ne-find { margin: 4px 12px 0; }
   .ne-body { padding: 10px 16px 40vh; font-size: 16px; }

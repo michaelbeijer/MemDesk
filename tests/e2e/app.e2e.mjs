@@ -331,6 +331,33 @@ await r.step('switching away from the app saves at once', async () => {
   await until(async () => /bread/.test(phone.fake.box.messageText(phone.fake.box.findMessageBySubject('Written on the train'))), 'saved on hide', 3000);
 });
 
+await r.step('a table on the phone: from the toolbar, filled cell by cell with Tab, sideways when wide, saved as a table', async () => {
+  const t = await openApp();
+  await scratchReady(t.page);
+  await q(t.page, '[data-key="note-new"]').tap();
+  await q(t.page, '[data-key="note-title"]').fill('Quote for Ingrid');
+  await q(t.page, '[data-key="note-title"]').press('Enter');
+  await t.page.keyboard.type('Quote:');
+  await t.page.keyboard.press('Enter');
+  await q(t.page, '[data-key="fmt-table"]').scrollIntoViewIfNeeded();
+  await q(t.page, '[data-key="fmt-table"]').tap();
+  await q(t.page, '.ne-tablebar').waitFor();
+  for (const k of ['Language pair', 'Tab', 'Words', 'Tab', 'Rate', 'Tab', 'Dutch to English', 'Tab', '14,200', 'Tab', '0,09',
+    'Tab', 'German to English', 'Tab', '3,500', 'Tab', 'Rechtsschutzversicherungsgesellschaften']) {
+    if (k === 'Tab') await t.page.keyboard.press(k);
+    else await t.page.keyboard.type(k);
+  }
+  const sizes = await q(t.page, '.ne-body .blk[data-type="table"]').evaluate(el => [el.scrollWidth, el.clientWidth]);
+  assert.ok(sizes[0] > sizes[1], `a long word makes it scroll sideways, not squeeze: ${sizes}`);
+  await t.page.screenshot({ path: join(SCREENS, 'app-table.png'), animations: 'disabled' });
+  await until(async () => /^Saved/.test(await q(t.page, '.ne-status').first().innerText()), 'saved', 10000);
+  await settled(t.page);
+  const box = t.phone.fake.box;
+  assert.match(box.messageText(box.findMessageBySubject('Quote for Ingrid')),
+    /Quote:\nLanguage pair \| Words \| Rate\nDutch to English \| 14,200 \| 0,09\nGerman to English \| 3,500 \| Rechtsschutzversicherungsgesellschaften/);
+  await t.page.context().close();
+});
+
 // ── Opening fast: the phone's own copy ──
 
 // One phone, kept between visits (its browser storage stays), on the same

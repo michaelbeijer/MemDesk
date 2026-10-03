@@ -1016,6 +1016,52 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .link-error { flex-basis: 100%; color: var(--danger); font-size: 12px; }
 .link-error:empty { display: none; }
 
+/* Tables: a block that scrolls sideways when wider than the note, its
+   cells edited one at a time; the heading row shaded. */
+.blk[data-type="table"] { overflow-x: auto; margin: 8px 0; padding: 1px 1px 4px; }
+.blk[data-type="table"] table { border-collapse: collapse; }
+.blk[data-type="table"] td {
+  min-width: 72px;
+  max-width: 28em;
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  vertical-align: top;
+  overflow-wrap: normal;
+  word-break: normal;
+  outline: none;
+  cursor: text;
+}
+.blk[data-type="table"] td:focus { box-shadow: inset 0 0 0 2px var(--accent); }
+.blk[data-type="table"][data-head="1"] tr:first-child td { background: var(--col); font-weight: 600; }
+.ne-tablebar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  margin: 6px 20px 0;
+  padding: 4px 6px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  flex: none;
+}
+.ne-tablebar .tb-label { display: inline-flex; padding: 0 6px; color: var(--accent); }
+.ne-tablebar .spacer { flex: 1; }
+.tb-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  padding: 0 4px 0 10px;
+  border-radius: 8px;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.tb-text:not([aria-haspopup]) { padding-right: 10px; }
+.tb-text:hover { background: var(--hover); }
+.tb-text[aria-pressed="true"] { background: var(--accent-soft); color: var(--on-accent-soft); }
+
 /* ── Column settings drawer ── */
 
 .scrim { position: fixed; inset: 0; z-index: 5; background: var(--scrim); }

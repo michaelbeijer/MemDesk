@@ -3,7 +3,7 @@
 //
 // An editable area with a toolbar: text style (normal, three headings),
 // bold, italic, strike-through, bulleted, numbered and check lists with
-// three levels of nesting, links, and clear formatting.
+// three levels of nesting, tables, links, and clear formatting.
 //
 // The editable area is a flat column of blocks - one <div class="blk">
 // per paragraph, heading or list item, its kind and indent in data
@@ -20,6 +20,14 @@
 // read by note-format's own reader, so a page copied from the web brings
 // its bold and lists but never its styles, images or scripts. Ctrl+Shift+V
 // pastes the text alone. Dropped text is not taken at all.
+//
+// A table is an island the text cannot run into: its block is not
+// editable, each of its cells is, on its own, so typing, deleting and
+// pasting can never break the grid. Tab moves from cell to cell (and
+// adds a row at the end), the arrow keys leave a cell at its edges, and
+// the table bar - shown while the cursor is in a cell - adds, removes,
+// aligns and sorts. Cells copied from a spreadsheet and pasted into a
+// cell fill the cells from there, as in a spreadsheet.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -28,6 +36,7 @@
   const ns = (globalThis.gkb = globalThis.gkb || {});
   const { h, icon, openMenu, closeMenu } = ns.ui;
   const fmt = ns.noteFormat;
+  const NEW_TABLE = { cols: 3, rows: 3 };
 
   const STYLES = [['p', 'Normal text'], ['h1', 'Heading 1'], ['h2', 'Heading 2'], ['h3', 'Heading 3']];
   const STYLE_LABEL = Object.fromEntries(STYLES);
@@ -79,7 +88,58 @@
     return out;
   }
 
+  // Line breaks in a cell's text as <br>s; a cell ending in one gets a
+  // second, or the browser would not show the empty line.
+  function breakLines(el) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const found = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) if (n.data.includes('\n')) found.push(n);
+    for (const n of found) {
+      const parts = [];
+      n.data.split('\n').forEach((piece, i) => {
+        if (i) parts.push(document.createElement('br'));
+        if (piece) parts.push(document.createTextNode(piece));
+      });
+      n.replaceWith(...parts);
+    }
+    if (el.lastChild && el.lastChild.nodeName === 'BR') el.appendChild(document.createElement('br'));
+  }
+
+  function fillCell(td, runs) {
+    td.replaceChildren(...inlineNodes(runs || []));
+    breakLines(td);
+    if (!td.firstChild) td.appendChild(document.createElement('br'));
+  }
+
+  function cellEl(runs, align) {
+    const td = document.createElement('td');
+    td.contentEditable = 'true';
+    if (align) td.style.textAlign = align;
+    fillCell(td, runs);
+    return td;
+  }
+
+  function tableEl(b) {
+    const el = document.createElement('div');
+    el.className = 'blk';
+    el.dataset.type = 'table';
+    el.dataset.head = b.head ? '1' : '0';
+    el.dataset.align = b.align.join(',');
+    el.contentEditable = 'false';
+    const body = document.createElement('tbody');
+    for (const r of b.rows) {
+      const tr = document.createElement('tr');
+      r.forEach((c, k) => tr.appendChild(cellEl(c.runs, b.align[k])));
+      body.appendChild(tr);
+    }
+    const t = document.createElement('table');
+    t.appendChild(body);
+    el.appendChild(t);
+    return el;
+  }
+
   function blockEl(b) {
+    if (b.type === 'table') return tableEl(b);
     const el = document.createElement('div');
     el.className = 'blk';
     setBlock(el, b.type, b.level, b.checked);
@@ -99,6 +159,58 @@
   }
 
   const NESTED_BLOCKS = new Set(['div', 'p', 'li', 'ul', 'ol', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre']);
+
+  // The marks inside an element: those around it, and its own.
+  function marksOf(el, tag, marks) {
+    const m = { ...marks };
+    if (tag === 'b' || tag === 'strong') m.b = true;
+    else if (tag === 'i' || tag === 'em') m.i = true;
+    else if (tag === 's' || tag === 'strike' || tag === 'del') m.s = true;
+    else if (tag === 'a') {
+      const href = fmt.safeHref(el.getAttribute('href'));
+      if (href) m.href = href;
+    } else if (tag === 'span' || tag === 'font') {
+      const st = styleMarks(el.getAttribute('style'));
+      if (st.b) m.b = true;
+      if (st.i) m.i = true;
+      if (st.s) m.s = true;
+    }
+    return m;
+  }
+
+  // A cell's runs: a <br>, or the start of a block the browser put in it,
+  // is a line break; the ones it ends with are its placeholders.
+  function readCell(td) {
+    const runs = [];
+    const nl = () => { if (runs.length && !/\n$/.test(runs[runs.length - 1].text)) runs.push({ text: '\n' }); };
+    (function walk(node, marks) {
+      for (const child of node.childNodes) {
+        // The editor keeps spaces and line breaks as typed (pre-wrap), so
+        // Chrome writes Enter in a cell as a line break in the text itself.
+        if (child.nodeType === 3) {
+          if (child.data) runs.push({ text: child.data.replace(/\u00a0/g, ' '), ...marks });
+          continue;
+        }
+        if (child.nodeType !== 1) continue;
+        const tag = child.tagName.toLowerCase();
+        if (tag === 'br') { runs.push({ text: '\n' }); continue; }
+        if (NESTED_BLOCKS.has(tag)) { nl(); walk(child, marks); nl(); continue; }
+        walk(child, marksOf(child, tag, marks));
+      }
+    })(td, {});
+    while (runs.length && /\n$/.test(runs[runs.length - 1].text)) {
+      const last = runs[runs.length - 1];
+      last.text = last.text.replace(/\n$/, '');
+      if (!last.text) runs.pop();
+    }
+    return runs;
+  }
+
+  function readTable(el) {
+    const t = el.querySelector('table');
+    const rows = t ? [...t.rows].map(tr => [...tr.cells].map(td => ({ runs: readCell(td) }))) : [];
+    return fmt.table(rows, { head: el.dataset.head === '1', align: String(el.dataset.align || '').split(',') });
+  }
 
   // Reads one block element - and anything the browser may have left
   // inside it, such as a <br> or a nested <div> - into model blocks.
@@ -127,20 +239,7 @@
           next();
           continue;
         }
-        const m = { ...marks };
-        if (tag === 'b' || tag === 'strong') m.b = true;
-        else if (tag === 'i' || tag === 'em') m.i = true;
-        else if (tag === 's' || tag === 'strike' || tag === 'del') m.s = true;
-        else if (tag === 'a') {
-          const href = fmt.safeHref(child.getAttribute('href'));
-          if (href) m.href = href;
-        } else if (tag === 'span' || tag === 'font') {
-          const st = styleMarks(child.getAttribute('style'));
-          if (st.b) m.b = true;
-          if (st.i) m.i = true;
-          if (st.s) m.s = true;
-        }
-        walk(child, m);
+        walk(child, marksOf(child, tag, marks));
       }
     })(el, {});
     // A <br> or nested block at the very end leaves an empty block behind:
@@ -151,7 +250,8 @@
   function readDoc(editor) {
     const blocks = [];
     for (const node of editor.childNodes) {
-      if (node.nodeType === 1 && node.classList.contains('blk')) readBlock(node, blocks);
+      if (node.nodeType === 1 && node.dataset.type === 'table') blocks.push(readTable(node));
+      else if (node.nodeType === 1 && node.classList.contains('blk')) readBlock(node, blocks);
       else if (node.nodeType === 3 && node.data.trim()) blocks.push(fmt.block('p', [{ text: node.data.replace(/ /g, ' ') }]));
       else if (node.nodeType === 1 && node.tagName !== 'BR') readBlock(node, blocks);
     }
@@ -190,7 +290,9 @@
       // on the style button the menu handed it back to, say - and typing
       // would then go nowhere. Both are put back.
       const keep = range() || (saved && els.editor.contains(saved.startContainer) ? saved : null);
-      if (root.activeElement !== els.editor) els.editor.focus({ preventScroll: true });
+      // In a table, the cell is what takes typing.
+      const host = (keep && cellOf(keep.startContainer)) || els.editor;
+      if (root.activeElement !== host) host.focus({ preventScroll: true });
       if (keep) {
         try { select(keep.cloneRange ? keep.cloneRange() : keep); } catch { /* the text changed underneath */ }
       }
@@ -201,6 +303,75 @@
       if (n === els.editor) return null;
       while (n && n.parentNode !== els.editor) n = n.parentNode;
       return n && n.nodeType === 1 ? n : null;
+    }
+
+    // ── Table cells ────────────────────────────────────────────────────
+
+    function cellOf(node) {
+      for (let n = node; n && n !== els.editor; n = n.parentNode) {
+        if (n.nodeType === 1 && n.tagName === 'TD') return n;
+      }
+      return null;
+    }
+    const tableOf = td => td.closest('.blk[data-type="table"]');
+    const aligns = el => {
+      const cols = el.querySelector('tr') ? el.querySelector('tr').cells.length : 0;
+      const a = String(el.dataset.align || '').split(',');
+      return Array.from({ length: cols }, (_, k) => a[k] || '');
+    };
+    let lastCell = null; // the cell last typed in, for the table bar's menus
+
+    // The cursor into an element: its start, or its end - before the <br>
+    // that only holds an empty line open.
+    function caretInto(el, atEnd) {
+      const r = document.createRange();
+      const kids = el.childNodes;
+      if (!atEnd || !kids.length) r.setStart(el, 0);
+      else if (kids[kids.length - 1].nodeName === 'BR') r.setStart(el, kids.length - 1);
+      else { r.selectNodeContents(el); r.collapse(false); }
+      r.collapse(true);
+      select(r);
+    }
+
+    function focusCell(td, atEnd = false) {
+      if (!td) return;
+      td.focus({ preventScroll: true });
+      caretInto(td, atEnd);
+      lastCell = td;
+      td.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+
+    // Out of a table, above or below it: to the block there, or a new
+    // empty line if there is none (or only another table).
+    function leaveTable(el, below) {
+      let target = below ? el.nextElementSibling : el.previousElementSibling;
+      if (!target || target.dataset.type === 'table') {
+        target = blockEl(fmt.block('p'));
+        if (below) el.after(target); else el.before(target);
+        changed();
+      }
+      els.editor.focus({ preventScroll: true });
+      caretInto(target, !below);
+    }
+
+    // Whether the cursor is on the first (or last) line of an element:
+    // its box against the element's first (or last) position.
+    function onEdgeLine(el, r, last) {
+      const at = r.getClientRects()[0];
+      if (!at) return true;
+      const probe = document.createRange();
+      probe.selectNodeContents(el);
+      probe.collapse(!last);
+      const edge = probe.getClientRects()[0] || el.getBoundingClientRect();
+      return Math.abs((last ? at.bottom - edge.bottom : at.top - edge.top)) < at.height / 2 + 1;
+    }
+
+    function caretAtEnd(r, el) {
+      if (!r || !r.collapsed) return false;
+      const post = document.createRange();
+      post.selectNodeContents(el);
+      post.setStart(r.endContainer, r.endOffset);
+      return post.toString() === '';
     }
 
     function rangeBlocks(r) {
@@ -302,6 +473,9 @@
         placeCaret(els.editor.firstChild, 0);
         moved = false;
       }
+      // Somewhere to type after a table at the end.
+      const lastBlk = els.editor.lastElementChild;
+      if (lastBlk && lastBlk.dataset.type === 'table') els.editor.appendChild(blockEl(fmt.block('p')));
       if (moved && keep && keep[0].isConnected && keep[2].isConnected) {
         try {
           const back = document.createRange();
@@ -342,7 +516,7 @@
       if (!editable) return;
       restore();
       const r = range();
-      if (!r) return;
+      if (!r || cellOf(r.startContainer)) return; // a cell holds text, not lists or headings
       const blocks = rangeBlocks(r);
       const off = blocks.every(b => b.dataset.type === type) && type !== 'p';
       for (const b of blocks) {
@@ -356,7 +530,7 @@
     function indent(delta) {
       if (!editable) return false;
       const r = range();
-      if (!r) return false;
+      if (!r || cellOf(r.startContainer)) return false;
       const blocks = rangeBlocks(r).filter(b => fmt.LISTS.has(b.dataset.type));
       if (!blocks.length) return false;
       for (const b of blocks) b.dataset.level = String(Math.max(0, Math.min(fmt.MAX_LEVEL, (Number(b.dataset.level) || 0) + delta)));
@@ -376,7 +550,7 @@
       document.execCommand('removeFormat');
       document.execCommand('unlink');
       const r = range();
-      if (r) for (const b of rangeBlocks(r)) setBlock(b, 'p');
+      if (r && !cellOf(r.startContainer)) for (const b of rangeBlocks(r)) if (b.dataset.type !== 'table') setBlock(b, 'p');
       changed();
     }
 
@@ -457,6 +631,283 @@
       changed();
     }
 
+    // ── Tables ───────────────────────────────────────────────────────────
+
+    // The cell being worked on: the one with the cursor, or - while one of
+    // the table bar's menus has the focus - the one it was in.
+    function cellNow() {
+      const r = range();
+      const td = r && cellOf(r.startContainer);
+      if (td) return td;
+      return lastCell && lastCell.isConnected && els.editor.contains(lastCell) ? lastCell : null;
+    }
+
+    // A change to a table's shape, which Ctrl+Z straight afterwards takes
+    // back, as it does a formatted paste. `fn` gets the cell and its table
+    // and returns the cell to go to next.
+    function tableEdit(fn) {
+      if (!editable) return;
+      const td = cellNow();
+      if (!td) return;
+      const undo = pasteUndo;
+      const before = snapshot();
+      const next = fn(td, tableOf(td));
+      changed();
+      pasteUndo = [...undo.slice(-19), before];
+      if (next) focusCell(next, true);
+      refreshToolbar();
+    }
+
+    const rowsOf = el => el.querySelector('table').rows;
+    function newRow(el) {
+      const a = aligns(el);
+      const tr = document.createElement('tr');
+      for (const al of a) tr.appendChild(cellEl([], al));
+      return tr;
+    }
+    const tbodyOf = el => el.querySelector('tbody') || el.querySelector('table');
+
+    function addRow(below, { first = false } = {}) {
+      tableEdit((td, el) => {
+        if (rowsOf(el).length >= fmt.MAX_ROWS) return td;
+        const tr = newRow(el);
+        if (below) td.parentNode.after(tr);
+        else td.parentNode.before(tr);
+        return tr.cells[first ? 0 : td.cellIndex];
+      });
+    }
+
+    function addColumn(right) {
+      tableEdit((td, el) => {
+        const rows = rowsOf(el);
+        if (rows[0].cells.length >= fmt.MAX_COLS) return td;
+        const k = td.cellIndex + (right ? 1 : 0);
+        const a = aligns(el);
+        a.splice(k, 0, '');
+        for (const tr of rows) tr.insertBefore(cellEl([], ''), tr.cells[k] || null);
+        el.dataset.align = a.join(',');
+        return td.parentNode.cells[k];
+      });
+    }
+
+    // The table gone: the cursor to the line after it.
+    function removeTable(el) {
+      let next = el.nextElementSibling;
+      if (!next || next.dataset.type === 'table') {
+        next = blockEl(fmt.block('p'));
+        el.after(next);
+      }
+      el.remove();
+      lastCell = null;
+      els.editor.focus({ preventScroll: true });
+      caretInto(next, false);
+      return null;
+    }
+
+    function deleteRow() {
+      tableEdit((td, el) => {
+        if (rowsOf(el).length === 1) return removeTable(el);
+        const tr = td.parentNode;
+        const next = tr.nextElementSibling || tr.previousElementSibling;
+        tr.remove();
+        return next.cells[Math.min(td.cellIndex, next.cells.length - 1)];
+      });
+    }
+
+    function deleteColumn() {
+      tableEdit((td, el) => {
+        const rows = rowsOf(el);
+        if (rows[0].cells.length === 1) return removeTable(el);
+        const k = td.cellIndex;
+        const a = aligns(el);
+        a.splice(k, 1);
+        const tr = td.parentNode;
+        for (const row of rows) row.cells[k].remove();
+        el.dataset.align = a.join(',');
+        return tr.cells[Math.min(k, tr.cells.length - 1)];
+      });
+    }
+
+    function toggleHead() {
+      tableEdit((td, el) => {
+        el.dataset.head = el.dataset.head === '1' ? '0' : '1';
+        return td;
+      });
+    }
+
+    function alignColumn(value) {
+      tableEdit((td, el) => {
+        const k = td.cellIndex;
+        const a = aligns(el);
+        a[k] = value;
+        el.dataset.align = a.join(',');
+        for (const tr of rowsOf(el)) if (tr.cells[k]) tr.cells[k].style.textAlign = value;
+        return td;
+      });
+    }
+
+    // The rows in order of one column - numbers as numbers, empty cells
+    // last - with a heading row staying on top.
+    function sortRows(desc) {
+      tableEdit((td, el) => {
+        const k = td.cellIndex;
+        const rows = [...rowsOf(el)];
+        const head = el.dataset.head === '1' ? rows.shift() : null;
+        const key = tr => (tr.cells[k] ? tr.cells[k].textContent.trim() : '');
+        const order = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+        rows.sort((x, y) => {
+          const a = key(x);
+          const b = key(y);
+          if (!a !== !b) return a ? -1 : 1;
+          return desc ? order.compare(b, a) : order.compare(a, b);
+        });
+        const body = tbodyOf(el);
+        if (head) body.appendChild(head);
+        for (const tr of rows) body.appendChild(tr);
+        return td;
+      });
+    }
+
+    // A new table where the cursor is: in place of an empty line, or after
+    // the line it is on; three columns, a heading row and two more.
+    function insertTable() {
+      if (!editable) return;
+      restore();
+      const r = range();
+      if (!r || cellOf(r.startContainer)) return;
+      const blk = blockOf(r.startContainer) || els.editor.lastElementChild;
+      if (!blk) return;
+      const undo = pasteUndo;
+      const before = snapshot();
+      const rows = Array.from({ length: NEW_TABLE.rows }, () => Array.from({ length: NEW_TABLE.cols }, () => ({ runs: [] })));
+      const el = tableEl(fmt.table(rows, { head: true, align: Array(NEW_TABLE.cols).fill('') }));
+      if (blk.dataset.type === 'p' && !blk.textContent) blk.replaceWith(el);
+      else blk.after(el);
+      if (!el.nextElementSibling || el.nextElementSibling.dataset.type === 'table') el.after(blockEl(fmt.block('p')));
+      changed();
+      pasteUndo = [...undo.slice(-19), before];
+      focusCell(el.querySelector('td'));
+    }
+
+    // Keys in a cell: Tab and Shift+Tab from cell to cell (Tab in the last
+    // one adds a row), Enter a new line in the cell, the arrows out of it
+    // at its edges, and nothing joining a cell to another.
+    function cellKey(e, td, r, mod) {
+      const el = tableOf(td);
+      const cells = [...el.querySelectorAll('td')];
+      const i = cells.indexOf(td);
+      const tr = td.parentNode;
+      const go = (cell, atEnd) => { e.preventDefault(); focusCell(cell, atEnd); return true; };
+      const out = below => { e.preventDefault(); leaveTable(el, below); return true; };
+      if (e.key === 'Tab' && !mod && !e.altKey) {
+        if (e.shiftKey) return i > 0 ? go(cells[i - 1], true) : (e.preventDefault(), true);
+        if (i < cells.length - 1) return go(cells[i + 1], true);
+        e.preventDefault();
+        addRow(true, { first: true });
+        return true;
+      }
+      if (e.key === 'Enter' && !mod && !e.altKey && !e.isComposing) {
+        e.preventDefault();
+        document.execCommand('insertLineBreak');
+        return true;
+      }
+      if (!mod && ((e.key === 'Backspace' && caretAtBlockStart(r, td)) || (e.key === 'Delete' && caretAtEnd(r, td)))) {
+        e.preventDefault();
+        return true;
+      }
+      if (!mod && !e.altKey && !e.shiftKey && r.collapsed) {
+        const k = td.cellIndex;
+        if (e.key === 'ArrowUp' && onEdgeLine(td, r, false)) {
+          const up = tr.previousElementSibling;
+          return up ? go(up.cells[Math.min(k, up.cells.length - 1)], true) : out(false);
+        }
+        if (e.key === 'ArrowDown' && onEdgeLine(td, r, true)) {
+          const down = tr.nextElementSibling;
+          return down ? go(down.cells[Math.min(k, down.cells.length - 1)], false) : out(true);
+        }
+        if (e.key === 'ArrowLeft' && caretAtBlockStart(r, td)) return i > 0 ? go(cells[i - 1], true) : out(false);
+        if (e.key === 'ArrowRight' && caretAtEnd(r, td)) return i < cells.length - 1 ? go(cells[i + 1], false) : out(true);
+      }
+      // Lists and headings are not for cells.
+      if (mod && e.shiftKey && /^Digit[789]$/.test(e.code)) { e.preventDefault(); return true; }
+      return false;
+    }
+
+    // Keys on a line beside a table: the arrows into it, and Backspace or
+    // Delete into it rather than through it.
+    function besideTable(e, r, blk, mod) {
+      if (mod || e.altKey || e.shiftKey || !r.collapsed) return false;
+      const prev = blk.previousElementSibling;
+      const next = blk.nextElementSibling;
+      const into = (el, last) => {
+        e.preventDefault();
+        const cells = el.querySelectorAll('td');
+        focusCell(last ? cells[cells.length - 1] : cells[0], last);
+        return true;
+      };
+      if (next && next.dataset.type === 'table') {
+        if ((e.key === 'ArrowDown' && onEdgeLine(blk, r, true)) || (e.key === 'ArrowRight' && caretAtEnd(r, blk))) return into(next, false);
+        if (e.key === 'Delete' && caretAtEnd(r, blk)) {
+          if (!blk.textContent && blk.previousElementSibling) { blk.remove(); changed(); }
+          return into(next, false);
+        }
+      }
+      if (prev && prev.dataset.type === 'table') {
+        if (e.key === 'ArrowUp' && onEdgeLine(blk, r, false)) {
+          // Up into the last row, at its start.
+          e.preventDefault();
+          const rows = prev.querySelector('table').rows;
+          focusCell(rows[rows.length - 1].cells[0], true);
+          return true;
+        }
+        if (e.key === 'ArrowLeft' && caretAtBlockStart(r, blk)) return into(prev, true);
+        // An empty line after a table goes (unless it is the last); a line
+        // with text keeps it, and the cursor goes into the table.
+        if (e.key === 'Backspace' && blk.dataset.type === 'p' && caretAtBlockStart(r, blk)) {
+          if (!blk.textContent && blk.nextElementSibling) { blk.remove(); changed(); }
+          return into(prev, true);
+        }
+      }
+      return false;
+    }
+
+    // A paste into a cell: cells - a table, or tab-separated text, as a
+    // spreadsheet copies them - fill the cells from this one on, adding
+    // rows and columns as needed; anything else goes in as text.
+    function pasteInCell(doc, text) {
+      const t = doc && fmt.onlyTable(doc);
+      let grid = t ? t.rows.map(row => row.map(c => c.runs)) : null;
+      if (!grid && /\t/.test(text || '')) {
+        grid = String(text).replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n').map(line => line.split('\t').map(c => [{ text: c }]));
+      }
+      if (grid && (grid.length > 1 || grid[0].length > 1)) {
+        tableEdit((td, el) => {
+          const rows = rowsOf(el);
+          const r0 = td.parentNode.rowIndex;
+          const c0 = td.cellIndex;
+          const wide = Math.min(fmt.MAX_COLS, c0 + Math.max(...grid.map(row => row.length)));
+          while (rows[0].cells.length < wide) for (const tr of rows) tr.appendChild(cellEl([], ''));
+          el.dataset.align = aligns(el).join(',');
+          const tall = Math.min(fmt.MAX_ROWS, r0 + grid.length);
+          while (rows.length < tall) tbodyOf(el).appendChild(newRow(el));
+          let last = td;
+          grid.forEach((row, i) => row.forEach((runs, j) => {
+            const cell = rows[r0 + i] && rows[r0 + i].cells[c0 + j];
+            if (!cell) return;
+            fillCell(cell, runs);
+            last = cell;
+          }));
+          return last;
+        });
+        return;
+      }
+      const one = grid ? grid[0][0].map(x => x.text).join('') : doc ? fmt.docText(doc) : String(text || '');
+      String(one).replace(/\r\n?/g, '\n').replace(/\n+$/, '').split('\n').forEach((line, i) => {
+        if (i) document.execCommand('insertLineBreak');
+        if (line) document.execCommand('insertText', false, line);
+      });
+    }
+
     // ── Toolbar ──────────────────────────────────────────────────────────
 
     const buttons = {};
@@ -502,6 +953,7 @@
       tbButton('check', 'Checklist (Ctrl+Shift+9)', 'checklist', () => blockType('check')),
       tbButton('outdent', 'Less indent (Shift+Tab)', 'outdent', () => { restore(); indent(-1); }, false),
       tbButton('indent', 'More indent (Tab)', 'indent', () => { restore(); indent(1); }, false),
+      tbButton('table', 'Table', 'table', () => insertTable(), false),
       sep(),
       tbButton('link', 'Link (Ctrl+K)', 'link', () => openLink()),
       tbButton('clear', 'Clear formatting', 'clear', () => clearFormatting(), false));
@@ -523,6 +975,51 @@
       h('button', { class: 'btn btn-text', type: 'button', text: 'Cancel', onclick: () => closeLink() }),
       els.linkError);
 
+    // The table bar: under the toolbar while the cursor is in a cell.
+    const keepFocus = e => e.preventDefault();
+    const menuButton = (key, label, items) => {
+      const b = h('button', {
+        class: 'tb-text', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', dataset: { key },
+        onmousedown: keepFocus,
+        onclick: () => { if (editable && cellNow()) openMenu(root, b, items(), { label }); },
+      }, label, icon('caret', 18));
+      return b;
+    };
+    els.tableHead = h('button', {
+      class: 'tb-text', type: 'button', 'aria-pressed': 'false', title: 'The first row is a heading row',
+      dataset: { key: 'table-head' }, onmousedown: keepFocus, onclick: () => toggleHead(),
+    }, 'Heading row');
+    els.tablebar = h('div', { class: 'ne-tablebar', role: 'toolbar', 'aria-label': 'Table', hidden: true },
+      h('span', { class: 'tb-label' }, icon('table', 18)),
+      menuButton('table-row', 'Row', () => [
+        { label: 'Insert row above', key: 'row-above', onSelect: () => addRow(false) },
+        { label: 'Insert row below', key: 'row-below', onSelect: () => addRow(true) },
+        { separator: true },
+        { label: 'Delete row', key: 'row-delete', danger: true, onSelect: () => deleteRow() },
+      ]),
+      menuButton('table-column', 'Column', () => [
+        { label: 'Insert column left', key: 'col-left', onSelect: () => addColumn(false) },
+        { label: 'Insert column right', key: 'col-right', onSelect: () => addColumn(true) },
+        { separator: true },
+        { label: 'Delete column', key: 'col-delete', danger: true, onSelect: () => deleteColumn() },
+      ]),
+      els.tableHead,
+      sep(),
+      tbButton('align-left', 'Align column left', 'alignLeft', () => alignColumn('')),
+      tbButton('align-center', 'Centre column', 'alignCenter', () => alignColumn('center')),
+      tbButton('align-right', 'Align column right', 'alignRight', () => alignColumn('right')),
+      sep(),
+      menuButton('table-sort', 'Sort', () => [
+        { label: 'Sort by this column, A to Z', key: 'sort-asc', onSelect: () => sortRows(false) },
+        { label: 'Sort by this column, Z to A', key: 'sort-desc', onSelect: () => sortRows(true) },
+      ]),
+      h('span', { class: 'spacer' }),
+      tbButton('table-delete', 'Delete table', 'delete', () => deleteTable(), false));
+
+    function deleteTable() {
+      tableEdit((td, el) => removeTable(el));
+    }
+
     function currentType() {
       const r = range() || saved;
       const blk = r && blockOf(r.startContainer);
@@ -541,6 +1038,20 @@
       }
       for (const t of ['ul', 'ol', 'check']) buttons[t].setAttribute('aria-pressed', String(type === t));
       buttons.link.setAttribute('aria-pressed', String(!!anchorAt(r)));
+      // In a cell: the table bar, and nothing that makes lists or headings.
+      const td = cellOf(r.startContainer);
+      if (td) lastCell = td;
+      els.tablebar.hidden = !td || !editable;
+      for (const k of ['ul', 'ol', 'check', 'outdent', 'indent', 'table']) buttons[k].disabled = !editable || !!td;
+      els.style.disabled = !editable || !!td;
+      if (td) {
+        const el = tableOf(td);
+        els.tableHead.setAttribute('aria-pressed', String(el.dataset.head === '1'));
+        const a = aligns(el)[td.cellIndex] || '';
+        buttons['align-left'].setAttribute('aria-pressed', String(a === ''));
+        buttons['align-center'].setAttribute('aria-pressed', String(a === 'center'));
+        buttons['align-right'].setAttribute('aria-pressed', String(a === 'right'));
+      }
     }
 
     // ── The editable area ────────────────────────────────────────────────
@@ -555,6 +1066,9 @@
       const mod = e.ctrlKey || e.metaKey;
       const r = range();
       const blk = r && blockOf(r.startContainer);
+      const td = r && cellOf(r.startContainer);
+      if (td && cellKey(e, td, r, mod)) return;
+      if (!td && blk && besideTable(e, r, blk, mod)) return;
 
       if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'z' && pasteUndo.length) {
         e.preventDefault();
@@ -654,6 +1168,12 @@
       const plain = plainNext;
       plainNext = false;
       const doc = plain ? null : fmt.pasteDoc({ html: data && data.getData('text/html'), text });
+      const at = range();
+      if (at && cellOf(at.startContainer)) {
+        pasteInCell(doc, text);
+        revealCaret();
+        return;
+      }
       // Text with nothing to format goes in the way typing does, so the
       // browser's own undo takes it back: a single line as copied, spaces
       // and all; more than that as the HTML reads (a table's " | ", not
@@ -736,7 +1256,7 @@
       let i = 0;
       // The first line joins the text before the caret; on an empty line
       // it also brings its kind (a heading, a list item) with it.
-      if (doc[0].type === 'p' || !blk.textContent) {
+      if (doc[0].type !== 'table' && (doc[0].type === 'p' || !blk.textContent)) {
         if (!blk.textContent && doc[0].type !== 'p') setBlock(blk, doc[0].type, levelOf(doc[0]), doc[0].checked);
         blk.append(...inlineNodes(doc[0].runs));
         i = 1;
@@ -756,13 +1276,22 @@
         target.replaceChildren();
         last.after(target);
       }
-      prune(last);
+      // Nothing goes into a pasted table: the cursor goes to a line after it.
+      if (last.dataset.type === 'table' && target === last) {
+        target = blockEl(fmt.block('p'));
+        target.replaceChildren();
+        last.after(target);
+      }
+      if (last.dataset.type !== 'table') prune(last);
       const at = target === last ? last.childNodes.length : 0;
       target.append(after);
       holdOpen(blk);
-      holdOpen(last);
+      if (last.dataset.type !== 'table') holdOpen(last);
       holdOpen(target);
-      if (target === last) placeCaret(last, at);
+      // A table pasted on an empty line takes its place.
+      if (doc[0].type === 'table' && !blk.textContent && blk !== target) blk.remove();
+      if (last.dataset.type === 'table') caretInto(target, false);
+      else if (target === last) placeCaret(last, at);
       else placeCaret(last, last.firstChild.nodeName === 'BR' ? 0 : last.childNodes.length);
 
       changed();
@@ -928,7 +1457,9 @@
 
     function setDoc(doc) {
       pasteUndo = [];
+      lastCell = null;
       els.editor.replaceChildren(...fmt.normaliseDoc(doc).map(blockEl));
+      for (const td of els.editor.querySelectorAll('td')) td.contentEditable = editable ? 'true' : 'false';
       updateEmpty();
     }
 
@@ -937,7 +1468,7 @@
     // and the cursor goes to where its block went (`map`, old block
     // index → new), as far along it as it was.
     function replaceDoc(doc, map) {
-      const focused = root.activeElement === els.editor;
+      const focused = root.activeElement === els.editor || els.editor.contains(root.activeElement);
       const r = focused ? range() : null;
       const at = r && [where(r.startContainer, r.startOffset), where(r.endContainer, r.endOffset)];
       setDoc(doc);
@@ -951,6 +1482,9 @@
       const z = pointAt(moved(at[1]));
       if (!a || !z) return;
       try {
+        // In a table, the new cell takes the focus the old one had.
+        const host = cellOf(a[0]) || els.editor;
+        if (root.activeElement !== host) host.focus({ preventScroll: true });
         const back = document.createRange();
         back.setStart(...a);
         back.setEnd(...z);
@@ -964,6 +1498,8 @@
       els.editor.dataset.placeholder = placeholder || 'Write here…';
       els.editor.setAttribute('aria-disabled', String(!editable));
       for (const b of [...els.toolbar.querySelectorAll('button')]) b.disabled = !editable;
+      for (const td of els.editor.querySelectorAll('td')) td.contentEditable = editable ? 'true' : 'false';
+      if (!editable) els.tablebar.hidden = true;
     }
 
     function focus() {
@@ -982,6 +1518,7 @@
       element: els.editor,
       toolbar: els.toolbar,
       linkbar: els.linkbar,
+      tablebar: els.tablebar,
       setDoc,
       replaceDoc,
       getDoc: () => readDoc(els.editor),

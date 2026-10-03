@@ -1081,7 +1081,7 @@
         : c.scratch ? `Jot anything down. It saves as you type, as a note in Gmail under “${notesStore.labelName()}”.` : 'Write here…');
 
     els.findSlot = h('div', { class: 'ne-find-slot' });
-    els.editor.replaceChildren(els.bar, els.bannerSlot, els.findSlot, title, ed.toolbar, ed.linkbar, ed.element);
+    els.editor.replaceChildren(els.bar, els.bannerSlot, els.findSlot, title, ed.toolbar, ed.linkbar, ed.tablebar, ed.element);
     drawBar();
     drawFind();
   }
@@ -1107,7 +1107,9 @@
       drawStatus();
       return;
     }
-    els.bar.replaceChildren(
+    // (replaceChildren would show a null as the word "null": the missing
+    // buttons are left out instead.)
+    els.bar.replaceChildren(...[
       h('button', {
         class: 'icon-btn ne-back', type: 'button', 'aria-label': 'Back to the list', title: 'Back to the list',
         dataset: { key: 'note-back' }, onclick: () => closeNote(),
@@ -1127,7 +1129,7 @@
         class: 'icon-btn', type: 'button', 'aria-label': foreign ? 'Take off the notes list' : 'Delete note',
         title: foreign ? 'Take off the notes list (the email stays)' : 'Delete (moves it to Gmail’s Trash)',
         dataset: { key: 'note-delete' }, onclick: () => deleteCurrent(),
-      }, icon('delete')));
+      }, icon('delete'))].filter(Boolean));
     els.bannerSlot.replaceChildren(foreign ? h('div', {
       class: 'ne-banner',
       text: `This one is an email filed under “${notesStore.labelName()}”. Editing it saves a new note in its place; ` +
