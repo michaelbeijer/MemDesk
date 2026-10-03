@@ -649,9 +649,10 @@ npm run test:app              # (c) the phone app at a phone's size
 ```
 
 - `CHROMIUM_PATH` chooses the browser. It must be full Chromium, because
-  `chrome-headless-shell` cannot load extensions. Otherwise
-  `/opt/pw-browsers/chromium-*` is used if present, and then Playwright's own
-  download.
+  `chrome-headless-shell` cannot load extensions. Otherwise the newest full
+  Chromium found in `/opt/pw-browsers`, in `PLAYWRIGHT_BROWSERS_PATH`, or in
+  Playwright's own folder on Windows is used, and failing those, whatever
+  Playwright picks.
 - `SCREENS_DIR` is where screenshots go. The default is a folder in the system
   temp directory.
 - (a) loads `dev/preview.html` under Trusted Types and drives it: drag between

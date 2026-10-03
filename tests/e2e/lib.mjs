@@ -31,15 +31,25 @@ export async function loadPlaywright() {
 }
 
 // Full Chromium, not chrome-headless-shell: only the full build can load
-// unpacked extensions.
+// unpacked extensions, and left to itself Playwright runs headless on the
+// shell. So the full build is looked for where Playwright installs it -
+// /opt/pw-browsers, PLAYWRIGHT_BROWSERS_PATH, or its own folder on
+// Windows - newest first.
+const CHROMIUM_EXES = [['chrome-linux', 'chrome'], ['chrome-win64', 'chrome.exe'], ['chrome-win', 'chrome.exe']];
+
 export function findChromium() {
   if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
-  const root = '/opt/pw-browsers';
-  if (existsSync(root)) {
-    const dirs = readdirSync(root).filter(d => /^chromium-\d+$/.test(d)).sort().reverse();
+  const roots = ['/opt/pw-browsers', process.env.PLAYWRIGHT_BROWSERS_PATH,
+    process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'ms-playwright')];
+  for (const root of roots) {
+    if (!root || !existsSync(root)) continue;
+    const dirs = readdirSync(root).filter(d => /^chromium-\d+$/.test(d))
+      .sort((a, b) => Number(b.slice(9)) - Number(a.slice(9)));
     for (const d of dirs) {
-      const exe = join(root, d, 'chrome-linux', 'chrome');
-      if (existsSync(exe)) return exe;
+      for (const parts of CHROMIUM_EXES) {
+        const exe = join(root, d, ...parts);
+        if (existsSync(exe)) return exe;
+      }
     }
   }
   return undefined; // let Playwright use its own download
