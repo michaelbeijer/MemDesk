@@ -18,7 +18,7 @@
 
   const ns = (globalThis.gkb = globalThis.gkb || {});
 
-  const APP_NAME = 'Supermail';
+  const APP_NAME = 'MemDesk';
 
   // ── Storage keys ─────────────────────────────────────────────────────
   //

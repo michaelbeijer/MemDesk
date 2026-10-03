@@ -47,7 +47,7 @@ test('the display name lives only in the documented rename spots', () => {
   for (const f of candidates) {
     if (!fs.existsSync(path.join(ROOT, f)) || allowed.has(f)) continue;
     // The repository's address is where it lives, not what it is called.
-    const text = read(f).replace(/(github\.com|raw\.githubusercontent\.com)\/michaelbeijer\/Supermail/g, '');
+    const text = read(f).replace(/(github\.com|raw\.githubusercontent\.com)\/michaelbeijer\/MemDesk/g, '');
     assert.equal(text.includes(NAME), false, `${f} mentions “${NAME}”; use APP_NAME instead`);
   }
   assert.equal(manifest.action.default_title, NAME);
@@ -73,7 +73,7 @@ test('the preview loads exactly the manifest’s content scripts, in order', () 
 
 test('manifest: version, permissions and a key whose ID the README reports', () => {
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '0.17.1');
+  assert.equal(manifest.version, '0.18.0');
   assert.ok(read('README.md').includes(`badge/version-${manifest.version}-`), 'the README\'s version badge is current');
   assert.deepEqual(manifest.permissions.sort(), ['identity', 'storage']);
   // Gmail; and Calendar, Tasks and the address check for the calendar.
@@ -93,10 +93,10 @@ test('manifest: version, permissions and a key whose ID the README reports', () 
 test('one icon everywhere: the PNGs, the add-on, the phone app and the in-app mark all come from icons/icon.svg', () => {
   const svg = read('icons/icon.svg');
   for (const size of [16, 32, 48, 128, 192]) assert.ok(fs.existsSync(path.join(ROOT, 'icons', `icon-${size}.png`)), `icon-${size}.png`);
-  const RAW = 'https://raw.githubusercontent.com/michaelbeijer/Supermail/main/';
+  const RAW = 'https://raw.githubusercontent.com/michaelbeijer/MemDesk/main/';
   const logoUrl = JSON.parse(read('addon/appsscript.json')).addOns.common.logoUrl;
   assert.ok(logoUrl.startsWith(RAW) && fs.existsSync(path.join(ROOT, logoUrl.slice(RAW.length))), logoUrl);
-  const favicon = /var SUPERMAIL_ICON_URL = '([^']+)'/.exec(read('addon/Code.gs'))[1];
+  const favicon = /var MEMDESK_ICON_URL = '([^']+)'/.exec(read('addon/Code.gs'))[1];
   assert.ok(favicon.startsWith(RAW) && fs.existsSync(path.join(ROOT, favicon.slice(RAW.length))), favicon);
   // The mark drawn inside the app is the icon's own drawing.
   const ui = read('src/content/ui.js');

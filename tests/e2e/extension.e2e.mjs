@@ -118,8 +118,8 @@ try {
     watchErrors(options, errors, '[options] ');
     await options.goto(OPTIONS);
     await options.locator('#ext-id').waitFor();
-    assert.equal(await options.title(), 'Supermail – Setup');
-    assert.equal(await options.locator('#app-name').innerText(), 'Supermail');
+    assert.equal(await options.title(), 'MemDesk – Setup');
+    assert.equal(await options.locator('#app-name').innerText(), 'MemDesk');
     assert.equal(await options.locator('#ext-id').innerText(), EXPECTED_ID);
     assert.equal(await options.locator('#redirect-uri').innerText(), `https://${EXPECTED_ID}.chromiumapp.org/`);
     assert.equal(await options.locator('#shortcut').innerText(), 'Alt+Shift+K');
@@ -183,7 +183,7 @@ try {
     await gmail.locator('[data-action="toggle-calendar"]').waitFor();
     await boardBtn.click();
     await gmail.locator('.panel', { hasText: 'Finish setting up' }).waitFor();
-    assert.match(await gmail.locator('.brand').innerText(), /Supermail/);
+    assert.match(await gmail.locator('.brand').innerText(), /MemDesk/);
     assert.equal(await gmail.locator('.tab[aria-selected="true"]').innerText(), 'Board');
     assert.equal(await gmail.locator('.account').innerText(), 'test@example.com');
     // Styles were adopted inside the shadow root, not leaked to the page.
@@ -239,7 +239,7 @@ try {
       assert.equal(await page.locator('#connect-card').isVisible(), true);
       assert.equal(await page.locator('#own-project').evaluate(d => d.open), false, 'your own project, folded away');
       assert.equal(await page.locator('#client-id').isVisible(), false);
-      assert.match(await page.locator('#connect-card').innerText(), /Go to Supermail/);
+      assert.match(await page.locator('#connect-card').innerText(), /Go to MemDesk/);
       await page.screenshot({ path: join(SCREENS, 'options-store.png'), fullPage: true, animations: 'disabled' });
     } finally {
       await store.close().catch(() => {});

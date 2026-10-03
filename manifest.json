@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Supermail",
-  "version": "0.17.1",
+  "name": "MemDesk",
+  "version": "0.18.0",
   "description": "A Kanban board, notes and your calendar inside Gmail. Every card is a Gmail thread, every note a message in your own mailbox.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtDI+0Aw3262c4MbybBw4nWqjykfR+tsfK9DmJgHKBrsSJoMzFGlvsfhiOgZdfrjxGMPuqcdI8Z2hwo3s7pXZcMwVyx2XgYpPYzxIRTE8DBzaeNBhVbxbf4tlqatb5uPU2/8ZhePurxccoX6yzOP3PTD1vgtwmxJcWKrKWnzUjYpi8bsmepMC21B8VuKpA9kQIUkZ2vRvARsgb32BWNt+cufHCPOK0RSyT/Q9L+owZi/c+NO+5Ud+KTMnMgXt1L2zk9F+yo70ZWGI5PKnCKQPucnTEsXdNEcyCnTUR8IfXUuGTF+pQqHJddv3wwSX18O9+0rcu901vuCNvYuXCVaJcQIDAQAB",
   "minimum_chrome_version": "116",
@@ -47,7 +47,7 @@
     "open_in_tab": true
   },
   "action": {
-    "default_title": "Supermail",
+    "default_title": "MemDesk",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",

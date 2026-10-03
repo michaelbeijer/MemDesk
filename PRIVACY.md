@@ -1,17 +1,17 @@
-# Supermail privacy policy
+# MemDesk privacy policy
 
 *Last updated: 2 October 2026*
 
-Supermail is a Chrome extension, a phone panel in the Gmail app and a
+MemDesk is a Chrome extension, a phone panel in the Gmail app and a
 phone app, made by Michael Beijer. This policy says what they do with your
-data. The short version: **there is no Supermail server.** Your board and
+data. The short version: **there is no MemDesk server.** Your board and
 your notes live in your own Gmail, your calendar stays in Google Calendar and
 Google Tasks, and the publisher never receives any of your data.
 
-## What Supermail can see, and why
+## What MemDesk can see, and why
 
-To work, Supermail asks Google for permission to read and change your Gmail
-(the `gmail.modify` permission). With it, Supermail:
+To work, MemDesk asks Google for permission to read and change your Gmail
+(the `gmail.modify` permission). With it, MemDesk:
 
 - **For the board:** reads the subject, sender, date, snippet and labels of
   the conversations you put on the board, and adds or removes the board's
@@ -24,7 +24,7 @@ To work, Supermail asks Google for permission to read and change your Gmail
   `_Notes`.
 - **To tell accounts apart:** reads your email address.
 
-For the Calendar tab, and only once you allow it there, Supermail asks
+For the Calendar tab, and only once you allow it there, MemDesk asks
 Google for read-only access to Google Calendar and Google Tasks
 (`calendar.readonly` and `tasks.readonly`), and for your email address. With
 them, it:
@@ -39,7 +39,7 @@ It cannot change, add or delete anything in your calendars or tasks: the
 permissions are read-only. Nothing from them is stored; they are read again
 when the calendar is shown.
 
-The Gmail permission Google grants is broader than what Supermail does. Supermail **never sends
+The Gmail permission Google grants is broader than what MemDesk does. MemDesk **never sends
 mail, never deletes anything for good**, never touches Spam, and moves
 nothing to Trash but its own notes. In the Chrome extension, a gatekeeper in
 its background worker refuses any other kind of request before it reaches
@@ -65,16 +65,16 @@ Google.
 
 ## Who your data is shared with
 
-**Nobody.** Supermail talks only to Google: Gmail, and for the calendar,
+**Nobody.** MemDesk talks only to Google: Gmail, and for the calendar,
 Google Calendar and Google Tasks. It has no
 analytics, no advertising, no tracking, and sends nothing to the publisher or
 anyone else. Nothing is sold.
 
-Supermail's use and transfer of information received from Google APIs
+MemDesk's use and transfer of information received from Google APIs
 adheres to the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy),
 including the Limited Use requirements.
 
-## Removing Supermail
+## Removing MemDesk
 
 Remove the extension in `chrome://extensions`, and withdraw its access to
 your Google account at [myaccount.google.com/connections](https://myaccount.google.com/connections).
@@ -83,6 +83,6 @@ until you delete them there.
 
 ## Questions
 
-Ask on [GitHub](https://github.com/michaelbeijer/Supermail/issues), or
+Ask on [GitHub](https://github.com/michaelbeijer/MemDesk/issues), or
 through [beijer.uk/contact](https://beijer.uk/contact/). If this policy
 changes, the new version will be here, with a new date at the top.

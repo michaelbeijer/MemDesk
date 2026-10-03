@@ -4,7 +4,7 @@
 //
 //   node tools/package-extension.mjs --client-id=1234567890-abc.apps.googleusercontent.com
 //
-// Writes dist/supermail-<version>.zip, ready to upload: the extension's
+// Writes dist/memdesk-<version>.zip, ready to upload: the extension's
 // own files (manifest, src/, the icons, the licence) and nothing else,
 // with two changes from the repository's copy -
 //
@@ -12,7 +12,7 @@
 //     user just clicks "Connect Gmail" (see BUILT_IN_CLIENT_ID there);
 //   - no "key" in the manifest: the store gives the item an ID of its own.
 //
-// The client ID can also come from SUPERMAIL_CLIENT_ID. No other tools
+// The client ID can also come from MEMDESK_CLIENT_ID. No other tools
 // needed: the zip is written here, with Node's own deflate.
 // ─────────────────────────────────────────────────────────────────────
 
@@ -123,7 +123,7 @@ export function zip(entries) {
 
 export function build({ clientId }) {
   if (!CLIENT_ID_RE.test(String(clientId || ''))) {
-    throw new Error('A client ID is needed, like 1234567890-abc123.apps.googleusercontent.com (--client-id=… or SUPERMAIL_CLIENT_ID).');
+    throw new Error('A client ID is needed, like 1234567890-abc123.apps.googleusercontent.com (--client-id=… or MEMDESK_CLIENT_ID).');
   }
   const entries = storeFiles().map(name => {
     let data = readFileSync(join(REPO, ...name.split('/')));
@@ -137,10 +137,10 @@ export function build({ clientId }) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const arg = process.argv.find(a => a.startsWith('--client-id='));
-  const clientId = arg ? arg.slice('--client-id='.length) : process.env.SUPERMAIL_CLIENT_ID;
+  const clientId = arg ? arg.slice('--client-id='.length) : process.env.MEMDESK_CLIENT_ID;
   try {
     const { version, entries, zip: data } = build({ clientId });
-    const out = join(REPO, 'dist', `supermail-${version}.zip`);
+    const out = join(REPO, 'dist', `memdesk-${version}.zip`);
     mkdirSync(join(REPO, 'dist'), { recursive: true });
     writeFileSync(out, data);
     console.log(`Wrote ${relative(REPO, out).split(sep).join('/')} (${entries.length} files, ${Math.round(data.length / 1024)} KB).`);

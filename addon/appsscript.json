@@ -28,8 +28,8 @@
   ],
   "addOns": {
     "common": {
-      "name": "Supermail",
-      "logoUrl": "https://raw.githubusercontent.com/michaelbeijer/Supermail/main/icons/icon-128.png",
+      "name": "MemDesk",
+      "logoUrl": "https://raw.githubusercontent.com/michaelbeijer/MemDesk/main/icons/icon-128.png",
       "layoutProperties": {
         "primaryColor": "#0b57d0",
         "secondaryColor": "#0b57d0"

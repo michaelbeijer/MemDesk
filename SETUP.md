@@ -1,10 +1,10 @@
-# Setting up Supermail
+# Setting up MemDesk
 
 *This is for setting up a copy of your own, with your own Google Cloud
-project. If someone sent you links to Supermail, follow
+project. If someone sent you links to MemDesk, follow
 [INSTALL.md](INSTALL.md) instead: it is much shorter.*
 
-Supermail has three parts. You need the first; the other two are for your
+MemDesk has three parts. You need the first; the other two are for your
 phone and can be added any time.
 
 | Part | Where it runs | Time | Needs |
@@ -14,7 +14,7 @@ phone and can be added any time.
 | [3. The phone app](#part-3-the-phone-app) | your phone's home screen: the board, the notes and the calendar, full-screen | about 3 minutes | part 2 |
 
 It works with a Google Workspace account and with an ordinary @gmail.com
-account. Nothing is sent anywhere but Google: there is no Supermail server.
+account. Nothing is sent anywhere but Google: there is no MemDesk server.
 Everything lives in your own mailbox, as labels and messages.
 
 ---
@@ -25,7 +25,7 @@ Everything lives in your own mailbox, as labels and messages.
 
 On the repository's page on GitHub, click **Code → Download ZIP**, and unzip it
 somewhere you will keep it (Chrome loads the extension from that folder every
-time it starts). Or, with git: `git clone https://github.com/michaelbeijer/Supermail`.
+time it starts). Or, with git: `git clone https://github.com/michaelbeijer/MemDesk`.
 
 ### 2. Load it into Chrome
 
@@ -45,7 +45,7 @@ yours alone.
 **a. Create the project.** Go to
 [console.cloud.google.com/projectcreate](https://console.cloud.google.com/projectcreate),
 signed in with the account your mail is in. Call it anything (say,
-"Supermail") and click **Create**. Make sure it is the project selected at the
+"MemDesk") and click **Create**. Make sure it is the project selected at the
 top of the page for the next steps.
 
 **b. Turn on the Gmail API, and the two the calendar uses.** Open each of
@@ -116,7 +116,7 @@ project: Apps Script brings its own.
 
 1. Go to [script.google.com](https://script.google.com), signed in with your
    mail account, and click **New project**. Click "Untitled project" at the
-   top and call it Supermail.
+   top and call it MemDesk.
 2. Click the gear (**Project Settings**) on the left. Note the **Time zone**
    shown there, then tick **Show "appsscript.json" manifest file in editor**.
 3. Back in the editor (**< >** on the left):
@@ -127,13 +127,13 @@ project: Apps Script brings its own.
    - click `Code.gs`, select everything, and paste the contents of
      [`addon/Code.gs`](addon/Code.gs) over it. (It is long: the phone app's page
      is in it too.) If you renamed `_Notes` or `_Board` in Gmail, change
-     `SUPERMAIL_NOTES_LABEL` or `SUPERMAIL_BOARD_LABEL` at the top;
+     `MEMDESK_NOTES_LABEL` or `MEMDESK_BOARD_LABEL` at the top;
    - press **Ctrl+S**.
 4. Click **Deploy → Test deployments**, then **Install**, then **Done**.
 5. Open Gmail on your computer and reload it. The panel's icon is in the strip
    on the right. Click it, then **Authorize access**, choose your account and
    allow it. (If Google says it "hasn't verified this app": **Advanced → Go to
-   Supermail**. It says that about every script that has not been through its
+   MemDesk**. It says that about every script that has not been through its
    review, your own included.)
 6. On your phone, open the Gmail app, open any email, and scroll to the
    bottom: the icon is in the row of add-ons. Tap the panel's title bar to
@@ -151,7 +151,7 @@ as two columns of days. It is served by the same Apps Script project as the phon
 panel, so do part 2 first.
 
 1. In the Apps Script project (open [script.google.com/home](https://script.google.com/home)
-   and click Supermail), click **Deploy → Test deployments**. Click the gear
+   and click MemDesk), click **Deploy → Test deployments**. Click the gear
    next to **Select type** and choose **Web app**.
 2. Copy the **Web app URL**. It ends in `/dev`, always runs the code you last
    saved, and opens for you alone.
@@ -178,7 +178,7 @@ with just this account.
   `git pull`), then click the reload arrow on its card in `chrome://extensions`
   and reload Gmail.
 - **The phone panel and the phone app**: open
-  [script.google.com/home](https://script.google.com/home), click Supermail,
+  [script.google.com/home](https://script.google.com/home), click MemDesk,
   paste the new `Code.gs` (and `appsscript.json`, if it changed, keeping your
   time zone) and press **Ctrl+S**. There is nothing to reinstall. The first line
   of `Code.gs` says which version it is.

@@ -131,13 +131,13 @@ const HEADER = `// The phone panel and phone app ${VERSION}: a Gmail add-on and 
 
 // The notes label, and the label the board's column labels are under.
 // Change them only if you renamed _Notes or _Board in Gmail.
-var SUPERMAIL_NOTES_LABEL = '_Notes';
-var SUPERMAIL_BOARD_LABEL = '_Board';
+var MEMDESK_NOTES_LABEL = '_Notes';
+var MEMDESK_BOARD_LABEL = '_Board';
 
 // The phone app's icon, in the browser tab and on the home screen.
-var SUPERMAIL_ICON_URL = 'https://raw.githubusercontent.com/michaelbeijer/Supermail/main/icons/icon-192.png';
+var MEMDESK_ICON_URL = 'https://raw.githubusercontent.com/michaelbeijer/MemDesk/main/icons/icon-192.png';
 
-var SUPERMAIL_VERSION = '${VERSION}';
+var MEMDESK_VERSION = '${VERSION}';
 
 // Apps Script has a global object but may not name it globalThis.
 var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
@@ -150,7 +150,7 @@ export function bundle() {
   const html = appHtml();
   const lines = [];
   for (let i = 0; i < html.length; i += 1000) lines.push(JSON.stringify(html.slice(i, i + 1000)));
-  const page = `\n// ════ the phone app's page (addon/app, built) ${'═'.repeat(20)}\n\nvar SUPERMAIL_APP_HTML = [\n${lines.join(',\n')},\n].join('');\n`;
+  const page = `\n// ════ the phone app's page (addon/app, built) ${'═'.repeat(20)}\n\nvar MEMDESK_APP_HTML = [\n${lines.join(',\n')},\n].join('');\n`;
   return `${HEADER}${parts.join('')}${page}`;
 }
 

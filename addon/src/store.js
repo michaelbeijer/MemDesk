@@ -18,8 +18,8 @@
 
   const META = ['Subject', 'Date', notesLogic.NOTE_HEADER];
   // Set at the top of Code.gs, for anyone who renamed _Notes in Gmail.
-  const rootName = () => String(globalThis.SUPERMAIL_NOTES_LABEL || notesLogic.DEFAULT_LABEL).trim();
-  const boardName = () => String(globalThis.SUPERMAIL_BOARD_LABEL || ns.logic.DEFAULT_ROOT).trim();
+  const rootName = () => String(globalThis.MEMDESK_NOTES_LABEL || notesLogic.DEFAULT_LABEL).trim();
+  const boardName = () => String(globalThis.MEMDESK_BOARD_LABEL || ns.logic.DEFAULT_ROOT).trim();
 
   // What one card needs to know about the mailbox, read once per trigger
   // or button press: the notes label (made if it is missing), its

@@ -124,7 +124,8 @@
 
     // Which folders are folded, which calendars show, on this phone. The
     // page is only ever opened by its owner, so there is no account to
-    // key them by.
+    // key them by. The 'supermail.' prefix is the app's old name, kept so
+    // prefs saved before the rename still count.
     const prefs = {
       get(name) {
         try { return JSON.parse(localStorage.getItem(`supermail.${name}`) || 'null'); } catch (err) { return null; }

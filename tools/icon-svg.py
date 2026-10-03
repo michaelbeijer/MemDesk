@@ -4,9 +4,10 @@
 #
 #   pip install fonttools && python3 tools/icon-svg.py
 #
-# Writes icons/icon.svg: "Sm" in white on a violet circle - the same
-# circle, gradient direction and letters (Arial Bold: a large S, a smaller
-# m) as the Supervertaler icons, in a colour of its own. The letters are
+# Writes icons/icon.svg: "Md" in white on a violet circle - the same
+# circle, gradient direction and letters (Arial Bold: a large capital, a
+# smaller lower-case letter) as the Supervertaler icons, in a colour of
+# its own. The letters are
 # turned into paths here, from Liberation Sans Bold (Arial's shapes and
 # metrics), so the icon looks the same everywhere without the font.
 # tools/make-icons.mjs then renders it to the PNGs.
@@ -20,8 +21,8 @@ from fontTools.pens.boundsPen import BoundsPen
 FONT = os.environ.get('ICON_FONT', '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf')
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'icons', 'icon.svg')
 DARK, LIGHT = '#6D28D9', '#9F67FA'   # the gradient, top left to bottom right
-RUNS = [('S', 67.5, 0), ('m', 56, 1)]  # letter, size, baseline shift - as the Sv icon
-CX, BASELINE, MAX_WIDTH = 64, 89, 82   # "Sm" is wider than "Sv": scaled to fit
+RUNS = [('M', 67.5, 0), ('d', 56, 1)]  # letter, size, baseline shift - as the Sv icon
+CX, BASELINE, MAX_WIDTH = 64, 89, 82   # "Md" is wider than "Sv": scaled to fit
 
 font = TTFont(FONT)
 glyphs, cmap, upm, hmtx = font.getGlyphSet(), font.getBestCmap(), font['head'].unitsPerEm, font['hmtx']
@@ -49,12 +50,12 @@ for name, k, x, dy in items:
 
 svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
   <defs>
-    <linearGradient id="sm" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="md" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="{DARK}"/>
       <stop offset="1" stop-color="{LIGHT}"/>
     </linearGradient>
   </defs>
-  <circle cx="64" cy="64" r="56" fill="url(#sm)"/>
+  <circle cx="64" cy="64" r="56" fill="url(#md)"/>
   <path fill="#fff" d="{' '.join(d)}"/>
 </svg>
 '''

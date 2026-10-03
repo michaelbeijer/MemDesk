@@ -2,7 +2,7 @@
   <img src="icons/icon.svg" width="112" height="112" alt="">
 </p>
 
-<h1 align="center">Supermail</h1>
+<h1 align="center">MemDesk</h1>
 
 <p align="center">
   <b>A Kanban board, a notebook and your week, inside Gmail.</b><br>
@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.17.1" src="https://img.shields.io/badge/version-0.17.1-6D28D9">
+  <img alt="Version 0.18.0" src="https://img.shields.io/badge/version-0.18.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -98,9 +98,9 @@ the open email on the board, ticks your checklists and adds to a note.
 
 ### 🔒 Yours alone
 
-There is no Supermail server and no account to make. The board and the notes
+There is no MemDesk server and no account to make. The board and the notes
 are views of your own mailbox, and the calendar of your own Google Calendar
-and Tasks, through Google's API, from your own browser. Supermail never sends
+and Tasks, through Google's API, from your own browser. MemDesk never sends
 mail, never deletes anything for good, and only reads your calendar. See
 [Privacy](#privacy).
 
@@ -127,13 +127,13 @@ The **Calendar** tab reads Google Calendar and Google Tasks with a sign-in of
 its own (read-only), asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.17.1. Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.18.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
 ## Getting started
 
-**Sent a link to Supermail?** Then **[INSTALL.md](INSTALL.md)** is all you
+**Sent a link to MemDesk?** Then **[INSTALL.md](INSTALL.md)** is all you
 need: add it to Chrome, click **Connect Gmail**, done - about two minutes.
 
 **Setting up your own copy** from this repository? **[SETUP.md](SETUP.md)**
@@ -606,12 +606,19 @@ The display name appears in exactly these places:
    `tools/make-icons.mjs` again, and copy the new path into `LOGO` in
    `src/content/ui.js` (a test says if they differ).
 
+The guides (`INSTALL.md`, `SETUP.md`, `PUBLISHING.md`, `PRIVACY.md`) and
+`store/listing.md` use the name in their text, and link to the repository by
+its address. The pictures take the name from `APP_NAME`: run
+`tools/readme-shots.mjs` again.
+
 Nothing internal carries the name: not the `gkb` namespace, the storage keys
 (`clientId`, `columns:<email>`, `order:<email>`), the CSS classes or the element
 ids. A rename therefore leaves stored data, the extension ID (derived from the
 `key`) and the redirect URI unchanged. `tests/static.test.js` fails if the name
 turns up anywhere else. The app name on the Cloud consent screen is set
-separately in the Cloud console.
+separately in the Cloud console. One exception, from before the last rename:
+the phone app keeps its settings in the browser under `supermail.`, its name
+until 0.17.1, and keeps that prefix so they survive.
 
 ## Running the tests
 
@@ -681,7 +688,7 @@ answers as if Tasks had not been allowed.
 
 ### Icons
 
-`icons/icon.svg` is the drawing: "Sm" on a violet circle, a member of the
+`icons/icon.svg` is the drawing: "Md" on a violet circle, a member of the
 [Supervertaler](https://supervertaler.com) family of icons. `python3
 tools/icon-svg.py` draws it (the letters are turned into paths from Liberation
 Sans Bold, so it needs `fonttools`), and `node tools/make-icons.mjs` renders it

@@ -169,9 +169,9 @@
   // ?ping=1, a line that says the script itself runs - to tell a problem
   // here from one in the page.
   function page(e) {
-    const html = globalThis.SUPERMAIL_APP_HTML || '';
+    const html = globalThis.MEMDESK_APP_HTML || '';
     if (e && e.parameter && e.parameter.ping) {
-      return HtmlService.createHtmlOutput(`<p style="font: 16px/1.5 Arial, sans-serif; padding: 24px">${ns.APP_NAME} ${globalThis.SUPERMAIL_VERSION || ''}: ` +
+      return HtmlService.createHtmlOutput(`<p style="font: 16px/1.5 Arial, sans-serif; padding: 24px">${ns.APP_NAME} ${globalThis.MEMDESK_VERSION || ''}: ` +
         `the script runs, and its page is ${html.length} characters long.</p>`).setTitle(`${ns.APP_NAME} notes`);
     }
     const out = HtmlService.createHtmlOutput(html || '<p>The app is not built into this Code.gs.</p>')
@@ -180,7 +180,7 @@
     // Our icon rather than Apps Script's, in the tab and on the home screen.
     // Only a nicety: a refused address must not cost the page.
     try {
-      if (globalThis.SUPERMAIL_ICON_URL) out.setFaviconUrl(globalThis.SUPERMAIL_ICON_URL);
+      if (globalThis.MEMDESK_ICON_URL) out.setFaviconUrl(globalThis.MEMDESK_ICON_URL);
     } catch (err) {
       console.warn(`The icon was not set: ${err.message}`);
     }
@@ -250,7 +250,7 @@
   // labels yet, and the usual columns will be made.
   function boardColumns() {
     const labels = gmail.call('GET', 'labels').labels || [];
-    const cols = ns.panelLogic.boardColumns(labels, String(globalThis.SUPERMAIL_BOARD_LABEL || ns.logic.DEFAULT_ROOT).trim());
+    const cols = ns.panelLogic.boardColumns(labels, String(globalThis.MEMDESK_BOARD_LABEL || ns.logic.DEFAULT_ROOT).trim());
     return cols.length ? cols : null;
   }
 
