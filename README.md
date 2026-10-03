@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.19.0" src="https://img.shields.io/badge/version-0.19.0-6D28D9">
+  <img alt="Version 0.20.0" src="https://img.shields.io/badge/version-0.20.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -50,10 +50,10 @@ the board, and files it in a column without opening the board.
 
 ### 📝 Notes that live in Gmail
 
-Headings, bold and italics, lists, checklists you tick, links. Notes save as
-you type, and a paste from Word, Google Docs, a web page or Markdown arrives
-formatted. Folders nest as deep as you like, and fold away when the tree gets
-long.
+Headings, bold and italics, lists, checklists you tick, links, and tables you
+can sort. Notes save as you type, and a paste from Word, Google Docs, Excel, a
+web page or Markdown arrives formatted, a table as a table. Folders nest as
+deep as you like, and fold away when the tree gets long.
 
 <img src="images/notes.jpg" width="100%" alt="The notes: nested folders on the left, the list in the middle, a checklist note open on the right">
 
@@ -130,7 +130,7 @@ The **Calendar** tab reads Google Calendar and Google Tasks with a sign-in of
 its own (read-only), asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.19.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.20.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -269,11 +269,25 @@ your Chrome profile to other computers. All of it is kept per Gmail account.
   turns it into that list or heading. Enter on an empty list item ends the list;
   Backspace at the start of a list item or heading turns it back into text.
   Ctrl-click a link to open it.
+- **Tables.** The table button on the toolbar puts a table in where the cursor
+  is: three columns, a heading row and two more. Tab moves to the next cell
+  (Tab in the last one adds a row), Shift+Tab back; Enter starts a new line
+  inside the cell; the arrow keys leave a cell at its edges, and lead into and
+  out of the table. While the cursor is in a cell, the **table bar** under the
+  toolbar inserts and deletes rows and columns, turns the heading row on and
+  off, aligns the column left, centred or right, sorts the rows by the column
+  (numbers as numbers, the heading row staying on top), and deletes the table.
+  **Ctrl+Z** straight after one of those takes it back. Cells hold text with
+  bold, italic, strike-through and links; a wide table scrolls sideways,
+  which is how it fits on a phone. Cells copied from a spreadsheet and pasted
+  into a cell fill the table from that cell on, adding rows and columns as
+  needed. In Gmail a table shows as a table; in plain text, a row a line.
 - **Pasting keeps the formatting a note can hold.** From Word, Google Docs, a
   web page or an email: headings, bold, italic, strike-through, links, and
   bulleted, numbered and check lists (nested, too) come across; fonts, colours,
-  sizes, images and scripts never do. Spreadsheets and tables arrive as one line
-  per row with ` | ` between the cells, heading cells in bold. Paragraphs that
+  sizes, images and scripts never do. Tables - from Excel, Google Sheets, Word
+  or a web page - arrive as tables, with their heading row, column alignment
+  and bold; a single cell copied on its own arrives as its text. Paragraphs that
   had space between them keep an empty line between them. Text written in
   Markdown - an answer copied from a chat assistant, say - becomes formatting:
   `**bold**`, `*italic*`, `~~struck~~`, `[links](…)`, `#` headings, `- `,
@@ -298,7 +312,11 @@ Gmail messages cannot be changed once stored, so saving inserts a new version
 and moves the previous one to Trash. That makes Gmail's Trash a 30-day version
 history: open an old version there to copy text back. If two versions are ever
 both live (a save cut short, or two computers saving at once), the newest wins
-and the other is moved to Trash the next time the list loads.
+and the other is moved to Trash the next time the list loads. A note saved on
+another computer or phone while you were editing it is merged rather than
+overwritten, as soon as this one hears of it (the phone app checks before every
+save): the newer version comes in with your edits on top, and a paragraph
+changed on both sides is kept in both versions.
 
 Anything else filed under `_Notes` shows up too - an email you sent yourself
 from your phone, say. Its bold, italic, lists and links come across; the rest

@@ -2,9 +2,10 @@
 // Note formatting (pure)
 //
 // A formatted note is a list of blocks - paragraphs, three heading
-// sizes, bulleted, numbered and check lists nested up to three deep -
-// each holding runs of text that may be bold, italic, struck through or
-// a link. That is the whole model; nothing outside it survives a save.
+// sizes, bulleted, numbered and check lists nested up to three deep, and
+// tables - each holding runs of text that may be bold, italic, struck
+// through or a link (a table, rows of cells of them). That is the whole
+// model; nothing outside it survives a save.
 //
 // It is stored in the note's message twice. The HTML part is the real
 // record: Gmail shows it (on the phone too), and this file reads it back
@@ -25,9 +26,14 @@
   const ns = (globalThis.gkb = globalThis.gkb || {});
   const util = (typeof module === 'object' && module.exports) ? require('./util.js') : ns.util;
 
-  const TYPES = new Set(['p', 'h1', 'h2', 'h3', 'ul', 'ol', 'check']);
+  const TYPES = new Set(['p', 'h1', 'h2', 'h3', 'ul', 'ol', 'check', 'table']);
   const LISTS = new Set(['ul', 'ol', 'check']);
   const MAX_LEVEL = 3;
+  // A table: at most this many columns and rows; a column is aligned
+  // left (''), in the centre or to the right.
+  const MAX_COLS = 26;
+  const MAX_ROWS = 1000;
+  const ALIGNS = new Set(['', 'center', 'right']);
   const BOX = '☐';     // ☐
   const TICKED = '☑';  // ☑
   const BULLET = '•';  // •
@@ -37,6 +43,15 @@
   function block(type = 'p', runs = [], { level = 0, checked = false } = {}) {
     return { type, level: LISTS.has(type) ? level : 0, checked: type === 'check' ? !!checked : false, runs };
   }
+
+  // A table block: `rows` of cells, each cell { runs } - a line break
+  // inside a cell is a "\n" in its text; `head`, whether the first row is
+  // a heading row; `align`, each column's alignment.
+  function table(rows = [[{ runs: [] }]], { head = false, align = [] } = {}) {
+    return Object.assign(block('table'), { rows, head: !!head, align });
+  }
+
+  const emptyCell = () => ({ runs: [] });
 
   function emptyDoc() {
     return [block('p')];
@@ -67,14 +82,32 @@
     return out;
   }
 
+  // Every row as wide as the widest (and within the limits), every cell
+  // tidy, at least one cell.
+  function normaliseTable(b) {
+    const src = (Array.isArray(b.rows) ? b.rows : []).filter(Array.isArray).slice(0, MAX_ROWS);
+    const widest = src.reduce((n, r) => Math.max(n, r.length), 0);
+    const cols = Math.max(1, Math.min(MAX_COLS, widest));
+    const rows = src.map(r => Array.from({ length: cols }, (_, k) => ({ runs: normaliseRuns(r[k] && r[k].runs) })));
+    if (!rows.length) rows.push(Array.from({ length: cols }, emptyCell));
+    const align = Array.from({ length: cols }, (_, k) => (b.align && ALIGNS.has(b.align[k]) ? b.align[k] : ''));
+    return table(rows, { head: b.head, align });
+  }
+
   // Unknown types become paragraphs; a list item may sit at most one level
   // deeper than the list item before it, which is what keeps the HTML a
-  // properly nested list and the editor's indents meaningful.
+  // properly nested list and the editor's indents meaningful. A table is
+  // never last: a line follows it, somewhere to type after it.
   function normaliseDoc(doc) {
     const out = [];
     let prevLevel = -1;
     for (const b of Array.isArray(doc) ? doc : []) {
       if (!b || typeof b !== 'object') continue;
+      if (b.type === 'table') {
+        out.push(normaliseTable(b));
+        prevLevel = -1;
+        continue;
+      }
       const type = TYPES.has(b.type) ? b.type : 'p';
       let level = 0;
       if (LISTS.has(type)) {
@@ -85,17 +118,22 @@
       }
       out.push(block(type, normaliseRuns(b.runs), { level, checked: b.checked }));
     }
+    if (out.length && out[out.length - 1].type === 'table') out.push(block('p'));
     return out.length ? out : emptyDoc();
   }
 
-  const blockText = b => b.runs.map(r => r.text).join('');
+  const runsText = runs => runs.map(r => r.text).join('');
+  // A table's text: a row a line, its cells between " | ".
+  const tableText = b => b.rows.map(r => r.map(c => runsText(c.runs).replace(/\n/g, ' ')).join(' | ')).join('\n');
+  const blockText = b => (b.type === 'table' ? tableText(b) : runsText(b.runs));
 
   function docText(doc) {
     return doc.map(blockText).join('\n');
   }
 
+  // A table counts as something written, even with nothing in it yet.
   function isEmpty(doc) {
-    return doc.every(b => !blockText(b).trim());
+    return doc.every(b => b.type !== 'table' && !blockText(b).trim());
   }
 
   // ── Links ────────────────────────────────────────────────────────────
@@ -137,7 +175,7 @@
       let inner = '';
       while (j < runs.length && (runs[j].href || '') === href) {
         const raw = runs[j].text;
-        let t = escHtml(raw).replace(/ {2}/g, ' &nbsp;');
+        let t = escHtml(raw).replace(/ {2}/g, ' &nbsp;').replace(/\n/g, '<br>');
         if (prevSpace && t[0] === ' ') t = `&nbsp;${t.slice(1)}`;
         prevSpace = / $/.test(raw);
         if (runs[j].s) t = `<s>${t}</s>`;
@@ -162,7 +200,25 @@
     list: 'margin:0;padding-left:26px',
     check: 'margin:0;padding-left:4px;list-style:none',
     li: 'margin:1px 0',
+    table: 'border-collapse:collapse;margin:6px 0',
+    cell: 'border:1px solid #c4c7c5;padding:4px 8px;vertical-align:top;text-align:left',
+    th: 'background:#f1f3f4;font-weight:bold',
   };
+
+  // A table as Gmail and any mail client shows one, styled inline; the
+  // heading row in <thead>, as <th>.
+  function tableHtml(b) {
+    const cell = (c, k, tag) => {
+      const align = b.align[k] ? `;text-align:${b.align[k]}` : '';
+      const style = `${STYLE.cell}${tag === 'th' ? `;${STYLE.th}` : ''}${align}`;
+      return `<${tag} style="${style}">${runsHtml(c.runs) || '<br>'}</${tag}>`;
+    };
+    const row = (r, tag) => `<tr>${r.map((c, k) => cell(c, k, tag)).join('')}</tr>`;
+    const body = b.rows.slice(b.head ? 1 : 0);
+    return `<table data-gkb-table="1" style="${STYLE.table}">` +
+      (b.head ? `<thead>${row(b.rows[0], 'th')}</thead>` : '') +
+      (body.length ? `<tbody>${body.map(r => row(r, 'td')).join('')}</tbody>` : '') + '</table>';
+  }
 
   function toHtml(docIn) {
     const doc = normaliseDoc(docIn);
@@ -171,6 +227,11 @@
     const close = () => { out += `</li></${stack.pop().tag}>`; };
 
     for (const b of doc) {
+      if (b.type === 'table') {
+        while (stack.length) close();
+        out += `${tableHtml(b)}\n`;
+        continue;
+      }
       const inner = runsHtml(b.runs);
       if (!LISTS.has(b.type)) {
         while (stack.length) close();
@@ -213,10 +274,22 @@
     return out;
   }
 
+  // A table as plain text: a row a line, " | " between its cells - what
+  // Gmail's previews and a plain-text mail client show. (The HTML part is
+  // the record; this only has to read well.)
+  function tablePlain(b) {
+    const cell = c => runsPlain(c.runs).replace(/\n/g, ' ').trim();
+    return b.rows.map(r => r.map(cell).join(' | ')).join('\n');
+  }
+
   function toPlain(docIn) {
     const doc = normaliseDoc(docIn);
     const counters = [0, 0, 0, 0];
     return doc.map(b => {
+      if (b.type === 'table') {
+        counters.fill(0);
+        return tablePlain(b);
+      }
       const text = runsPlain(b.runs);
       if (!LISTS.has(b.type)) {
         counters.fill(0);
@@ -238,13 +311,51 @@
   // "1. ", "☐ " - become lists, indented two spaces a level.
   function fromPlain(text) {
     const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
-    return normaliseDoc(lines.map(line => {
+    const out = [];
+    for (let i = 0; i < lines.length; i++) {
+      // Two or more | a | b | lines, or one with a |---| line under it: a table.
+      const t = pipeTable(lines, i, s => [{ text: s }]);
+      if (t && (t.end - i > 1 || t.block.head)) {
+        out.push(t.block);
+        i = t.end - 1;
+        continue;
+      }
+      const line = lines[i];
       const m = /^( *)(?:([-*•])|(\d{1,3})[.)]|([☐☑])) (.*)$/.exec(line);
-      if (!m) return block('p', [{ text: line }]);
+      if (!m) { out.push(block('p', [{ text: line }])); continue; }
       const level = Math.floor(m[1].length / 2);
-      if (m[4]) return block('check', [{ text: m[5] }], { level, checked: m[4] === TICKED });
-      return block(m[3] ? 'ol' : 'ul', [{ text: m[5] }], { level });
-    }));
+      if (m[4]) out.push(block('check', [{ text: m[5] }], { level, checked: m[4] === TICKED }));
+      else out.push(block(m[3] ? 'ol' : 'ul', [{ text: m[5] }], { level }));
+    }
+    return normaliseDoc(out);
+  }
+
+  // ── Pipe tables (Markdown's, and the plain text above) ──────────────
+
+  const PIPE_ROW = /^\s*\|.*\|\s*$/;
+  const PIPE_RULE = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
+  const pipeCells = line => line.trim().replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/).map(c => c.trim().replace(/\\\|/g, '|'));
+
+  // The table of | rows starting at lines[i], or null: { block, end }.
+  // A |---| line under the first row makes it a heading row and gives the
+  // columns' alignment; "<br>" in a cell is a line break.
+  function pipeTable(lines, i, inline) {
+    if (!PIPE_ROW.test(lines[i] || '') || PIPE_RULE.test(lines[i])) return null;
+    const rows = [];
+    let head = false;
+    let align = [];
+    let j = i;
+    for (; j < lines.length && PIPE_ROW.test(lines[j]); j++) {
+      if (PIPE_RULE.test(lines[j])) {
+        if (rows.length === 1 && !head) {
+          head = true;
+          align = pipeCells(lines[j]).map(c => (/^:-+:$/.test(c) ? 'center' : /^-+:$/.test(c) ? 'right' : ''));
+        }
+        continue;
+      }
+      rows.push(pipeCells(lines[j]).map(c => ({ runs: inline(c.replace(/<br\s*\/?>/gi, '\n')) })));
+    }
+    return { block: table(rows, { head, align }), end: j };
   }
 
   // ── HTML in ──────────────────────────────────────────────────────────
@@ -309,7 +420,10 @@
     let skip = 0;
     let glyph = 0;
     let cur = null;
-    let row = null;           // an open table row: { cells, th }
+    // The open table, if any: { b, row, cell, thead, depth }. Its text goes
+    // into its cells; a table inside a cell is read into that cell as text,
+    // a row a line (depth counts those).
+    let tbl = null;
     let pre = 0;              // inside <pre>: line breaks and spaces are text
     let para = null;          // the open <p>: { gap }
     let gap = false;          // a <p> just closed with space below it
@@ -338,6 +452,45 @@
       return open('p');
     };
     const apply = (list, delta) => list.forEach(m => { marks[m] += delta; });
+    const run = text => ({ text, b: marks.b > 0, i: marks.i > 0, s: marks.s > 0, href: hrefs.length ? hrefs[hrefs.length - 1] : '' });
+    // Inside a table: the open cell's runs, or null between cells.
+    const cellRuns = () => (tbl && tbl.cell ? tbl.cell.runs : null);
+    // A line break in the open cell, unless it is empty or just had one.
+    const cellBreak = () => {
+      const runs = cellRuns();
+      if (!runs || !runs.length) return;
+      const last = runs[runs.length - 1];
+      if (!/\n$/.test(last.text)) runs.push(run('\n'));
+    };
+    const rowsSeen = [];
+    const closeCell = () => {
+      if (!tbl || !tbl.cell) return;
+      apply(tbl.cell.marks, -1);
+      tbl.cell = null;
+    };
+    // The table done: empty rows gone, the heading row and the columns'
+    // alignment worked out from the cells.
+    const finishTable = () => {
+      closeCell();
+      const t = tbl;
+      tbl = null;
+      const rows = rowsSeen.filter(r => r.cells.length && t.b.rows.indexOf(r.cells) >= 0);
+      rowsSeen.length = 0;
+      t.b.rows = rows.map(r => r.cells);
+      if (!rows.length) { blocks.splice(blocks.indexOf(t.b), 1); return; }
+      const first = rows[0];
+      t.b.head = first.thead || (first.th && first.cells.some(c => c.th) && rows.length > 1);
+      const cols = Math.max(...rows.map(r => r.cells.length));
+      t.b.align = Array.from({ length: cols }, (_, k) => {
+        const seen = rows.slice(t.b.head ? 1 : 0).map(r => r.cells[k] && r.cells[k].align).filter(x => x !== undefined);
+        return seen.length && seen.every(x => x === seen[0]) ? seen[0] : '';
+      });
+      // Bold that a heading cell is anyway, and a heading cell in a later
+      // row (a row's label), written as bold.
+      rows.forEach((r, i) => r.cells.forEach(c => {
+        if (c.th && !(i === 0 && t.b.head)) c.runs.forEach(x => { x.b = true; });
+      }));
+    };
 
     let m;
     TOKEN_RE.lastIndex = 0;
@@ -358,6 +511,10 @@
           let raw = util.decodeEntities(whole).replace(/\r\n?/g, '\n');
           if (pre.fresh) raw = raw.replace(/^\n/, '');
           pre.fresh = false;
+          if (tbl) {
+            if (cellRuns()) cellRuns().push(run(raw.replace(/\t/g, '    ')));
+            continue;
+          }
           raw.split('\n').forEach((line, k) => {
             if (k) {
               end();
@@ -374,6 +531,12 @@
           continue;
         }
         const text = util.decodeEntities(whole === '<' ? '<' : whole).replace(/[ \t\r\n\f]+/g, ' ');
+        if (tbl) {
+          // Between cells, only stray whitespace: nothing.
+          const runs = cellRuns();
+          if (runs && (runs.length || /[^ \t\r\n\f]/.test(text))) runs.push(run(text));
+          continue;
+        }
         if (!cur) {
           // Only HTML's own whitespace is nothing; an &nbsp; is a space someone typed.
           if (!/[^ \t\r\n\f]/.test(text)) continue;
@@ -397,10 +560,83 @@
       const a = isClose ? {} : attrsOf(rawAttrs);
 
       if (name === 'br') {
+        if (tbl) {
+          const runs = cellRuns();
+          if (runs) runs.push(run('\n'));
+          continue;
+        }
         if (cur) end();
         else { context(); end(); }
         continue;
       }
+
+      // ── Tables ──
+      if (name === 'table') {
+        if (isClose) {
+          if (tbl && tbl.depth) { tbl.depth--; cellBreak(); continue; }
+          if (tbl) finishTable();
+          continue;
+        }
+        if (tbl) { tbl.depth++; cellBreak(); continue; }
+        end();
+        tbl = { b: table([], {}), row: null, cell: null, thead: false, depth: 0, headRow: true };
+        blocks.push(tbl.b);
+        continue;
+      }
+      if (tbl && name === 'caption') {
+        if (!selfClosing) skip = Math.max(0, skip + (isClose ? -1 : 1));
+        continue;
+      }
+      if (tbl && (name === 'thead' || name === 'tbody' || name === 'tfoot' || name === 'colgroup' || name === 'col')) {
+        if (name === 'thead' && !tbl.depth) tbl.thead = !isClose;
+        continue;
+      }
+      if (tbl && name === 'tr') {
+        if (tbl.depth) { cellBreak(); continue; }
+        closeCell();
+        tbl.row = null;
+        if (!isClose) {
+          tbl.row = { cells: [], th: true, thead: tbl.thead };
+          tbl.b.rows.push(tbl.row.cells);
+          rowsSeen.push(tbl.row);
+        }
+        continue;
+      }
+      if (tbl && (name === 'td' || name === 'th')) {
+        if (tbl.depth) {
+          if (!isClose && cellRuns() && cellRuns().length && !/[\n ]$/.test(cellRuns()[cellRuns().length - 1].text)) cellRuns().push(run(' '));
+          continue;
+        }
+        closeCell();
+        if (isClose || selfClosing) continue;
+        if (!tbl.row) {
+          tbl.row = { cells: [], th: true, thead: tbl.thead };
+          tbl.b.rows.push(tbl.row.cells);
+          rowsSeen.push(tbl.row);
+        }
+        if (name === 'td') tbl.row.th = false;
+        const st = String(a.style || '').toLowerCase();
+        const al = (/text-align\s*:\s*(center|right)/.exec(st) || [])[1] || (/^(center|right)$/i.test(a.align || '') ? a.align.toLowerCase() : '');
+        // Bold, italic or struck through cell styles (Google Sheets) count
+        // as marks - but a heading cell is bold anyway.
+        const got = styleMarks(st).filter(x => !(name === 'th' && x === 'b'));
+        apply(got, 1);
+        tbl.cell = { runs: [], align: al, marks: got, th: name === 'th' };
+        tbl.row.cells.push(tbl.cell);
+        // A cell spanning columns keeps the columns after it in place.
+        const span = Math.min(MAX_COLS, Math.max(1, parseInt(a.colspan, 10) || 1));
+        for (let k = 1; k < span; k++) tbl.row.cells.push(emptyCell());
+        continue;
+      }
+      if (tbl && !tbl.cell && !isClose && (HEADINGS[name] || PARA.has(name) || name === 'li' || name === 'ul' || name === 'ol')) continue;
+      if (tbl && (HEADINGS[name] || name === 'li' || name === 'ul' || name === 'ol' || name === 'pre' || PARA.has(name))) {
+        // Lines inside a cell: paragraphs, headings and list items each
+        // start a new one; a list item keeps a bullet.
+        cellBreak();
+        if (name === 'li' && !isClose && cellRuns()) cellRuns().push(run('• '));
+        continue;
+      }
+
       if (HEADINGS[name]) {
         end();
         if (!isClose) open(HEADINGS[name]);
@@ -432,33 +668,8 @@
         else if (top.implied) lists.pop();
         continue;
       }
-      // A table row is one line, its cells separated by " | ": there are
-      // no tables in a note, and this keeps a pasted row readable.
-      // A heading cell is bold, as a browser shows it.
-      const headCell = on => {
-        if (!row || row.th === on) return;
-        row.th = on;
-        marks.b += on ? 1 : -1;
-      };
-      if (name === 'tr') {
-        end();
-        headCell(false);
-        row = isClose ? null : { cells: 0, th: false };
-        continue;
-      }
-      if (name === 'td' || name === 'th') {
-        if (!row) { end(); continue; }
-        headCell(false);
-        if (!isClose && !selfClosing) {
-          if (row.cells > 0) {
-            if (!cur) context();
-            cur.runs.push({ text: ' | ', b: false, i: false, s: false, href: '' });
-          }
-          row.cells++;
-          headCell(name === 'th');
-        }
-        continue;
-      }
+      // Stray row or cell tags outside a table: a line each.
+      if (name === 'tr' || name === 'td' || name === 'th') { end(); continue; }
       if (name === 'pre') {
         end();
         if (isClose) {
@@ -474,6 +685,10 @@
       // A ticked or empty box at the start of a line - a task list on a
       // web page (GitHub) - makes it a checklist item.
       if (name === 'input' && String(a.type || '').toLowerCase() === 'checkbox') {
+        if (tbl) {
+          if (cellRuns()) cellRuns().push(run('checked' in a ? `${TICKED} ` : `${BOX} `));
+          continue;
+        }
         if (!cur) context();
         if (!cur.runs.some(r => /\S/.test(r.text))) {
           cur.type = 'check';
@@ -484,7 +699,7 @@
       }
       if (name === 'div' && a['data-gkb-note'] !== undefined) ours = true;
       // A block copied out of a note's editor keeps its kind.
-      if (name === 'div' && !isClose && TYPES.has(a['data-type'])) {
+      if (name === 'div' && !isClose && TYPES.has(a['data-type']) && a['data-type'] !== 'table') {
         end();
         open(a['data-type'], { level: Number(a['data-level']) || 0, checked: a['data-checked'] === '1' });
         cur.ours = true;
@@ -506,13 +721,12 @@
         para = null;
         if (!isClose) {
           const top = lists[lists.length - 1];
-          para = { gap: !ours && !row && !(top && top.liOpen) && paraGap(a) };
+          para = { gap: !ours && !tbl && !(top && top.liOpen) && paraGap(a) };
         }
       }
       if (PARA.has(name)) {
-        // Inside a table cell, or straight inside a list item that has no
-        // text yet (Google Docs wraps every item in a <p>), the line goes on.
-        if (row) continue;
+        // Straight inside a list item that has no text yet (Google Docs
+        // wraps every item in a <p>), the line goes on.
         if (cur && !cur.runs.length && !isClose) continue;
         end();
         continue;
@@ -552,20 +766,28 @@
       }
       // Anything else (img, u, sup, code, …): its text is kept, the tag is not.
     }
+    if (tbl) finishTable();
     for (const k of Object.keys(marks)) marks[k] = Math.max(0, marks[k]);
 
     // Tidy each block: collapse the whitespace HTML would collapse, then
-    // turn the &nbsp;s that held deliberate spaces back into spaces.
-    for (const b of blocks) {
-      const runs = b.runs;
-      if (runs.length) {
-        runs[0].text = runs[0].text.replace(/^ +/, '');
-        runs[runs.length - 1].text = runs[runs.length - 1].text.replace(/ +$/, '');
-        for (let i = 1; i < runs.length; i++) {
-          if (/ $/.test(runs[i - 1].text)) runs[i].text = runs[i].text.replace(/^ +/, '');
-        }
-        for (const r of runs) r.text = r.text.replace(/ /g, ' ');
+    // turn the &nbsp;s that held deliberate spaces back into spaces. In a
+    // cell, a line break counts as an end, and none is left at either end.
+    const tidyRuns = runs => {
+      if (!runs.length) return;
+      runs[0].text = runs[0].text.replace(/^[ \n]+/, '');
+      runs[runs.length - 1].text = runs[runs.length - 1].text.replace(/[ \n]+$/, '');
+      for (let i = 1; i < runs.length; i++) {
+        if (/[ \n]$/.test(runs[i - 1].text)) runs[i].text = runs[i].text.replace(/^ +/, '');
       }
+      for (const r of runs) r.text = r.text.replace(/ +\n/g, '\n').replace(/ /g, ' ');
+    };
+    for (const b of blocks) {
+      if (b.type === 'table') {
+        b.rows.forEach(r => r.forEach(c => tidyRuns(c.runs)));
+        continue;
+      }
+      const runs = b.runs;
+      tidyRuns(runs);
       if (b.wordList && /^\s*(\d+|[a-z]|[ivxlc]+)[.)]\s*$/i.test(b.marker || '')) b.type = 'ol';
       // A check box drawn as text (mail from elsewhere, or a list whose
       // markers were lost) still counts as a check box.
@@ -648,12 +870,10 @@
     if ((x = /^[-*+•]\s+(.*)$/.exec(s))) return { type: 'ul', text: x[1], indent };
     if ((x = /^\d{1,3}[.)]\s+(.*)$/.exec(s))) return { type: 'ol', text: x[1], indent };
     if ((x = /^>\s?(.*)$/.exec(s))) return { type: 'p', text: x[1].replace(/^(>\s?)+/, '') };
-    if (/^\|.*\|\s*$/.test(s)) return { type: 'p', cells: s.trim().slice(1, -1).split(/(?<!\\)\|/).map(c => c.trim()) };
     return { type: 'p', text: s };
   }
 
   const MD_RULE = /^\s*([-*_])(\s*\1){2,}\s*$/;
-  const MD_TABLE_RULE = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/;
 
   function fromMarkdown(text) {
     const lines = String(text || '').replace(/\r\n?/g, '\n').replace(/\t/g, '    ').split('\n');
@@ -661,13 +881,16 @@
     const indents = [];   // the indent of each open list level
     let fence = false;
     const last = () => out[out.length - 1];
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       if (/^\s*(```|~~~)/.test(line)) { fence = !fence; continue; }
       if (fence) { out.push(block('p', [{ text: line }])); continue; }
-      // The |---|---| line under a table's heading row makes that row bold.
-      if (MD_TABLE_RULE.test(line)) {
-        const head = last();
-        if (head && head.table) for (const r of head.runs) if (!r.sep) r.b = true;
+      // | a | b | lines, with or without the |---| line under a heading row.
+      const t = pipeTable(lines, i, mdInline);
+      if (t) {
+        indents.length = 0;
+        out.push(t.block);
+        i = t.end - 1;
         continue;
       }
       if (MD_RULE.test(line)) continue;
@@ -688,17 +911,6 @@
         continue;
       }
       indents.length = 0;
-      if (l.cells) {
-        const runs = [];
-        l.cells.forEach((c, k) => {
-          if (k) runs.push({ text: ' | ', sep: true });
-          runs.push(...mdInline(c.replace(/\\\|/g, '|')));
-        });
-        const b = block('p', runs);
-        b.table = true;
-        out.push(b);
-        continue;
-      }
       out.push(block(l.type, mdInline(l.text.trim())));
     }
     while (out.length > 1 && fmtBlank(last())) out.pop();
@@ -707,6 +919,7 @@
   }
 
   const fmtBlank = b => b.type === 'p' && !b.runs.some(r => r.text.trim());
+  const isTable = b => b.type === 'table';
 
   // Whether plain text is worth reading as Markdown: a heading, list,
   // quote, table or code line, or bold, struck, linked or code text.
@@ -725,6 +938,13 @@
     return doc.some(b => b.type !== 'p' || b.runs.some(r => r.b || r.i || r.s || r.href));
   }
 
+  // Whether a document is one table and nothing else (empty lines aside):
+  // what a paste of cells from a spreadsheet is.
+  function onlyTable(doc) {
+    const kept = doc.filter(b => !fmtBlank(b));
+    return kept.length === 1 && isTable(kept[0]) ? kept[0] : null;
+  }
+
   // What a paste becomes: the clipboard's HTML, read like mail; or, when
   // that brings no formatting and the text is Markdown (from a chat
   // assistant, say), the Markdown read as formatting. Empty lines at
@@ -735,6 +955,19 @@
     if (doc && isEmpty(doc)) doc = null;
     if ((!doc || !hasFormatting(doc)) && looksLikeMarkdown(text)) doc = fromMarkdown(text);
     if (!doc) return null;
+    // One cell copied on its own is its text, not a table of one.
+    const one = onlyTable(doc);
+    if (one && one.rows.length === 1 && one.rows[0].length === 1) {
+      const runs = one.rows[0][0].runs;
+      const lines = [[]];
+      for (const r of runs) {
+        r.text.split('\n').forEach((piece, k) => {
+          if (k) lines.push([]);
+          if (piece) lines[lines.length - 1].push({ ...r, text: piece });
+        });
+      }
+      doc = normaliseDoc(lines.map(l => block('p', l)));
+    }
     let i = 0;
     let j = doc.length;
     while (i < j && fmtBlank(doc[i])) i++;
@@ -837,6 +1070,18 @@
       } else if (same(T, B) || same(M, T)) {
         // Only this side changed it, or both the same way.
         for (let k = m0; k < m1; k++) { map[k] = out.length; out.push(mine[k]); }
+      } else if (B.length && M.length === B.length && T.length === B.length) {
+        // As many blocks on each side: block by block, each side's change
+        // where only it changed one, both where both changed the same one.
+        for (let k = 0; k < B.length; k++) {
+          const [b, mm, tt] = [B[k], M[k], T[k]];
+          if (mm === b) { map[m0 + k] = out.length; out.push(theirs[t0 + k]); } else if (tt === b || tt === mm) { map[m0 + k] = out.length; out.push(mine[m0 + k]); } else {
+            clean = false;
+            out.push(theirs[t0 + k]);
+            map[m0 + k] = out.length;
+            out.push(mine[m0 + k]);
+          }
+        }
       } else if (B.length && (same(T.slice(0, B.length), B) || same(T.slice(T.length - B.length), B))) {
         // They only added before or after it, and this side changed it.
         const after = same(T.slice(0, B.length), B);
@@ -876,7 +1121,7 @@
     TYPES, LISTS, MAX_LEVEL,
     block, emptyDoc, normaliseRuns, normaliseDoc, docText, isEmpty, safeHref,
     toHtml, toPlain, fromPlain, parseHtml, docFromParts, fromMarkdown, looksLikeMarkdown, hasFormatting, pasteDoc,
-    mergeDocs, sameDoc,
+    mergeDocs, sameDoc, table, onlyTable, tableText, MAX_COLS, MAX_ROWS,
   };
 
   ns.noteFormat = api;

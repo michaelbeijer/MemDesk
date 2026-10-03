@@ -207,6 +207,28 @@ test('card items with search terms: marks in every kind of line, and a count ove
   assert.equal(panel.cardItems(doc).hits, 0);
 });
 
+test('a table on a card: a row a line, the heading row bold, matches marked and counted', () => {
+  const search = require('../src/lib/search-logic.js');
+  const t = fmt.table([
+    [{ runs: [T('Language')] }, { runs: [T('Rate')] }],
+    [{ runs: [T('NL', { b: true })] }, { runs: [T('0,08 per\nword')] }],
+    [{ runs: [T('DE')] }, { runs: [T('0,10 per word')] }],
+  ], { head: true });
+  const doc = [B('check', [T('Quote')]), t, B('check', [T('Send')])];
+  const { items } = panel.cardItems(doc);
+  assert.deepEqual(items.map(i => [i.kind, i.index, i.html]), [
+    ['check', 0, 'Quote'],
+    ['text', undefined, '<b>Language | Rate</b><br><b>NL</b> | 0,08 per word<br>DE | 0,10 per word'],
+    ['check', 2, 'Send'],
+  ], 'the boxes keep their places in the note');
+  const found = panel.cardItems(doc, { terms: search.queryTerms('word'), only: true });
+  assert.equal(found.hits, 2);
+  assert.deepEqual(found.items.map(i => i.html), [
+    '<b>NL</b> | 0,08 per <font color="#e8710a"><b>word</b></font><br>DE | 0,10 per <font color="#e8710a"><b>word</b></font>',
+  ]);
+  assert.match(panel.searchResult('Rates', doc, search.queryTerms('DE')).excerpts[0], /DE<\/b><\/font> \| 0,10/);
+});
+
 test('a search result: marked title, up to two excerpts, a count', () => {
   const search = require('../src/lib/search-logic.js');
   const doc = fmt.fromPlain(`${'filler '.repeat(20)}the glossary is ready\n${'more '.repeat(30)}glossary two\n${'x '.repeat(40)}glossary three`);

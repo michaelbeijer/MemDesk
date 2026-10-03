@@ -469,6 +469,9 @@ try {
     (await bodyOf(p).getAttribute('contenteditable')) === 'true' && re.test(await bodyOf(p).innerText()), what);
   const blocks = p => p.locator('.ne-body .blk').evaluateAll(els =>
     els.map(e => [e.dataset.type, Number(e.dataset.level || 0), e.dataset.checked || '', e.textContent]));
+  // A table in the editor, as rows of cell texts.
+  const tableGrid = (p, n = 0) => p.locator('.ne-body .blk[data-type="table"]').nth(n).evaluate(el =>
+    [...el.querySelectorAll('tr')].map(tr => [...tr.cells].map(td => td.innerText.replace(/\n$/, ''))));
   const focused = (p, key) => p.evaluate(k => {
     const a = document.getElementById('gkb-board-host').shadowRoot.activeElement;
     return !!a && a.dataset.key === k;
@@ -896,7 +899,7 @@ try {
     assert.deepEqual(await blocks(np), [['ul', 0, '', 'item'], ['ul', 1, '', 'a'], ['ul', 2, '', 'b']]);
   });
 
-  await r.step('Markdown becomes formatting, a table its rows; Ctrl+Shift+V pastes the text as it is', async () => {
+  await r.step('Markdown becomes formatting, a table a table; Ctrl+Shift+V pastes the text as it is', async () => {
     const md = '## Positions\n\nUse **top, bottom, above, front** and *never* ~~left~~.\n\n' +
       '| Term | Meaning |\n|---|---|\n| **top** | above |\n| front | before |\n\n- [ ] check the PO\n- [x] proofread\n  1. twice';
     await typeLines(np, ['']);
@@ -904,10 +907,12 @@ try {
     await np.keyboard.press('Control+v');
     assert.deepEqual(await blocks(np), [
       ['h2', 0, '', 'Positions'], ['p', 0, '', 'Use top, bottom, above, front and never left.'], ['p', 0, '', ''],
-      ['p', 0, '', 'Term | Meaning'], ['p', 0, '', 'top | above'], ['p', 0, '', 'front | before'], ['p', 0, '', ''],
+      ['table', 0, '', 'TermMeaningtopabovefrontbefore'], ['p', 0, '', ''],
       ['check', 0, '0', 'check the PO'], ['check', 0, '1', 'proofread'], ['ol', 1, '', 'twice'],
     ]);
-    assert.deepEqual(await np.locator('.ne-body b').allInnerTexts(), ['top, bottom, above, front', 'Term', 'Meaning', 'top']);
+    assert.deepEqual(await tableGrid(np), [['Term', 'Meaning'], ['top', 'above'], ['front', 'before']]);
+    assert.equal(await np.locator('.ne-body .blk[data-type="table"]').getAttribute('data-head'), '1', 'the |---| line made a heading row');
+    assert.deepEqual(await np.locator('.ne-body b').allInnerTexts(), ['top, bottom, above, front', 'top']);
     assert.equal(await np.locator('.ne-body i').innerText(), 'never');
     assert.equal(await np.locator('.ne-body s').innerText(), 'left');
     await np.mouse.move(0, 0);
@@ -921,23 +926,152 @@ try {
     assert.equal(await np.locator('.ne-body b').count(), 0);
   });
 
-  await r.step('a spreadsheet pastes as rows; a single plain line goes in as typed', async () => {
+  await r.step('a spreadsheet pastes as a table, the cursor after it; one cell and a plain line go in as typed', async () => {
     await typeLines(np, ['']);
     await pasteData(np, {
       'text/html': '<html><head><style>.xl65{font-weight:700}</style></head><body><table><!--StartFragment--><tr><td class=xl65>Term</td><td class=xl65>Rate</td></tr>' +
         '<tr><td>Proofreading</td><td x:num>0.04</td></tr><!--EndFragment--></table></body></html>',
       'text/plain': 'Term\tRate\r\nProofreading\t0.04\r\n',
     });
-    assert.deepEqual((await blocks(np)).map(b => b[3]), ['Term | Rate', 'Proofreading | 0.04']);
+    assert.deepEqual((await blocks(np)).map(b => b[0]), ['table', 'p'], 'in place of the empty line, a line after it');
+    assert.deepEqual(await tableGrid(np), [['Term', 'Rate'], ['Proofreading', '0.04']]);
     await np.keyboard.press('Control+b');
     await pasteData(np, { 'text/plain': ' bold like the typing' });
     assert.equal(await np.locator('.ne-body b').textContent(), ' bold like the typing');
-    // One cell, copied: no line break after it, and its spaces as copied.
+    // One cell, copied: its text, no line break after it, and its spaces as copied.
     await pasteData(np, {
       'text/html': '<table><tr><td> cell </td></tr></table>',
       'text/plain': ' cell \r\n',
     });
-    assert.equal((await blocks(np)).at(-1)[3], 'Proofreading | 0.04 bold like the typing cell ');
+    assert.equal((await blocks(np)).at(-1)[3], ' bold like the typing cell ');
+    assert.equal(await np.locator('.ne-body .blk[data-type="table"]').count(), 1);
+  });
+
+  // ── Tables ──
+
+  const cellText = text => np.locator('.ne-body td', { hasText: new RegExp(`^${text}$`) });
+  const inCell = () => np.evaluate(() => {
+    const a = document.getElementById('gkb-board-host').shadowRoot.activeElement;
+    return a && a.tagName === 'TD' ? [a.parentNode.rowIndex, a.cellIndex] : null;
+  });
+  const keys = async list => {
+    for (const k of list) {
+      if (/^(Tab|Enter|Shift\+Tab)$/.test(k)) await np.keyboard.press(k);
+      else await np.keyboard.type(k);
+    }
+  };
+
+  await r.step('a table from the toolbar: Tab goes cell to cell and adds a row at the end, Enter a line in a cell; it saves as a table', async () => {
+    await np.locator('[data-key="note-new"]').click();
+    await np.locator('[data-key="note-title"]').fill('Rates table');
+    await np.locator('[data-key="note-title"]').press('Enter');
+    await np.keyboard.type('Rates for October:');
+    await np.keyboard.press('Enter');
+    assert.equal(await np.locator('.ne-tablebar').isHidden(), true, 'no table bar outside a table');
+    await np.locator('[data-key="fmt-table"]').click();
+    assert.deepEqual(await inCell(), [0, 0], 'the cursor in the first cell');
+    assert.deepEqual(await blocks(np).then(b => b.map(x => x[0])), ['p', 'table', 'p'], 'in place of the empty line, a line after it');
+    await until(() => np.locator('.ne-tablebar').isVisible(), 'the table bar');
+    assert.equal(await np.locator('[data-key="fmt-ul"]').isDisabled(), true, 'no lists in a cell');
+    await keys(['Language', 'Tab', 'Rate', 'Tab', 'Notes', 'Tab', 'NL', 'Tab', '0,08', 'Tab', 'per word', 'Enter', 'min. 50', 'Tab',
+      'DE', 'Tab', '0,10', 'Tab', 'Shift+Tab', 'Tab', 'Tab']);
+    assert.deepEqual(await inCell(), [3, 0], 'Tab in the last cell: a new row, its first cell');
+    await keys(['FR', 'Tab', '0,09']);
+    assert.deepEqual(await tableGrid(np), [['Language', 'Rate', 'Notes'], ['NL', '0,08', 'per word\nmin. 50'], ['DE', '0,10', ''], ['FR', '0,09', '']]);
+    await np.keyboard.press('Control+s');
+    await savedSoon();
+    const html = await gm('messageHtml', await gm('findMessageBySubject', 'Rates table'));
+    assert.match(html, /<p[^>]*>Rates for October:<\/p>\n<table data-gkb-table="1"[^>]*><thead><tr><th[^>]*>Language<\/th><th[^>]*>Rate<\/th><th[^>]*>Notes<\/th><\/tr><\/thead><tbody>/);
+    assert.match(html, /per word<br>min\. 50/);
+    const text = await gm('messageText', await gm('findMessageBySubject', 'Rates table'));
+    assert.match(text, /Rates for October:\nLanguage \| Rate \| Notes\nNL \| 0,08 \| per word min\. 50\nDE \| 0,10 \| \nFR \| 0,09 \| /, 'plain text: a row a line');
+  });
+
+  await r.step('the table bar: rows and columns in and out, alignment, sorting, the heading row; Ctrl+Z takes a change back', async () => {
+    await cellText('DE').click();
+    await np.locator('[data-key="table-row"]').click();
+    await np.locator('[data-key="row-above"]').click();
+    assert.deepEqual((await tableGrid(np)).map(r => r[0]), ['Language', 'NL', '', 'DE', 'FR']);
+    assert.deepEqual(await inCell(), [2, 0]);
+    await np.keyboard.press('Control+z');
+    assert.deepEqual((await tableGrid(np)).map(r => r[0]), ['Language', 'NL', 'DE', 'FR'], 'undone');
+    await cellText('Rate').click();
+    await np.locator('[data-key="table-column"]').click();
+    await np.locator('[data-key="col-right"]').click();
+    assert.deepEqual((await tableGrid(np))[0], ['Language', 'Rate', '', 'Notes']);
+    assert.deepEqual(await inCell(), [0, 2], 'in the new column');
+    await np.keyboard.type('Due');
+    await np.locator('[data-key="fmt-align-right"]').click();
+    assert.equal(await np.locator('[data-key="fmt-align-right"]').getAttribute('aria-pressed'), 'true');
+    await cellText('NL').click();
+    await np.locator('[data-key="table-sort"]').click();
+    await np.locator('[data-key="sort-asc"]').click();
+    assert.deepEqual((await tableGrid(np)).map(r => r[0]), ['Language', 'DE', 'FR', 'NL'], 'the heading row stays on top');
+    await np.locator('[data-key="table-sort"]').click();
+    await np.locator('[data-key="sort-desc"]').click();
+    assert.deepEqual((await tableGrid(np)).map(r => r[0]), ['Language', 'NL', 'FR', 'DE']);
+    await np.locator('[data-key="table-head"]').click();
+    assert.equal(await np.locator('.ne-body .blk[data-type="table"]').getAttribute('data-head'), '0');
+    await np.locator('[data-key="table-head"]').click();
+    await cellText('FR').click();
+    await np.locator('[data-key="table-row"]').click();
+    await np.locator('[data-key="row-delete"]').click();
+    assert.deepEqual((await tableGrid(np)).map(r => r[0]), ['Language', 'NL', 'DE']);
+    await np.keyboard.press('Control+s');
+    await savedSoon();
+    const html = await gm('messageHtml', await gm('findMessageBySubject', 'Rates table'));
+    assert.match(html, /<th[^>]*text-align:right">Due<\/th>/, 'the column aligned right');
+    assert.match(html, /<tr><td[^>]*>NL<\/td>[\s\S]*<tr><td[^>]*>DE<\/td>/);
+    assert.doesNotMatch(html, />FR</);
+  });
+
+  await r.step('the arrows lead in and out of a table, Backspace into it rather than through it, and nothing joins two cells', async () => {
+    await np.locator('.ne-body tr').last().locator('td').first().click();
+    await np.keyboard.press('ArrowDown');
+    await until(async () => (await inCell()) === null, 'out below the table');
+    await until(() => np.locator('.ne-tablebar').isHidden(), 'the table bar gone');
+    await np.keyboard.type('After the table');
+    await np.keyboard.press('Home');
+    await np.keyboard.press('ArrowUp');
+    assert.deepEqual(await inCell(), [2, 0], 'up into the last row');
+    await np.locator('.ne-body .blk', { hasText: 'After the table' }).click();
+    await np.keyboard.press('Home');
+    await np.keyboard.press('Backspace');
+    assert.ok(await inCell(), 'into the table');
+    assert.equal(await np.locator('.ne-body .blk[data-type="table"]').count(), 1, 'the table untouched');
+    await cellText('DE').click();
+    await np.keyboard.press('Home');
+    await np.keyboard.press('Backspace');
+    assert.deepEqual((await tableGrid(np)).map(r => r[0]), ['Language', 'NL', 'DE'], 'a cell is not joined to the one before');
+    await np.locator('.ne-body .blk', { hasText: 'Rates for October:' }).click();
+    await np.keyboard.press('End');
+    await np.keyboard.press('ArrowDown');
+    assert.deepEqual(await inCell(), [0, 0], 'down into the first cell');
+  });
+
+  await r.step('cells copied from a spreadsheet, pasted into a cell, fill the table from there, adding rows and columns', async () => {
+    await cellText('Notes').click();
+    await clipboardText(np, 'a\tb\nc\td\ne\tf');
+    await np.keyboard.press('Control+v');
+    const grid = await tableGrid(np);
+    assert.deepEqual(grid.map(r => r.slice(3)), [['a', 'b'], ['c', 'd'], ['e', 'f']]);
+    assert.equal(grid[0].length, 5, 'a column added');
+    // Text with no tabs in it goes into the cell as typed.
+    await cellText('b').click();
+    await np.keyboard.press('End');
+    await clipboardText(np, ' and more');
+    await np.keyboard.press('Control+v');
+    assert.equal((await tableGrid(np))[0][4], 'b and more');
+    await np.keyboard.press('Control+s');
+    await savedSoon();
+    // Opened again, from what Gmail has.
+    await np.locator('.note-item', { hasText: 'Launch checklist' }).click();
+    await np.locator('.note-item', { has: np.locator('.ni-title', { hasText: /^Rates table$/ }) }).click();
+    await np.locator('.ne-body td').first().waitFor();
+    assert.deepEqual((await tableGrid(np))[0], ['Language', 'Rate', 'Due', 'a', 'b and more']);
+    assert.equal(await np.locator('.ne-body .blk[data-type="table"]').getAttribute('data-head'), '1');
+    await np.mouse.move(0, 0);
+    await np.screenshot({ path: join(SCREENS, 'notes-table.png'), animations: 'disabled' });
   });
 
   // ── Folders ──

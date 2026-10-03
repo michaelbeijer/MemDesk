@@ -103,8 +103,14 @@
   function cardItems(docIn, { maxBlocks = 80, terms = null, only = false } = {}) {
     const doc = fmt.normaliseDoc(docIn);
     const searching = !!(terms && terms.length);
-    const matches = doc.map(b => (searching ? search.findMatches(b.runs.map(r => r.text).join(''), terms) : []));
-    const hits = matches.reduce((n, m) => n + m.length, 0);
+    const textOf = runs => runs.map(r => r.text).join('');
+    // A table row as one line of runs, " | " between its cells.
+    const rowRuns = r => r.flatMap((c, k) => (k ? [{ text: ' | ' }] : []).concat(c.runs.map(x => ({ ...x, text: x.text.replace(/\n/g, ' ') }))));
+    const find = runs => (searching ? search.findMatches(textOf(runs), terms) : []);
+    // A table's matches row by row; any other block's, for its one line.
+    const matches = doc.map(b => (b.type === 'table' ? b.rows.map(r => find(rowRuns(r))) : find(b.runs)));
+    const count = (m, b) => (b.type === 'table' ? m.reduce((n, r) => n + r.length, 0) : m.length);
+    const hits = matches.reduce((n, m, i) => n + count(m, doc[i]), 0);
     const filter = only && searching;
     const items = [];
     const counters = [0, 0, 0, 0];
@@ -129,12 +135,22 @@
         if (b.type === 'ol') number = ++counters[b.level];
         else counters[b.level] = 0;
       }
-      if (filter && !matches[i].length) continue;
+      if (filter && !count(matches[i], b)) continue;
       wanted++;
       if (shown >= maxBlocks) continue;
       shown++;
       if (filter && last >= 0 && i > last + 1) lines.push(grey('\u22ef'));
       last = i;
+      if (b.type === 'table') {
+        // A row a line, the heading row bold; when filtering, the rows
+        // with a match.
+        b.rows.forEach((r, k) => {
+          if (filter && !matches[i][k].length) return;
+          const inner = runsHtml(rowRuns(r), matches[i][k]);
+          lines.push(k === 0 && b.head && inner ? `<b>${inner}</b>` : inner);
+        });
+        continue;
+      }
       const inner = runsHtml(b.runs, matches[i]);
       const pad = INDENT.repeat(b.level);
       if (b.type === 'check') {

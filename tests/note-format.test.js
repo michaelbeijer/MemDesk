@@ -227,19 +227,92 @@ test('paste from Word: paragraphs are lines, mso-list paragraphs are lists, bull
   ]);
 });
 
-test('paste from Excel, or any table: a line per row, " | " between cells, heading cells bold', () => {
+// A table block as [head, align, rows of cell texts with marks shown].
+const grid = b => [b.head, b.align, b.rows.map(r => r.map(c => c.runs.map(x =>
+  `${x.b ? '*' : ''}${x.i ? '/' : ''}${x.text}${x.i ? '/' : ''}${x.b ? '*' : ''}${x.href ? `<${x.href}>` : ''}`).join('')))];
+const tableOf = doc => doc.find(b => b.type === 'table');
+
+test('paste from Excel: a table, as wide as its widest row', () => {
   const excel = '<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta name=ProgId content=Excel.Sheet>' +
     '<style>.xl65{font-weight:700;}</style></head><body link="#0563C1"><table border=0 cellpadding=0 cellspacing=0 width=128>' +
     '<!--StartFragment--><col width=64 span=2><tr height=20><td height=20 class=xl65 width=64>Term</td><td class=xl65 width=64>Rate</td></tr>\n' +
     '<tr height=20><td height=20>Proofreading</td><td align=right x:num>0.04</td></tr>\n<tr><td>Empty</td><td></td><td>third</td></tr>' +
     '<!--EndFragment--></table></body></html>';
   const doc = fmt.pasteDoc({ html: excel, text: 'Term\tRate\r\nProofreading\t0.04\r\n' });
-  assert.deepEqual(fmt.docText(doc).split('\n'), ['Term | Rate', 'Proofreading | 0.04', 'Empty | | third']);
-  assert.equal(fmt.hasFormatting(doc), false, 'nothing to format: it goes in as text');
-  assert.deepEqual(shape(fmt.parseHtml('<table><thead><tr><th>Name</th><th>Note</th></tr></thead><tbody><tr><td><b>Sam</b></td><td>ok</td></tr></tbody></table>')), [
-    ['p', 0, false, '*Name* | *Note*'],
-    ['p', 0, false, '*Sam* | ok'],
-  ]);
+  assert.equal(doc.length, 1, 'just the table');
+  assert.deepEqual(grid(fmt.normaliseDoc(doc)[0]), [false, ['', '', ''], [['Term', 'Rate', ''], ['Proofreading', '0.04', ''], ['Empty', '', 'third']]]);
+  assert.equal(fmt.hasFormatting(doc), true);
+  assert.equal(fmt.onlyTable(doc), doc[0]);
+  assert.deepEqual(fmt.docText(doc).split('\n'), ['Term | Rate | ', 'Proofreading | 0.04 | ', 'Empty |  | third']);
+});
+
+test('paste a table from a web page, Google Sheets or Word: heading rows, alignment, marks, lines in cells', () => {
+  // A heading row (<thead> or <th>), its cells plain; the rest keep their marks.
+  const web = fmt.parseHtml('<table><thead><tr><th>Name</th><th style="text-align:right">Rate</th></tr></thead>' +
+    '<tbody><tr><td><b>Sam</b></td><td style="text-align:right">0,08</td></tr><tr><td>Jo <a href="https://jo.example">site</a></td><td align="right">0,10</td></tr></tbody></table>');
+  assert.deepEqual(grid(tableOf(web)), [true, ['', 'right'], [['Name', 'Rate'], ['*Sam*', '0,08'], ['Jo site<https://jo.example/>', '0,10']]]);
+  // Google Sheets: bold and alignment as cell styles.
+  const sheets = '<google-sheets-html-origin><style type="text/css"><!--td {border: 1px solid #cccccc;}--></style>' +
+    '<table xmlns="http://www.w3.org/1999/xhtml" cellspacing="0" cellpadding="0" dir="ltr" border="1" data-sheets-root="1"><colgroup><col width="100"/><col width="100"/></colgroup><tbody>' +
+    '<tr style="height:21px;"><td style="overflow:hidden;padding:2px 3px 2px 3px;vertical-align:bottom;font-weight:bold;">Language</td><td style="overflow:hidden;font-weight:bold;text-align:center;">Words</td></tr>' +
+    '<tr style="height:21px;"><td style="overflow:hidden;">NL</td><td style="overflow:hidden;text-align:center;" data-sheets-value="{&quot;1&quot;:3,&quot;3&quot;:1200}">1200</td></tr></tbody></table>';
+  assert.deepEqual(grid(tableOf(fmt.pasteDoc({ html: sheets }))), [false, ['', 'center'], [['*Language*', '*Words*'], ['NL', '1200']]]);
+  // Word: paragraphs inside cells are lines; a row label in <th> is bold.
+  const word = '<table class=MsoTableGrid border=1 cellspacing=0 cellpadding=0><tr><td width=200 valign=top><p class=MsoNormal>Source<o:p></o:p></p></td>' +
+    '<td valign=top><p class=MsoNormal>Line one<o:p></o:p></p><p class=MsoNormal>Line <b>two</b><o:p></o:p></p></td></tr>' +
+    '<tr><th>Label</th><td>x<br>y</td></tr></table>';
+  assert.deepEqual(grid(tableOf(fmt.parseHtml(word))), [false, ['', ''], [['Source', 'Line one\nLine *two*'], ['*Label*', 'x\ny']]]);
+  // A cell spanning columns keeps the next ones in place; a table in a cell is its text.
+  const span = fmt.parseHtml('<table><tr><td colspan="2">wide</td><td>c</td></tr><tr><td>a</td><td>b</td><td><table><tr><td>in</td><td>ner</td></tr><tr><td>x</td></tr></table></td></tr></table>');
+  assert.deepEqual(grid(tableOf(span))[2], [['wide', '', 'c'], ['a', 'b', 'in ner\nx']]);
+  // Text around a table stays around it.
+  assert.deepEqual(fmt.parseHtml('<p>before</p><table><tr><td>1</td></tr></table><p>after</p>').map(b => b.type), ['p', 'table', 'p']);
+  // An empty table is no table.
+  assert.deepEqual(fmt.parseHtml('<p>x</p><table><tr></tr></table>').map(b => b.type), ['p']);
+});
+
+test('tables: HTML out and back, plain text out and back, Markdown in', () => {
+  const t = fmt.table([
+    [{ runs: [T('Term')] }, { runs: [T('Rate')] }],
+    [{ runs: [T('proof', { b: true }), T('reading')] }, { runs: [T('0,04')] }],
+    [{ runs: [T('two'), T('\nlines')] }, { runs: [T('a | b'), T(' link', { href: 'https://example.com/' })] }],
+  ], { head: true, align: ['', 'right'] });
+  const doc = [B('p', [T('Rates')]), t, B('p', [T('end')])];
+  const html = fmt.toHtml(doc);
+  assert.match(html, /<table data-gkb-table="1"[^>]*><thead><tr><th style="[^"]*">Term<\/th><th style="[^"]*text-align:right">Rate<\/th><\/tr><\/thead><tbody>/);
+  assert.match(html, /two<br>lines/);
+  assert.deepEqual(grid(tableOf(roundTrip(doc))), grid(fmt.normaliseDoc([t])[0]));
+  assert.deepEqual(roundTrip(doc).map(b => b.type), ['p', 'table', 'p']);
+
+  assert.equal(fmt.toPlain(doc), 'Rates\nTerm | Rate\nproofreading | 0,04\ntwo lines | a | b link (https://example.com/)\nend');
+  // Plain text written as a Markdown table reads as one; one | line alone is just a line.
+  const back = tableOf(fmt.fromPlain('| Term | Rate |\n| --- | ---: |\n| proofreading | 0,04 |\n| a \\| b | c |'));
+  assert.deepEqual(grid(back), [true, ['', 'right'], [['Term', 'Rate'], ['proofreading', '0,04'], ['a | b', 'c']]]);
+  assert.deepEqual(fmt.fromPlain('| not a table |').map(b => b.type), ['p']);
+
+  const md = 'Rates:\n\n| Language | Words | Due |\n|:---|:---:|---:|\n| **NL** | 1200 | Fri<br>noon |\n| DE | | Mon |\n\nDone.';
+  assert.equal(fmt.looksLikeMarkdown(md), true);
+  const mdDoc = fmt.pasteDoc({ text: md });
+  assert.deepEqual(mdDoc.map(b => b.type), ['p', 'p', 'table', 'p', 'p']);
+  assert.deepEqual(grid(tableOf(mdDoc)), [true, ['', 'center', 'right'], [['Language', 'Words', 'Due'], ['*NL*', '1200', 'Fri\nnoon'], ['DE', '', 'Mon']]]);
+});
+
+test('tables: normalised - ragged rows padded, limits kept, a line after one, never empty', () => {
+  const doc = fmt.normaliseDoc([{ type: 'table', rows: [[{ runs: [T('a')] }], [{ runs: [T('b')] }, { runs: [T('c')] }, 'junk']], head: 1, align: ['right', 'bogus'] }]);
+  assert.deepEqual(doc.map(b => b.type), ['table', 'p'], 'a line to type after it');
+  assert.deepEqual(grid(doc[0]), [true, ['right', '', ''], [['a', '', ''], ['b', 'c', '']]]);
+  const huge = fmt.normaliseDoc([fmt.table(Array.from({ length: fmt.MAX_ROWS + 5 }, () => Array.from({ length: 40 }, () => ({ runs: [T('x')] }))))]);
+  assert.equal(huge[0].rows.length, fmt.MAX_ROWS);
+  assert.equal(huge[0].rows[0].length, fmt.MAX_COLS);
+  assert.deepEqual(grid(fmt.normaliseDoc([{ type: 'table', rows: [] }])[0])[2], [['']]);
+  assert.equal(fmt.isEmpty(fmt.normaliseDoc([fmt.table()])), false, 'an empty table is still something');
+  assert.equal(fmt.isEmpty(fmt.emptyDoc()), true);
+});
+
+test('tables merge as whole blocks', () => {
+  const t = text => fmt.table([[{ runs: [T(text)] }]]);
+  const r = fmt.mergeDocs([P('a'), t('x')], [P('a, mine'), t('x')], [P('a'), t('x, theirs')]);
+  assert.deepEqual(r.doc.map(b => (b.type === 'table' ? `[${b.rows[0][0].runs[0].text}]` : b.runs.map(x => x.text).join(''))), ['a, mine', '[x, theirs]', '']);
 });
 
 test('paste from a web page: space under paragraphs, task-list boxes, preformatted lines', () => {
@@ -320,13 +393,11 @@ test('Markdown: headings, marks, links, lists, checklists, quotes, code', () => 
   ]);
 });
 
-test('Markdown: a table is a line per row, its heading row bold', () => {
+test('Markdown: a table is a table, its |---| line making the first row its heading row', () => {
   const md = '| Term | Meaning |\n|:-----|-------:|\n| **top** | above |\n| a \\| b | [c](example.com) |';
-  assert.deepEqual(shape(fmt.fromMarkdown(md)), [
-    ['p', 0, false, '*Term* | *Meaning*'],
-    ['p', 0, false, '*top* | above'],
-    ['p', 0, false, 'a | b | c<https://example.com/>'],
-  ]);
+  const doc = fmt.fromMarkdown(md);
+  assert.deepEqual(doc.map(b => b.type), ['table', 'p']);
+  assert.deepEqual(grid(doc[0]), [true, ['', 'right'], [['Term', 'Meaning'], ['*top*', 'above'], ['a | b', 'c<https://example.com/>']]]);
 });
 
 test('Markdown: links only to the web or mail', () => {
