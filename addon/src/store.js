@@ -1,10 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────
-// Notes, from the phone panel
+// Notes and the board, from Apps Script
 //
-// The extension's notes store, made synchronous for Apps Script: every
-// trigger and button press starts afresh, reads what it needs, and is
-// done. Same label, same folders, same messages, same rules - a note
-// saved here is exactly what the extension would have saved.
+// The extension's notes store, made synchronous for Apps Script, for the
+// phone app's server side (app-server.js): every call starts afresh,
+// reads what it needs, and is done. Same label, same folders, same
+// messages, same rules - a note saved here is exactly what the extension
+// would have saved. And the little the phone panel needs: the open
+// email's place on the board, and a move to another column.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -21,10 +23,10 @@
   const rootName = () => String(globalThis.MEMDESK_NOTES_LABEL || notesLogic.DEFAULT_LABEL).trim();
   const boardName = () => String(globalThis.MEMDESK_BOARD_LABEL || ns.logic.DEFAULT_ROOT).trim();
 
-  // What one card needs to know about the mailbox, read once per trigger
-  // or button press: the notes label (made if it is missing), its
-  // folders, the board's columns, and - only if a save needs it - the
-  // account's address. `labels`: Gmail's list of them, if already read.
+  // What a call from the phone app needs to know about the notes, read
+  // once per call: the notes label (made if it is missing), its folders,
+  // and - only if a save needs it - the account's address. `labels`:
+  // Gmail's list of them, if already read.
   function context(labels) {
     const name = rootName();
     let all = labels || gmail.call('GET', 'labels').labels || [];
@@ -37,7 +39,6 @@
     return {
       root,
       folders: notesLogic.folderTree(all, root.name),
-      board: panel.boardColumns(all, boardName()),
       account() {
         if (!email) email = gmail.call('GET', 'profile').emailAddress;
         return email;
@@ -60,27 +61,6 @@
   function metadata(refs) {
     return gmail.callAll(refs.map(m => ['GET', `messages/${m.id}`, { format: 'metadata', metadataHeaders: META }]))
       .filter(m => m && !m.error);
-  }
-
-  // Newest first, one entry per note: every note, one folder's, or what
-  // a Gmail search finds among them. A search reads the notes in full -
-  // each with `doc`, its content - so the results can show where the
-  // words are.
-  function list(ctx, { folderId = '', query = '', max = 20 } = {}) {
-    const r = gmail.call('GET', 'messages', { labelIds: folderId || ctx.root.id, q: query || undefined, maxResults: max + 10 });
-    const refs = r.messages || [];
-    const notes = query
-      ? gmail.callAll(refs.map(m => ['GET', `messages/${m.id}`, { format: 'full' }])).filter(m => m && !m.error).map(m => {
-        const n = describe(ctx, m);
-        n.doc = fmt.docFromParts(n.parts || {});
-        return n;
-      })
-      : metadata(refs).map(m => describe(ctx, m));
-    const { live } = notesLogic.dedupeNotes(notes);
-    // The scratchpad, when it is listed, at the top - as in the app.
-    const scratch = live.findIndex(n => n.noteId === notesLogic.SCRATCHPAD_ID);
-    if (scratch > 0 && !query) live.unshift(...live.splice(scratch, 1));
-    return { notes: live.slice(0, max), more: live.length > max || !!r.nextPageToken };
   }
 
   // Whether a message is a note, without reading its body.
@@ -137,23 +117,52 @@
     gmail.modifyLabels(messageId, notesLogic.moveFolderDiff(ctx.root.id, ctx.folders, folderId || ''));
   }
 
-  // ── The board ────────────────────────────────────────────────────────
+  // ── The board, for the phone panel ───────────────────────────────────
+  //
+  // The panel opens on every email, so it reads as little as it can: the
+  // labels, for the columns, and the open conversation, side by side in
+  // one round trip. Nothing of the notes: no notes label is looked for,
+  // and none is made.
+
+  const columnsOf = labels => panel.boardColumns(labels, boardName());
+  const threadRead = id => ['GET', `threads/${encodeURIComponent(id)}`, { format: 'minimal' }];
+  const messageRead = id => ['GET', `messages/${encodeURIComponent(id)}`, { format: 'minimal' }];
 
   // A conversation's labels: those of all its messages together, which is
   // how the board sees it.
-  function thread(ctx, threadId) {
-    const t = gmail.call('GET', `threads/${encodeURIComponent(threadId)}`, { format: 'minimal' });
+  function threadOf(t) {
     const labelIds = [];
     (t.messages || []).forEach(m => (m.labelIds || []).forEach(id => {
       if (labelIds.indexOf(id) < 0) labelIds.push(id);
     }));
-    return { id: t.id || threadId, labelIds };
+    return { id: t.id, labelIds };
   }
 
-  // Into a column ('' for off the board).
-  function moveThread(ctx, threadId, columnId) {
-    gmail.modifyThread(threadId, panel.boardDiff(ctx.board, columnId || ''));
+  // The board's columns, and the open email's conversation. Gmail says
+  // which conversation is open, but not in what form; should it not say,
+  // or say it in a form its API does not take, the message says which
+  // conversation it is in, at the cost of a second round trip.
+  function openEmail(messageId, threadId) {
+    const [labels, got] = gmail.callAll([['GET', 'labels'], threadId ? threadRead(threadId) : messageRead(messageId)]);
+    if (labels.error) throw labels.error;
+    const columns = columnsOf(labels.labels || []);
+    if (threadId && !got.error) return { columns, thread: threadOf(got) };
+    if (got.error && !(threadId && messageId)) throw got.error;
+    if (threadId) console.warn(`The open conversation ${threadId} could not be read, so its message was: ${got.error.message}`);
+    const msg = threadId ? gmail.call(...messageRead(messageId)) : got;
+    return { columns, thread: threadOf(gmail.call(...threadRead(msg.threadId))) };
   }
 
-  ns.addonStore = { context, list, peek, open, newerVersion, save, move, thread, moveThread };
+  // Into a column ('' for off the board), with the columns as they are
+  // now. A column that has gone since the card was drawn changes nothing,
+  // rather than taking the email off the board.
+  function moveThread(threadId, columnId) {
+    const columns = columnsOf(gmail.call('GET', 'labels').labels || []);
+    const target = columnId ? columns.find(c => c.id === columnId) : null;
+    if (columnId && !target) throw new Error('That column is not on the board any more.');
+    gmail.modifyThread(threadId, panel.boardDiff(columns, target ? target.id : ''));
+    return { columns, target };
+  }
+
+  ns.addonStore = { context, peek, open, newerVersion, save, move, openEmail, moveThread };
 })();

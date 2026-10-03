@@ -2,23 +2,15 @@
 // Entry points
 //
 // Apps Script calls these by name - from the manifest, and from the
-// cards' buttons - so they are plain top-level functions. Each one
-// hands over to the panel.
+// cards' buttons, and from the phone app's google.script.run - so they
+// are plain top-level functions. Each one hands over to the panel or
+// the app.
 // ─────────────────────────────────────────────────────────────────────
 
+// The phone panel: an email opened (or none), and a column's button.
 function onHomepage(e) { return gkb.panel.onHomepage(e); }
 function onGmailMessage(e) { return gkb.panel.onGmailMessage(e); }
-function onOpenNote(e) { return gkb.panel.onOpenNote(e); }
-function onAllNotes(e) { return gkb.panel.onAllNotes(e); }
-function onNewNote(e) { return gkb.panel.onNewNote(e); }
-function onSearchNotes(e) { return gkb.panel.onSearchNotes(e); }
-function onFilterNotes(e) { return gkb.panel.onFilterNotes(e); }
-function onSaveNote(e) { return gkb.panel.onSaveNote(e); }
-function onFindInNote(e) { return gkb.panel.onFindInNote(e); }
-function onCreateNote(e) { return gkb.panel.onCreateNote(e); }
 function onMoveThread(e) { return gkb.panel.onMoveThread(e); }
-function onUniversalAllNotes(e) { return gkb.panel.onUniversalAllNotes(e); }
-function onUniversalNewNote(e) { return gkb.panel.onUniversalNewNote(e); }
 
 // The phone app: the page, and what its notes view asks of Gmail.
 function doGet(e) { return gkb.app.page(e); }

@@ -29,7 +29,6 @@ export const FILES = [
   'src/lib/notes-logic.js',
   'src/lib/note-format.js',
   'src/lib/board-logic.js',
-  'src/lib/search-logic.js',
   'src/lib/calendar-logic.js',
   'addon/src/panel-logic.js',
   'addon/src/gmail.js',

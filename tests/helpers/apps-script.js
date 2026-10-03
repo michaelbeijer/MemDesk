@@ -12,8 +12,8 @@
 // - UrlFetchApp sends each request to the fake Gmail that the browser
 //   preview uses (dev/mock-chrome.js), which keeps the same rules as the
 //   real one closely enough to check what the panel does to a mailbox.
-// - A Phone drives the cards the way a person would: fill in, tick,
-//   choose, press - with the event objects Gmail sends.
+// - A Phone drives the cards the way a person would: open an email,
+//   press a button - with the event objects Gmail sends.
 // ─────────────────────────────────────────────────────────────────────
 
 const vm = require('node:vm');
@@ -53,15 +53,18 @@ const WHITELIST = JSON.parse(read('addon/appsscript.json')).urlFetchWhitelist;
 const TOKEN = 'token-for-tests';
 const FETCH_OPTIONS = new Set(['method', 'headers', 'contentType', 'payload', 'muteHttpExceptions']);
 
+// Each request is logged with the round trip it went in: one fetch, or
+// one fetchAll's worth side by side.
 function urlFetch(fake, log) {
   const response = (code, text) => ({ getResponseCode: () => code, getContentText: () => text });
-  function send(url, opts) {
+  let rounds = 0;
+  function send(url, opts, round) {
     for (const k of Object.keys(opts)) if (!FETCH_OPTIONS.has(k)) throw new Error(`UrlFetchApp: unexpected option ${k}`);
     if (!opts.muteHttpExceptions) throw new Error('UrlFetchApp: without muteHttpExceptions a Gmail error would throw');
     if (!WHITELIST.some(w => url.startsWith(w))) throw new Error(`UrlFetchApp: ${url} is not on the manifest's whitelist`);
     if (!opts.headers || opts.headers.Authorization !== `Bearer ${TOKEN}`) return response(401, '{"error":{"message":"no token"}}');
     const service = Object.keys(GOOGLE).find(k => url.startsWith(GOOGLE[k]));
-    if (service) return sendGoogle(service, url, opts);
+    if (service) return sendGoogle(service, url, opts, round);
     if (!url.startsWith(BASE)) throw new Error(`UrlFetchApp: ${url} is not Gmail, Calendar or Tasks`);
     const u = new URL(url);
     const apiPath = decodeURIComponent(u.pathname.slice(new URL(BASE).pathname.length));
@@ -72,7 +75,7 @@ function urlFetch(fake, log) {
     }
     const method = String(opts.method || 'get').toUpperCase();
     const body = opts.payload === undefined ? undefined : JSON.parse(opts.payload);
-    log.push({ method, path: apiPath, query, body });
+    log.push({ method, path: apiPath, query, body, round });
     try {
       return response(200, JSON.stringify(fake.route(method, apiPath, query, body)));
     } catch (err) {
@@ -81,7 +84,7 @@ function urlFetch(fake, log) {
       return response(status, JSON.stringify({ error: { code: status, message: err.message } }));
     }
   }
-  function sendGoogle(service, url, opts) {
+  function sendGoogle(service, url, opts, round) {
     const u = new URL(url);
     const apiPath = u.pathname.slice(new URL(GOOGLE[service]).pathname.length);
     const query = {};
@@ -90,7 +93,7 @@ function urlFetch(fake, log) {
       query[key] = all.length > 1 ? all : all[0];
     }
     const method = String(opts.method || 'get').toUpperCase();
-    log.push({ service, method, path: apiPath, query });
+    log.push({ service, method, path: apiPath, query, round });
     const scope = `https://www.googleapis.com/auth/${service === 'tasks' ? 'tasks' : 'calendar'}.readonly`;
     if (method !== 'GET' || (fake.denied && fake.denied.has(scope))) {
       return response(403, JSON.stringify({ error: { code: 403, message: 'Request had insufficient authentication scopes.' } }));
@@ -108,13 +111,14 @@ function urlFetch(fake, log) {
   return {
     fetch(url, opts = {}) {
       if ('url' in opts) throw new Error('UrlFetchApp.fetch: the url goes first, not in the options');
-      return send(url, opts);
+      return send(url, opts, ++rounds);
     },
     fetchAll(requests) {
+      const round = ++rounds;
       return requests.map(r => {
         const { url, ...opts } = r;
         if (!url) throw new Error('UrlFetchApp.fetchAll: every request needs its url');
-        return send(url, opts);
+        return send(url, opts, round);
       });
     },
   };
@@ -411,24 +415,25 @@ class Phone {
     return this.card;
   }
 
-  // Opening a message with the panel open: what Gmail's trigger does.
-  openMessage(messageId, platform = 'ANDROID') {
+  // Opening a message with the panel open: what Gmail's trigger does. It
+  // says which conversation is open as well, unless `threadId` says
+  // otherwise ('' for not at all).
+  openMessage(messageId, { threadId, platform = 'ANDROID' } = {}) {
     this.messageId = messageId;
+    let thread = threadId;
+    if (thread === undefined) {
+      const msg = this.fake.box.allMessages().find(m => m.id === messageId);
+      thread = msg ? msg.threadId : '';
+    }
     return this.show(this.addon.onGmailMessage({
       commonEventObject: { hostApp: 'GMAIL', platform },
-      gmail: { messageId, threadId: '', accessToken: 'message-token' },
+      gmail: { messageId, threadId: thread, accessToken: 'message-token' },
     }));
   }
 
   openHome() {
     this.messageId = '';
     return this.show(this.addon.onHomepage({ commonEventObject: { hostApp: 'GMAIL', platform: 'WEB' } }));
-  }
-
-  universal(fn) {
-    const r = plain(this.addon[fn]({ commonEventObject: { hostApp: 'GMAIL', platform: 'ANDROID' } }));
-    if (r.kind !== 'UniversalActionResponseBuilder') throw new Error(`${fn} did not return a universal action response`);
-    return this.show(r.cards);
   }
 
   // The form as Gmail would send it: every input on the card, with what
@@ -457,11 +462,6 @@ class Phone {
   fill(name, text) {
     if (this.field(name).kind !== 'TextInput') throw new Error(`${name} is not a text box`);
     this.edits[name] = text;
-  }
-
-  tick(name, on = true) {
-    if (this.field(name).kind !== 'Switch') throw new Error(`${name} is not a check box`);
-    this.edits[name] = on;
   }
 
   choose(name, text) {
@@ -524,38 +524,20 @@ class Phone {
     return out;
   }
 
-  checkboxes() {
-    return widgets(this.card).filter(w => w.kind === 'DecoratedText' && w.switchControl)
-      .map(w => ({ name: w.switchControl.fieldName, text: stripTags(w.text).trim(), ticked: !!w.switchControl.selected }));
+  // The buttons on the card, in order; a filled one as "[Doing]".
+  buttons() {
+    return widgets(this.card).flatMap(w => (w.kind === 'ButtonSet' ? w.buttons : w.kind === 'TextButton' ? [w] : []))
+      .map(b => (b.textButtonStyle === 'TextButtonStyle.FILLED' ? `[${b.text}]` : b.text));
   }
 
-  boxFor(text) {
-    const c = this.checkboxes().find(x => x.text === text);
-    if (!c) throw new Error(`No check box “${text}”: ${this.checkboxes().map(x => x.text).join(', ')}`);
-    return c.name;
+  // The Gmail requests made, as "GET labels", "POST threads/…/modify".
+  requests() {
+    return this.log.filter(l => !l.service).map(l => `${l.method} ${l.path}`);
   }
 
-  // A list item's first line is its title; search results have excerpts below.
-  listTitles() {
-    return this.listItems().map(i => i.title);
-  }
-
-  listItems() {
-    return widgets(this.card).filter(w => w.kind === 'DecoratedText' && w.onClickAction).map(w => {
-      const [title, ...rest] = w.text.split('<br>');
-      return { title: stripTags(title), excerpts: rest.map(stripTags), titleHtml: title, excerptHtml: rest, topLabel: w.topLabel || '', bottomLabel: w.bottomLabel || '' };
-    });
-  }
-
-  // The words marked as search matches on the card, in order.
-  marked() {
-    const out = [];
-    const re = /<font color="#e8710a"><b>(.*?)<\/b><\/font>/g;
-    for (const w of widgets(this.card)) {
-      let m;
-      while ((m = re.exec(w.text || ''))) out.push(stripTags(m[1]));
-    }
-    return out;
+  // How many times the script waited on Google.
+  roundTrips() {
+    return new Set(this.log.map(l => l.round)).size;
   }
 
   writes() {

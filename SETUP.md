@@ -10,7 +10,7 @@ phone and can be added any time.
 | Part | Where it runs | Time | Needs |
 |---|---|---|---|
 | [1. The extension](#part-1-the-extension) | Chrome on a computer: the board, the notes editor and the calendar inside Gmail | about 15 minutes | a free Google Cloud project of your own |
-| [2. The phone panel](#part-2-the-phone-panel) | the Gmail app on your phone, at the bottom of an open email | about 5 minutes | a free Apps Script project |
+| [2. The phone panel](#part-2-the-phone-panel) | the Gmail app on your phone, at the bottom of an open email: puts it on the board | about 5 minutes | a free Apps Script project |
 | [3. The phone app](#part-3-the-phone-app) | your phone's home screen: the board, the notes and the calendar, full-screen | about 3 minutes | part 2 |
 
 It works with a Google Workspace account and with an ordinary @gmail.com
@@ -110,8 +110,9 @@ The [README](README.md#usage) explains everything they do.
 
 A small Gmail add-on, for your account only, that appears at the bottom of an
 open email in the Gmail app (and beside it in Gmail on a computer). It shows
-the open email's place on the board, and your notes: tick checklist items, add
-lines, move a note to a folder, search, start a note. It needs no Cloud
+which column of the board the email is in, with a button for each column:
+one tap moves it there. (The notes and the calendar on your phone are in the
+phone app, part 3, which runs from this same project.) It needs no Cloud
 project: Apps Script brings its own.
 
 1. Go to [script.google.com](https://script.google.com), signed in with your
@@ -122,8 +123,7 @@ project: Apps Script brings its own.
 3. Back in the editor (**< >** on the left):
    - click `appsscript.json`, select everything, and paste the contents of
      [`addon/appsscript.json`](addon/appsscript.json) over it. Change
-     `"timeZone"` to the one you noted (it only affects times such as
-     "edited 3 h");
+     `"timeZone"` back to the one you noted, so the project keeps its own;
    - click `Code.gs`, select everything, and paste the contents of
      [`addon/Code.gs`](addon/Code.gs) over it. (It is long: the phone app's page
      is in it too.) If you renamed `_Notes` or `_Board` in Gmail, change
@@ -161,8 +161,8 @@ panel, so do part 2 first.
 4. In Chrome, tap **⋮ → Add to Home screen → Add**.
 
 The icon on your home screen now opens your notes. They are the same notes as
-in Chrome and in the phone panel: change one anywhere, and the others show the
-change the next time they load. The **Calendar** tab reads your calendars and
+in Chrome: change one in either, and the other shows the change the next time
+it loads. The **Calendar** tab reads your calendars and
 tasks with the project's own access, so it needs nothing more.
 
 If the page says "Sorry, unable to open the file at this time", Chrome on
@@ -190,6 +190,11 @@ with just this account.
   Tasks need your permission: click **Allow**, allow both on Google's page,
   and go back to the app. (Or, in the script editor, choose `allowCalendar`
   next to **Run**, and run it once.)
+- **Updating to 0.21.0 (the panel puts the email on the board, and nothing
+  more)**: paste the new `appsscript.json` as well as `Code.gs`. The old one
+  names the panel's **All notes** and **New note** menu items, which are gone,
+  so leaving it would leave them in the Gmail menu, failing when chosen. The
+  permissions are the same, so Google asks for nothing.
 
 ## When something goes wrong
 
