@@ -1,19 +1,15 @@
 // ─────────────────────────────────────────────────────────────────────
 // The phone panel's cards
 //
-// Gmail shows an add-on at the bottom of an open message on a phone,
-// and beside it on a computer. Opened on a note, the panel shows that
-// note: its text, a real check box for each checklist item, a box for
-// lines to add at the end, and its folder - with one Save for the lot.
-// Opened on any other email, it starts with that email's place on the
-// board - a column to choose, applied at once, as the button next to
-// Board does in Chrome - and then, as from Gmail's side panel with
-// nothing open, the newest notes, a search, and New note.
+// Gmail shows an add-on at the bottom of an open email in its phone app,
+// and beside it on a computer. The panel does one thing: it puts the
+// open email on the board. It says which column the email is in, with a
+// button for each column - one tap moves it there, as the button next to
+// Board does in Chrome - and one to take it off the board. The notes and
+// the calendar on a phone are the phone app's.
 //
-// Saving works as in the extension: a new version is inserted and the
-// old one goes to Trash. If the note changed elsewhere since the card
-// was drawn, nothing is saved and the latest version is shown instead,
-// with the lines that were being added still in their box.
+// It opens on every email, so it reads as little as it can (see
+// store.openEmail), and with no email open it reads nothing at all.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -22,43 +18,15 @@
   const ns = (globalThis.gkb = globalThis.gkb || {});
   const store = ns.addonStore;
   const panel = ns.panelLogic;
-  const fmt = ns.noteFormat;
 
   const NAME = ns.APP_NAME;
-  const LIST_SIZE = 20;
-  const MAX_BLOCKS = 80;
   const GREY = '#5f6368';
-  const LINE_KINDS = { check: 'Checklist items', ul: 'Bullets', p: 'Text' };
-
-  // ── Event objects ────────────────────────────────────────────────────
-
-  function formValues(e) {
-    const out = {};
-    const inputs = (e && e.commonEventObject && e.commonEventObject.formInputs) || {};
-    Object.keys(inputs).forEach(k => {
-      const v = inputs[k] && inputs[k].stringInputs && inputs[k].stringInputs.value;
-      out[k] = Array.isArray(v) ? v.map(String) : [];
-    });
-    // The older shape of the same thing.
-    const legacy = (e && e.formInputs) || {};
-    Object.keys(legacy).forEach(k => { if (!(k in out)) out[k] = [].concat(legacy[k]).map(String); });
-    return out;
-  }
-
-  function value(e, name) {
-    const v = formValues(e)[name];
-    return v && v.length ? v[0] : '';
-  }
 
   const params = e => (e && e.commonEventObject && e.commonEventObject.parameters) || (e && e.parameters) || {};
 
-  // A folder chosen in a dropdown: its label id, or '' for none.
-  const chosenFolder = (ctx, v) => (ctx.folders.some(f => f.id === v) ? v : '');
-
   // ── Building blocks ──────────────────────────────────────────────────
 
-  const html = s => CardService.newTextParagraph().setText(s);
-  const greyText = s => html(`<font color="${GREY}">${panel.esc(s)}</font>`);
+  const greyText = s => CardService.newTextParagraph().setText(`<font color="${GREY}">${panel.esc(s)}</font>`);
 
   // Parameters travel as strings; empty ones are left out rather than
   // sent as "".
@@ -76,216 +44,44 @@
     return b;
   }
 
-  function dropdown(name, title, options, onChange) {
-    const s = CardService.newSelectionInput()
-      .setType(CardService.SelectionInputType.DROPDOWN)
-      .setTitle(title)
-      .setFieldName(name);
-    options.forEach(o => s.addItem(o.text, o.value, o.selected));
-    if (onChange) s.setOnChangeAction(onChange);
-    return s;
-  }
-
-  function textInput(name, title, { hint = '', multiline = false, value: v = '' } = {}) {
-    const t = CardService.newTextInput().setFieldName(name).setTitle(title);
-    if (hint) t.setHint(hint);
-    if (multiline) t.setMultiline(true);
-    if (v) t.setValue(v);
-    return t;
-  }
-
-  function lineKinds(selected) {
-    return Object.keys(LINE_KINDS).map(v => ({ text: LINE_KINDS[v], value: v, selected: v === selected }));
-  }
-
-  function respond({ card, push = false, notify = '', changed = false }) {
+  function respond({ card, notify = '', changed = false }) {
     const r = CardService.newActionResponseBuilder();
-    if (card) r.setNavigation(push ? CardService.newNavigation().pushCard(card) : CardService.newNavigation().updateCard(card));
+    if (card) r.setNavigation(CardService.newNavigation().updateCard(card));
     if (notify) r.setNotification(CardService.newNotification().setText(notify));
     if (changed) r.setStateChanged(true);
     return r.build();
   }
 
-  // ── The list ─────────────────────────────────────────────────────────
-
-  // The open email's column. Choosing another moves it straight away.
-  function boardSection(ctx, thread) {
-    const cur = panel.currentColumn(ctx.board, thread.labelIds);
-    return CardService.newCardSection()
-      .setHeader('This email on the board')
-      .addWidget(dropdown('boardColumn', 'Column', panel.boardOptions(ctx.board, cur ? cur.id : ''),
-        action('onMoveThread', { threadId: thread.id })));
-  }
-
-  // `thread`: the open email's conversation, if there is one - its place on
-  // the board comes first.
-  function homeCard(ctx, { folderId = '', query = '', thread = null } = {}) {
-    const { notes, more } = store.list(ctx, { folderId, query, max: LIST_SIZE });
-    const where = (folderId && panel.folderName(folderId, ctx.folders)) || 'All notes';
-    const keep = { threadId: thread ? thread.id : '' };
-
-    const find = CardService.newCardSection()
-      .setHeader('Notes')
-      .addWidget(textInput('q', 'Search notes', { value: query }))
-      .addWidget(dropdown('folderFilter', 'Folder',
-        panel.folderOptions(ctx.folders, folderId, { first: 'All notes', firstValue: 'all' }), action('onFilterNotes', keep)))
-      .addWidget(CardService.newButtonSet().addButton(button('Search', 'onSearchNotes', keep)));
-
-    const list = CardService.newCardSection().setHeader(query ? `${where}: “${query}”` : where);
-    if (!notes.length) list.addWidget(greyText(query ? 'No notes match that search.' : 'No notes here yet.'));
-    const terms = query ? ns.searchLogic.queryTerms(query) : [];
-    notes.forEach(n => {
-      const item = CardService.newDecoratedText()
-        .setWrapText(true)
-        .setOnClickAction(action('onOpenNote', { messageId: n.messageId, q: query }));
-      let sub = panel.noteSubtitle(n, ctx.folders);
-      const snippet = String(n.snippet || '').replace(/\s+/g, ' ').trim();
-      if (terms.length && n.doc) {
-        // A search result: where the words are, as in Chrome.
-        const r = panel.searchResult(n.title, n.doc, terms);
-        item.setText(r.excerpts.length ? `${r.titleHtml}<br>${r.excerpts.join('<br>')}` : r.titleHtml);
-        if (r.count) sub = [sub, panel.matchCount(r.count)].filter(Boolean).join(' \u00b7 ');
-        else if (snippet) item.setBottomLabel(snippet.length > 90 ? `${snippet.slice(0, 89)}…` : snippet);
-      } else {
-        item.setText(panel.esc(n.title));
-        if (snippet) item.setBottomLabel(snippet.length > 90 ? `${snippet.slice(0, 89)}…` : snippet);
-      }
-      if (sub) item.setTopLabel(sub);
-      list.addWidget(item);
-    });
-    if (more) list.addWidget(greyText(`The newest ${LIST_SIZE} are shown. Search to find older notes.`));
-
-    const card = CardService.newCardBuilder()
-      .setName('home')
-      .setHeader(CardService.newCardHeader().setTitle(thread && ctx.board.length ? 'Board and notes' : 'Notes').setSubtitle(NAME));
-    if (thread && ctx.board.length) card.addSection(boardSection(ctx, thread));
-    return card
-      .addSection(find)
-      .addSection(list)
-      .setFixedFooter(CardService.newFixedFooter().setPrimaryButton(button('New note', 'onNewNote', { folderId }, true)))
-      .build();
-  }
-
-  // ── One note ─────────────────────────────────────────────────────────
-
-  // `query`: the words marked - from the search the note was opened
-  // from, or typed into Find; `only`: just the lines with them. `pending`
-  // ({ index: ticked }) and the other state are what the person had done
-  // on the card before it was redrawn, kept so a Find loses nothing.
-  function noteCard(ctx, opened, { addText = '', addAs = '', notice = '', query = '', only = false, pending = {}, folderId = null } = {}) {
-    const { note } = opened;
-    const doc = panel.withTicks(opened.doc, pending);
-    const terms = query ? ns.searchLogic.queryTerms(query) : [];
-    const { items, hidden, hits, filtered } = panel.cardItems(doc, { maxBlocks: MAX_BLOCKS, terms, only });
-    const checks = items.filter(it => it.kind === 'check').map(it => it.index);
-    // Unsaved ticks on lines this card does not show travel with Save.
-    const offCard = {};
-    Object.keys(pending).forEach(i => { if (checks.indexOf(Number(i)) < 0) offCard[i] = pending[i]; });
-    const state = { messageId: note.messageId, checks: checks.join(','), pending: panel.encodeTicks(offCard) };
-
-    const find = CardService.newCardSection()
-      .addWidget(textInput('find', 'Find in this note', { value: query }));
-    const findButtons = CardService.newButtonSet().addButton(button('Find', 'onFindInNote', Object.assign({ only: only ? '1' : '' }, state)));
-    if (terms.length) {
-      findButtons
-        .addButton(button(only ? 'Whole note' : 'Only lines with it', 'onFindInNote', Object.assign({ only: only ? '' : '1' }, state)))
-        .addButton(button('Clear', 'onFindInNote', Object.assign({ clear: '1' }, state)));
-    }
-    find.addWidget(findButtons);
-
-    const body = CardService.newCardSection();
-    if (notice) body.addWidget(html(`<font color="${GREY}"><i>${panel.esc(notice)}</i></font>`));
-    if (terms.length) {
-      // The title is the card's header, which cannot be marked, so it is
-      // only mentioned.
-      const inTitle = ns.searchLogic.findMatches(note.title, terms).length > 0;
-      const q = `\u201c${query}\u201d`;
-      let what = `${q} is not in the text itself`;
-      if (hits) what = `${panel.matchCount(hits)} for ${q}${inTitle ? ', and in the title' : ''}${filtered ? ' \u00b7 only the lines with them' : ''}`;
-      else if (inTitle) what = `${q} is in the title only`;
-      body.addWidget(greyText(what));
-    }
-    items.forEach(it => {
-      if (it.kind === 'text') {
-        body.addWidget(html(it.html));
-        return;
-      }
-      body.addWidget(CardService.newDecoratedText()
-        .setText(it.html)
-        .setWrapText(true)
-        .setSwitchControl(CardService.newSwitch()
-          .setFieldName(`c${it.index}`)
-          .setValue('1')
-          .setSelected(it.checked)
-          .setControlType(CardService.SwitchControlType.CHECK_BOX)));
-    });
-    if (!items.length && !terms.length) body.addWidget(greyText('This note is empty.'));
-    if (!items.length && terms.length && filtered) body.addWidget(greyText('No line has it.'));
-    if (hidden) body.addWidget(greyText(`…and ${hidden} more line${hidden === 1 ? '' : 's'}. Open the note in Gmail to see the rest.`));
-
-    const add = CardService.newCardSection()
-      .setHeader('Add to the end')
-      .addWidget(textInput('add', 'New lines', { hint: 'One item per line', multiline: true, value: addText }))
-      .addWidget(dropdown('addAs', 'Add as', lineKinds(addAs || (checks.length ? 'check' : 'p'))));
-
-    const where = CardService.newCardSection()
-      .setHeader('Folder')
-      .addWidget(dropdown('folder', 'Folder', panel.folderOptions(ctx.folders, folderId === null ? note.folderId : folderId)))
-      .addWidget(CardService.newButtonSet()
-        .addButton(button('All notes', 'onAllNotes'))
-        .addButton(button('New note', 'onNewNote', { folderId: note.folderId || '' })));
-
-    const subtitle = [panel.noteSubtitle(note, ctx.folders), note.own ? '' : 'an email kept as a note'].filter(Boolean).join(' \u00b7 ');
+  function card(name, title, subtitle, section) {
     return CardService.newCardBuilder()
-      .setName('note')
-      .setHeader(CardService.newCardHeader().setTitle(note.title).setSubtitle(subtitle || 'No folder'))
-      .addSection(find)
-      .addSection(body)
-      .addSection(add)
-      .addSection(where)
-      .setFixedFooter(CardService.newFixedFooter()
-        .setPrimaryButton(button('Save', 'onSaveNote', Object.assign({ q: query, only: only ? '1' : '' }, state), true)))
-      .build();
-  }
-
-  // Everything done on a note's card and not saved yet: ticks (those on
-  // the card, and those carried from an earlier card), lines to add, and
-  // the folder chosen.
-  function cardState(e, ctx) {
-    const p = params(e);
-    const pending = panel.decodeTicks(p.pending);
-    String(p.checks || '').split(',').filter(Boolean).forEach(i => { pending[Number(i)] = value(e, `c${i}`) !== ''; });
-    return { pending, addText: value(e, 'add'), addAs: value(e, 'addAs') || 'p', folderId: chosenFolder(ctx, value(e, 'folder')) };
-  }
-
-  // The note behind a message as it is now: the message itself while it
-  // is the current version, otherwise the version that replaced it.
-  function current(ctx, messageId) {
-    const opened = store.open(ctx, messageId);
-    const newer = store.newerVersion(ctx, opened.note);
-    if (newer) return { opened: store.open(ctx, newer.messageId), replaced: true, gone: false };
-    return { opened, replaced: false, gone: !(opened.note.inNotes && !opened.note.trashed) };
-  }
-
-  function noticeFor(c) {
-    if (c.replaced) return 'This is the latest version of this note.';
-    if (c.gone && c.opened.note.trashed) return 'This note is in Trash. Saving it brings it back.';
-    if (c.gone) return 'This email is no longer kept as a note. Saving it makes it one again.';
-    return '';
-  }
-
-  function newNoteCard(ctx, folderId) {
-    const section = CardService.newCardSection()
-      .addWidget(textInput('title', 'Title'))
-      .addWidget(textInput('body', 'Note', { hint: 'One item per line for a list', multiline: true }))
-      .addWidget(dropdown('bodyAs', 'Lines are', lineKinds('p')))
-      .addWidget(dropdown('folder', 'Folder', panel.folderOptions(ctx.folders, folderId || '')));
-    return CardService.newCardBuilder()
-      .setName('new')
-      .setHeader(CardService.newCardHeader().setTitle('New note').setSubtitle(NAME))
+      .setName(name)
+      .setHeader(CardService.newCardHeader().setTitle(title).setSubtitle(subtitle))
       .addSection(section)
-      .setFixedFooter(CardService.newFixedFooter().setPrimaryButton(button('Save note', 'onCreateNote', null, true)))
       .build();
+  }
+
+  // ── The cards ────────────────────────────────────────────────────────
+
+  // The open email's place on the board: a button for each column, the
+  // one it is in filled in, and one to take it off. `current`: its
+  // column, or null.
+  function boardCard(columns, threadId, current) {
+    const section = CardService.newCardSection();
+    if (!columns.length) {
+      section.addWidget(greyText(`The board has no columns yet. Open it once in Chrome or in the ${NAME} app, and the usual four are made.`));
+      return card('board', 'Not on the board', NAME, section);
+    }
+    const set = CardService.newButtonSet();
+    columns.forEach(c => set.addButton(button(c.title, 'onMoveThread', { threadId, columnId: c.id }, !!current && c.id === current.id)));
+    section.addWidget(set);
+    const archives = columns.filter(c => c.archiveOnDrop).map(c => c.title);
+    if (archives.length) section.addWidget(greyText(`${archives.join(' and ')} also archives it: out of the Inbox.`));
+    if (current) section.addWidget(CardService.newButtonSet().addButton(button('Take off the board', 'onMoveThread', { threadId })));
+    return card('board', current ? `On the board: ${current.title}` : 'Not on the board', NAME, section);
+  }
+
+  function homeCard() {
+    return card('home', NAME, 'The board', CardService.newCardSection().addWidget(greyText('Open an email to put it on the board.')));
   }
 
   // ── When things go wrong ─────────────────────────────────────────────
@@ -300,11 +96,7 @@
   }
 
   function errorCard(err) {
-    return CardService.newCardBuilder()
-      .setName('error')
-      .setHeader(CardService.newCardHeader().setTitle(NAME).setSubtitle('Something went wrong'))
-      .addSection(CardService.newCardSection().addWidget(greyText(explain(err))))
-      .build();
+    return card('error', NAME, 'Something went wrong', CardService.newCardSection().addWidget(greyText(explain(err))));
   }
 
   function log(err) {
@@ -317,143 +109,31 @@
   const act = fn => e => {
     try { return fn(e); } catch (err) { log(err); return respond({ notify: `Not done: ${explain(err)}` }); }
   };
-  const universal = fn => e => {
-    let card;
-    try { card = fn(e); } catch (err) { log(err); card = errorCard(err); }
-    return CardService.newUniversalActionResponseBuilder().displayAddOnCards([card]).build();
-  };
 
   // ── Triggers and buttons ─────────────────────────────────────────────
 
-  const onHomepage = cards(() => [homeCard(store.context())]);
+  // Gmail with no email open (its side panel on a computer).
+  const onHomepage = cards(() => [homeCard()]);
 
-  // A message was opened: its note if it is one, the list if not.
+  // An email was opened.
   const onGmailMessage = cards(e => {
-    const ctx = store.context();
     const g = (e && e.gmail) || (e && e.messageMetadata) || {};
-    const id = panel.apiMessageId(g.messageId);
-    let peeked = null;
-    if (id) {
-      try { peeked = store.peek(ctx, id); } catch (err) { log(err); }
-    }
-    if (peeked && (peeked.own || peeked.inNotes)) {
-      const c = current(ctx, id);
-      return [noteCard(ctx, c.opened, { notice: noticeFor(c) })];
-    }
-    let thread = null;
-    if (peeked && peeked.threadId && ctx.board.length) {
-      try { thread = store.thread(ctx, peeked.threadId); } catch (err) { log(err); }
-    }
-    return [homeCard(ctx, { thread })];
+    const messageId = panel.apiId(g.messageId);
+    const threadId = panel.apiId(g.threadId);
+    if (!messageId && !threadId) return [homeCard()];
+    const { columns, thread } = store.openEmail(messageId, threadId);
+    return [boardCard(columns, thread.id, panel.currentColumn(columns, thread.labelIds))];
   });
 
-  const onOpenNote = act(e => {
-    const ctx = store.context();
-    const p = params(e);
-    const c = current(ctx, p.messageId);
-    return respond({ card: noteCard(ctx, c.opened, { notice: noticeFor(c), query: p.q || '' }), push: true });
-  });
-
-  const onAllNotes = act(() => respond({ card: homeCard(store.context()), push: true }));
-
-  const onNewNote = act(e => {
-    const ctx = store.context();
-    return respond({ card: newNoteCard(ctx, chosenFolder(ctx, params(e).folderId)), push: true });
-  });
-
-  const onSearchNotes = act(e => {
-    const ctx = store.context();
-    const threadId = params(e).threadId;
-    return respond({
-      card: homeCard(ctx, {
-        folderId: chosenFolder(ctx, value(e, 'folderFilter')),
-        query: value(e, 'q').trim(),
-        thread: threadId && ctx.board.length ? store.thread(ctx, threadId) : null,
-      }),
-    });
-  });
-
-  // A column chosen for the open email. The dropdown already shows the
-  // choice, so only a confirmation comes back - which keeps it quick.
+  // A column's button, or Take off the board (no column).
   const onMoveThread = act(e => {
-    const ctx = store.context();
-    const threadId = params(e).threadId;
-    if (!threadId) return respond({ notify: 'Open an email first.' });
-    const target = ctx.board.find(c => c.id === value(e, 'boardColumn')) || null;
-    store.moveThread(ctx, threadId, target ? target.id : '');
+    const p = params(e);
+    if (!p.threadId) return respond({ notify: 'Open an email first.' });
+    const { columns, target } = store.moveThread(p.threadId, p.columnId || '');
     let said = 'Taken off the board.';
     if (target) said = target.archiveOnDrop ? `Moved to ${target.title} and archived.` : `Moved to ${target.title}.`;
-    return respond({ notify: said, changed: true });
+    return respond({ card: boardCard(columns, p.threadId, target), notify: said, changed: true });
   });
 
-  // Find in the open note: mark the words typed, show only the lines with
-  // them, or clear - redrawing the card with nothing that was done on it
-  // lost.
-  const onFindInNote = act(e => {
-    const ctx = store.context();
-    const p = params(e);
-    const st = cardState(e, ctx);
-    const c = current(ctx, p.messageId);
-    const query = p.clear ? '' : value(e, 'find').trim();
-    const keep = c.replaced ? {} : st.pending; // ticks belong to the version they were made on
-    return respond({
-      card: noteCard(ctx, c.opened, {
-        query, only: !!query && p.only === '1', pending: keep, addText: st.addText, addAs: st.addAs, folderId: st.folderId,
-        notice: c.replaced ? 'This note was changed somewhere else in the meantime. This is the latest version.' : noticeFor(c),
-      }),
-    });
-  });
-
-  const onSaveNote = act(e => {
-    const ctx = store.context();
-    const p = params(e);
-    const { pending, addText, addAs, folderId } = cardState(e, ctx);
-    const query = p.q || '';
-    const only = p.only === '1';
-
-    const c = current(ctx, p.messageId);
-    if (c.replaced) {
-      return respond({
-        card: noteCard(ctx, c.opened, {
-          addText, addAs, query, only,
-          notice: 'This note was changed somewhere else in the meantime. Here is the latest version: tick again, then save.',
-        }),
-        notify: 'Not saved: the note had changed.',
-      });
-    }
-
-    const { note, doc } = c.opened;
-    const next = panel.appendBlocks(panel.withTicks(doc, pending), panel.linesToBlocks(addText, addAs));
-    const contentChanged = !panel.docsEqual(next, doc);
-    const folderChanged = folderId !== note.folderId;
-    if (!contentChanged && !folderChanged && !c.gone) return respond({ notify: 'Nothing to save.' });
-
-    let id = note.messageId;
-    let said;
-    if (contentChanged || c.gone) {
-      id = store.save(ctx, note, { title: note.title, doc: next, folderId });
-      said = 'Saved.';
-    } else {
-      store.move(ctx, id, folderId);
-      said = folderId ? `Moved to ${panel.folderName(folderId, ctx.folders)}.` : 'Taken out of its folder.';
-    }
-    return respond({ card: noteCard(ctx, store.open(ctx, id), { query, only }), notify: said, changed: true });
-  });
-
-  const onCreateNote = act(e => {
-    const ctx = store.context();
-    const title = value(e, 'title').trim();
-    const blocks = panel.linesToBlocks(value(e, 'body'), value(e, 'bodyAs') || 'p');
-    if (!title && !blocks.length) return respond({ notify: 'Write a title or some text first.' });
-    const id = store.save(ctx, null, { title, doc: blocks.length ? blocks : fmt.emptyDoc(), folderId: chosenFolder(ctx, value(e, 'folder')) });
-    return respond({ card: noteCard(ctx, store.open(ctx, id)), notify: 'Note saved.', changed: true });
-  });
-
-  const onUniversalAllNotes = universal(() => homeCard(store.context()));
-  const onUniversalNewNote = universal(() => newNoteCard(store.context(), ''));
-
-  ns.panel = {
-    onHomepage, onGmailMessage, onOpenNote, onAllNotes, onNewNote, onSearchNotes,
-    onFilterNotes: onSearchNotes, onSaveNote, onFindInNote, onCreateNote, onMoveThread, onUniversalAllNotes, onUniversalNewNote,
-  };
+  ns.panel = { onHomepage, onGmailMessage, onMoveThread };
 })();

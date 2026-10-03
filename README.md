@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.20.0" src="https://img.shields.io/badge/version-0.20.0-6D28D9">
+  <img alt="Version 0.21.0" src="https://img.shields.io/badge/version-0.21.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -94,8 +94,8 @@ column to a screen, swiped sideways; the notes opening straight onto your
 Scratchpad, ready to type, with the same editor, folders and search as in
 Chrome; your week as two columns of days. It opens on the phone's own copy of
 the Scratchpad, so you can type before Gmail has even answered; if it was
-changed on your computer meanwhile, both changes are kept. And a panel in the Gmail app files
-the open email on the board, ticks your checklists and adds to a note.
+changed on your computer meanwhile, both changes are kept. And a panel in the Gmail app puts
+the open email on the board, one tap for its column.
 
 <img src="images/phone.jpg" width="100%" alt="Three phones: the board, the Scratchpad, and the week as two columns of days">
 
@@ -122,15 +122,15 @@ the train and see it on the board later, or look up a note. The leading
 underscore sorts both labels to the top of Gmail's label list. The board and the
 notes editor themselves only exist in desktop Chrome; on a phone, the **phone
 panel** (a small Gmail add-on you install for yourself, see below) puts the
-open email in a column, ticks checklist items, adds lines to a note, files it
-in a folder and starts new notes from inside the Gmail app, and the **phone
-app** puts the notes themselves, with the full editor, on your home screen.
+open email in a column from inside the Gmail app, and the **phone app** puts
+the board, the notes, with the full editor, and the calendar on your home
+screen.
 
 The **Calendar** tab reads Google Calendar and Google Tasks with a sign-in of
 its own (read-only), asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.20.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.21.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -375,64 +375,42 @@ silently.
 
 A Gmail add-on for your own account, built with Google Apps Script, that shows
 at the bottom of an open email in the Gmail app on your phone (and in the
-side panel of Gmail on a computer). It works on the same notes, in the same way,
-as the extension.
+side panel of Gmail on a computer). It does one thing: it puts the open email
+on the board, as the button next to **Board** does in Chrome. (Until 0.21.0
+it also showed and edited notes. On a phone, the notes, with the full
+editor, and the calendar are in the [phone app](#the-phone-app).)
 
-- **Open a note** in the Gmail app (they are under `_Notes`, at the top of the
-  label list), scroll to the bottom and tap the panel's icon. It shows the note
-  with a **check box for each checklist item**, a box for **lines to add at the
-  end** (as checklist items, bullets or text; text understands the same
-  Markdown a paste does), and the note's **folder**. **Save** saves the lot as
-  one new version; the old one goes to Trash, as in the extension. Changing only
-  the folder just moves the note.
-- **Open any other email** and the panel starts with **This email on the
-  board**: the column it is in, or "Not on the board". Choose another and it
-  moves at once, as with the button next to **Board** in Chrome: into that
-  column only (out of any other), and out of the Inbox when the column is
-  Done. "Not on the board" takes the column label off and leaves the email
+- **Open an email**, scroll to the bottom and tap the panel's icon. Its title
+  says where the email is: "On the board: Doing", or "Not on the board".
+- **A button for each column**, the one the email is in filled in. Tap one and
+  the email moves there at once: into that column only (out of any other),
+  and out of the Inbox when the column archives, which the panel says under
+  the buttons. Tapping the column it is already in does the same, which puts
+  an email that was in two columns into one, and archives a Done email again
+  once a reply has brought it back to the Inbox.
+- **Take off the board** takes the column label off and leaves the email
   where it is.
-- Below that, the panel lists your newest notes, with a search box (Gmail
-  search, as in the extension), a folder filter, and **New note**. Tap a note
-  to open it.
-- **Search results show where the words are**, as in Chrome: each note with
-  up to two short excerpts around its matches and a match count, the words in
-  bold orange (cards cannot colour a background). A note opened from the
-  results has every match marked and says how many there are, or that the
-  words are only in its title. Operators such as `from:` or `before:` narrow
-  the search but are not marked. There is no stepping from match to match: a
-  card cannot scroll itself.
-- **Find in this note**, at the top of every note: type a word and press
-  **Find** to mark it everywhere in the note, with a count. **Only lines with
-  it** then shows just the lines that have it (a ⋯ marks each stretch left
-  out), which is how you get to a match in a long note on a phone; **Whole
-  note** brings the rest back and **Clear** removes the marks. Ticks, lines
-  to add and a folder chosen before pressing Find are kept, and Save saves
-  them as usual. A note opened from search results starts with the search's
-  words in the box.
-- **New note** takes a title, some lines (as text, a checklist or bullets) and a
-  folder. From a folder's list or from a note, it starts in that folder.
-- **All notes** and **New note** are also on the panel's own menu (⋮).
-- If the note was changed elsewhere since the panel showed it, Save does not
-  overwrite it: you get the latest version, with your new lines still in their
-  box, and tick again.
-- What the panel cannot do: edit or format text that is already in a note (it
-  only adds at the end), rename or create folders, or delete notes. Those stay
-  in the extension. A note longer than 80 lines shows its first 80; ticks
-  further down are left as they were.
+- With no email open, the panel just says to open one.
+- **It reads as little as it can**: the list of your labels and the labels of
+  the open conversation, side by side in one round trip to Gmail. No
+  subjects, no message text, nothing of the notes.
 - The board's column settings live in Chrome, where the panel cannot see
   them, so it reads the columns from your labels: every label directly under
   `_Board` is a column, To do, Doing, Waiting and Done first in that order,
   any others after them alphabetically, and only Done archives. If you change
-  which column archives in the extension, the panel will not know.
+  which column archives in the extension, the panel will not know. With no
+  board labels at all yet, it says so rather than making them: open the board
+  once in Chrome or in the phone app.
 
 **Setting it up** takes about five minutes: a new Apps Script project with
 two files pasted in, then **Deploy → Test deployments → Install**. The steps
 are in [SETUP.md, part 2](SETUP.md#part-2-the-phone-panel). To update, paste
-the new `Code.gs` over the old one at
+the new `Code.gs` (and `appsscript.json`, when it changes) over the old one at
 [script.google.com/home](https://script.google.com/home) and save; the first
 line of `Code.gs` says which version it is.
 
-**What it is allowed to do**: read and change your mail's labels and insert
+**What it is allowed to do** (the panel and the phone app are one script,
+with one set of permissions): read and change your mail's labels and insert
 messages (`gmail.modify`, the same as the extension), run as a Gmail add-on and
 see which message is open (`gmail.addons.execute`,
 `gmail.addons.current.message.metadata`), read your calendars and tasks for
@@ -671,9 +649,10 @@ npm run test:app              # (c) the phone app at a phone's size
 ```
 
 - `CHROMIUM_PATH` chooses the browser. It must be full Chromium, because
-  `chrome-headless-shell` cannot load extensions. Otherwise
-  `/opt/pw-browsers/chromium-*` is used if present, and then Playwright's own
-  download.
+  `chrome-headless-shell` cannot load extensions. Otherwise the newest full
+  Chromium found in `/opt/pw-browsers`, in `PLAYWRIGHT_BROWSERS_PATH`, or in
+  Playwright's own folder on Windows is used, and failing those, whatever
+  Playwright picks.
 - `SCREENS_DIR` is where screenshots go. The default is a folder in the system
   temp directory.
 - (a) loads `dev/preview.html` under Trusted Types and drives it: drag between
@@ -756,10 +735,9 @@ addon/                     the phone panel and phone app (Apps Script)
   appsscript.json          its manifest
   Code.gs                  generated: shared note code + addon/src + the app's page
   src/shims.js             btoa, TextEncoder, URL and friends for Apps Script
-  src/panel-logic.js       pure: a note as card items, ticks, appended lines,
-                           board columns from labels
-  src/gmail.js, store.js   Gmail over UrlFetchApp, and the notes on it
-  src/cards.js             the cards and what their buttons do
+  src/panel-logic.js       pure: board columns from labels, moves, Gmail's ids
+  src/gmail.js, store.js   Gmail over UrlFetchApp, and the notes and board on it
+  src/cards.js             the panel's cards and what their buttons do
   src/app-server.js        the phone app's server side: notes, folders, board,
                            calendar reads, the page
   src/triggers.js          the top-level functions Apps Script calls

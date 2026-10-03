@@ -12,7 +12,7 @@ working on the code.
 |---|---|---|
 | Chrome extension | `manifest.json`, `src/` | the background worker `src/background/sw.js` (an allow-list of Gmail, Calendar and Tasks requests) |
 | Phone app (home-screen web app) | `addon/app/` (shell, remote) | `google.script.run` → `addon/src/app-server.js` in Apps Script |
-| Gmail panel (add-on cards) | `addon/src/cards.js`, `addon/src/panel-logic.js` | Apps Script, as the user |
+| Gmail panel (add-on cards): the open email's board column, nothing else since 0.21.0 | `addon/src/cards.js`, `addon/src/panel-logic.js` | Apps Script, as the user |
 
 The board, notes, editor and calendar views in `src/content/` run unchanged in
 the extension and the phone app; `addon/app/remote.js` stands in for the
@@ -50,6 +50,9 @@ when it changes) into their Apps Script project.
   README's *Renaming* section; elsewhere use `APP_NAME`.
 - Internal identifiers stay brand-free (`gkb` namespace, storage keys). The
   phone app's `supermail.` localStorage prefix stays (saved settings).
+- The Gmail panel opens on every email, so it reads only the labels and the
+  open conversation, in one round trip (`store.openEmail`); a test counts
+  the requests. Notes and the calendar on a phone belong to the phone app.
 - A save in the phone app is refused by the script if another device saved a
   newer version (`{ conflict }`); the view merges (`noteFormat.mergeDocs`) and
   saves again. Keep that path intact.
@@ -95,9 +98,6 @@ person using it.
 
 ## Open ideas
 
-- Remove the Gmail panel (add-on cards)? It overlaps the extension on a
-  computer and may not show in the Gmail app on Android; the phone app covers
-  the phone.
 - Markdown: "Copy as Markdown" for a note; `**bold**` typed shortcuts.
 - Calendar step 2: ticking tasks off, due dates on cards, adding events.
 - Chrome Web Store listing (`store/`, `PUBLISHING.md`).

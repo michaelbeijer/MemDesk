@@ -1,4 +1,4 @@
-// The phone panel and phone app 0.20.0: a Gmail add-on and a web app, in Apps Script.
+// The phone panel and phone app 0.21.0: a Gmail add-on and a web app, in Apps Script.
 //
 // Paste this whole file over Code.gs in the Apps Script editor, and
 // addon/appsscript.json over appsscript.json. The setup steps are in the
@@ -12,7 +12,6 @@
 //   src/lib/notes-logic.js
 //   src/lib/note-format.js
 //   src/lib/board-logic.js
-//   src/lib/search-logic.js
 //   src/lib/calendar-logic.js
 //   addon/src/panel-logic.js
 //   addon/src/gmail.js
@@ -29,7 +28,7 @@ var MEMDESK_BOARD_LABEL = '_Board';
 // The phone app's icon, in the browser tab and on the home screen.
 var MEMDESK_ICON_URL = 'https://raw.githubusercontent.com/michaelbeijer/MemDesk/main/icons/icon-192.png';
 
-var MEMDESK_VERSION = '0.20.0';
+var MEMDESK_VERSION = '0.21.0';
 
 // Apps Script has a global object but may not name it globalThis.
 var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
@@ -2425,160 +2424,6 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
   if (typeof module === 'object' && module.exports) module.exports = api;
 })();
 
-// ════ src/lib/search-logic.js ═════════════════════════════════════════
-
-// ─────────────────────────────────────────────────────────────────────
-// Search highlighting (pure)
-//
-// Gmail does the searching; this only shows where the words are. It takes
-// the words out of a Gmail query - leaving out operators such as from: or
-// before:, and anything excluded with a minus - and finds them in a
-// note's text the way a person would read a match: ignoring case and
-// accents ("cafe" finds "Café"), at the start of a word ("gloss" finds
-// "glossary", not "xgloss"), and phrases in quotes as phrases.
-//
-// From those matches come the excerpts shown in the results list, with
-// their offsets, so the list can mark them without parsing any HTML.
-// ─────────────────────────────────────────────────────────────────────
-
-(function () {
-  'use strict';
-
-  const ns = (globalThis.gkb = globalThis.gkb || {});
-
-  // Operators whose value is a word to look for in the note itself.
-  const TEXT_OPS = new Set(['subject', 'intitle']);
-  const KEYWORDS = new Set(['or', 'and', 'around']);
-
-  // ── The words in a query ─────────────────────────────────────────────
-
-  // Returns [{ words: ['stent', 'coating'] }, …]: one entry per term, a
-  // phrase being several words in a row.
-  function queryTerms(query) {
-    const out = [];
-    const seen = new Set();
-    const add = text => {
-      const words = String(text).split(/[\s"()[\]{}<>]+/).map(w => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')).filter(Boolean);
-      if (!words.length) return;
-      if (words.length === 1 && words[0].length < 2 && /^[\p{L}\p{N}]$/u.test(words[0]) && /[a-z0-9]/i.test(words[0])) return;
-      const key = words.join(' ').toLowerCase();
-      if (seen.has(key)) return;
-      seen.add(key);
-      out.push({ words });
-    };
-    const tokens = String(query || '').match(/-?[\p{L}\p{N}_]+:\([^)]*\)|-?[\p{L}\p{N}_]+:"[^"]*"|-?"[^"]*"|\S+/gu) || [];
-    for (const raw of tokens) {
-      if (raw.startsWith('-')) continue; // excluded: not in the note
-      const op = /^([\p{L}\p{N}_]+):(.*)$/u.exec(raw);
-      if (op) {
-        if (TEXT_OPS.has(op[1].toLowerCase())) {
-          const v = op[2].replace(/^[("]|[)"]$/g, '');
-          if (/^\(/.test(op[2])) v.split(/\s+/).forEach(add);
-          else add(v);
-        }
-        continue;
-      }
-      if (raw.startsWith('"')) { add(raw.replace(/"/g, '')); continue; }
-      const word = raw.replace(/^[+(){}]+|[(){}]+$/g, '');
-      if (KEYWORDS.has(word.toLowerCase())) continue;
-      add(word);
-    }
-    return out;
-  }
-
-  // ── Finding them ─────────────────────────────────────────────────────
-
-  // Lower case, accents off - one character at a time, with a map back to
-  // where each folded character came from, so a match in the folded text
-  // is a match at known offsets in the real one.
-  function fold(text) {
-    let folded = '';
-    const map = [];
-    const s = String(text || '');
-    for (let i = 0; i < s.length;) {
-      const cp = s.codePointAt(i);
-      const ch = String.fromCodePoint(cp);
-      const f = ch.normalize('NFD').replace(/\p{M}+/gu, '').toLowerCase();
-      for (let k = 0; k < f.length; k++) map.push(i);
-      folded += f;
-      i += ch.length;
-    }
-    map.push(s.length);
-    return { folded, map };
-  }
-
-  const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-  // Every place the terms occur, as [start, end) offsets into `text`,
-  // in order, with overlaps merged.
-  function findMatches(text, terms) {
-    if (!terms || !terms.length || !text) return [];
-    const { folded, map } = fold(text);
-    const found = [];
-    for (const t of terms) {
-      const pattern = t.words.map(w => escapeRe(fold(w).folded)).join('[\\s\\u00a0]+');
-      if (!pattern) continue;
-      const re = new RegExp(`(?<![\\p{L}\\p{N}])${pattern}`, 'gu');
-      let m;
-      while ((m = re.exec(folded))) {
-        found.push([map[m.index], map[m.index + m[0].length]]);
-        if (m[0].length === 0) re.lastIndex++;
-      }
-    }
-    found.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-    const merged = [];
-    for (const [s, e] of found) {
-      const last = merged[merged.length - 1];
-      if (last && s <= last.end) last.end = Math.max(last.end, e);
-      else merged.push({ start: s, end: e });
-    }
-    return merged;
-  }
-
-  // ── Excerpts ─────────────────────────────────────────────────────────
-
-  // Up to `max` stretches of text around the matches, each with the
-  // matches inside it at offsets relative to the stretch. Stretches start
-  // and end on a space where one is near, and say whether text was cut.
-  function excerpts(text, matches, { context = 50, max = 3 } = {}) {
-    const s = String(text || '');
-    const out = [];
-    let i = 0;
-    while (i < matches.length && out.length < max) {
-      let start = Math.max(0, matches[i].start - context);
-      let end = Math.min(s.length, matches[i].end + context);
-      // Matches close enough share an excerpt.
-      let j = i + 1;
-      while (j < matches.length && matches[j].start < end) {
-        end = Math.min(s.length, Math.max(end, matches[j].end + Math.floor(context / 2)));
-        j++;
-      }
-      if (start > 0) {
-        const sp = s.slice(start, matches[i].start).search(/\s/);
-        if (sp >= 0) start += sp + 1;
-      }
-      if (end < s.length) {
-        const tail = s.slice(matches[j - 1].end, end);
-        const sp = tail.search(/\s\S*$/);
-        if (sp > 0) end = matches[j - 1].end + sp;
-      }
-      out.push({
-        text: s.slice(start, end).replace(/\s/g, ' '),
-        marks: matches.slice(i, j).map(m => ({ start: Math.max(m.start, start) - start, end: Math.min(m.end, end) - start })),
-        cutBefore: start > 0,
-        cutAfter: end < s.length,
-      });
-      i = j;
-    }
-    return out;
-  }
-
-  const api = { queryTerms, fold, findMatches, excerpts };
-
-  ns.searchLogic = api;
-  if (typeof module === 'object' && module.exports) module.exports = api;
-})();
-
 // ════ src/lib/calendar-logic.js ═══════════════════════════════════════
 
 // ─────────────────────────────────────────────────────────────────────
@@ -2998,16 +2843,12 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
 // ─────────────────────────────────────────────────────────────────────
 // Phone panel logic (pure)
 //
-// What the Gmail add-on shows of a note, and what its controls do to
-// one, without any of Apps Script's services - so it is tested in Node
-// like the rest of the shared code.
-//
-// A card cannot hold an editor. It can show text with bold, italic,
-// strike-through and links, and it can show check boxes. So a note is
-// shown as runs of text, lists drawn with bullets and numbers, and each
-// checklist item as a real check box; and what the panel can change is
-// what a phone is good for: ticking boxes, adding lines at the end,
-// moving the note to another folder, and starting a new note.
+// What the Gmail add-on needs to put the open email on the board, without
+// any of Apps Script's services - so it is tested in Node like the rest
+// of the shared code: the columns, read from the labels; the column a
+// conversation is in; the labels a move changes; and Gmail's ids in the
+// form its API takes. The phone app's server side reads its first
+// columns with boardColumns too.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -3015,267 +2856,9 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
 
   const ns = (globalThis.gkb = globalThis.gkb || {});
   const node = typeof module === 'object' && module.exports;
-  const fmt = node ? require('../../src/lib/note-format.js') : ns.noteFormat;
-  const util = node ? require('../../src/lib/util.js') : ns.util;
   const board = node ? require('../../src/lib/board-logic.js') : ns.logic;
-  const search = node ? require('../../src/lib/search-logic.js') : ns.searchLogic;
-
-  const INDENT = '  '; // two em spaces a level, which cards do not collapse
-  const GREY = '#5f6368';
 
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-  // ── Showing a note ───────────────────────────────────────────────────
-
-  // A search match: cards cannot colour a background, so matches are
-  // bold and orange instead, which reads on light and dark alike.
-  const HIT_OPEN = '<font color="#e8710a"><b>';
-  const HIT_CLOSE = '</b></font>';
-
-  // Cuts runs where matches begin and end, so each piece is wholly inside
-  // a match or wholly outside one. `matches` are offsets into the text of
-  // all the runs together.
-  function splitRuns(runs, matches) {
-    if (!matches || !matches.length) return runs.map(r => Object.assign({}, r, { hit: false }));
-    const out = [];
-    let pos = 0;
-    for (const r of runs) {
-      const start = pos;
-      const end = pos + r.text.length;
-      const cuts = [start, end];
-      for (const m of matches) {
-        if (m.start > start && m.start < end) cuts.push(m.start);
-        if (m.end > start && m.end < end) cuts.push(m.end);
-      }
-      cuts.sort((x, y) => x - y);
-      for (let k = 0; k < cuts.length - 1; k++) {
-        const from = cuts[k];
-        const to = cuts[k + 1];
-        if (from === to) continue;
-        const hit = matches.some(m => m.start <= from && m.end >= to);
-        out.push(Object.assign({}, r, { text: r.text.slice(from - start, to - start), hit }));
-      }
-      pos = end;
-    }
-    return out;
-  }
-
-  // Runs as the HTML a card understands: <b>, <i>, <s> and <a>, with any
-  // search matches marked.
-  function runsHtml(runsIn, matches) {
-    const runs = splitRuns(runsIn, matches);
-    let out = '';
-    for (let i = 0; i < runs.length;) {
-      const href = runs[i].href || '';
-      let j = i;
-      let inner = '';
-      while (j < runs.length && (runs[j].href || '') === href) {
-        let t = esc(runs[j].text).replace(/ {2}/g, ' \u00a0');
-        if (runs[j].hit) t = HIT_OPEN + t + HIT_CLOSE;
-        if (runs[j].s) t = `<s>${t}</s>`;
-        if (runs[j].i) t = `<i>${t}</i>`;
-        if (runs[j].b) t = `<b>${t}</b>`;
-        inner += t;
-        j++;
-      }
-      out += href ? `<a href="${esc(href)}">${inner}</a>` : inner;
-      i = j;
-    }
-    return out;
-  }
-
-  // Plain text with its matches marked.
-  const highlight = (text, matches) => runsHtml([{ text: String(text || '') }], matches);
-
-  const grey = text => `<font color="${GREY}">${esc(text)}</font>`;
-
-  // The note as a column of card items: { kind: 'text', html } for a run
-  // of ordinary lines, { kind: 'check', index, html, checked } for each
-  // checklist item, `index` being its block's place in the note. Past
-  // `maxBlocks` nothing is shown, and `hidden` says how much that was.
-  // With search `terms`, their matches are marked, and `hits` counts them
-  // in the whole note; with `only` as well, just the lines that have a
-  // match are shown, a "⋯" standing for each stretch left out - a card
-  // cannot scroll to a match, so this is how a long note gets to one.
-  function cardItems(docIn, { maxBlocks = 80, terms = null, only = false } = {}) {
-    const doc = fmt.normaliseDoc(docIn);
-    const searching = !!(terms && terms.length);
-    const textOf = runs => runs.map(r => r.text).join('');
-    // A table row as one line of runs, " | " between its cells.
-    const rowRuns = r => r.flatMap((c, k) => (k ? [{ text: ' | ' }] : []).concat(c.runs.map(x => ({ ...x, text: x.text.replace(/\n/g, ' ') }))));
-    const find = runs => (searching ? search.findMatches(textOf(runs), terms) : []);
-    // A table's matches row by row; any other block's, for its one line.
-    const matches = doc.map(b => (b.type === 'table' ? b.rows.map(r => find(rowRuns(r))) : find(b.runs)));
-    const count = (m, b) => (b.type === 'table' ? m.reduce((n, r) => n + r.length, 0) : m.length);
-    const hits = matches.reduce((n, m, i) => n + count(m, doc[i]), 0);
-    const filter = only && searching;
-    const items = [];
-    const counters = [0, 0, 0, 0];
-    let lines = [];
-    const flush = () => {
-      // Empty lines at either end of a stretch of text add nothing.
-      while (lines.length && !lines[0]) lines.shift();
-      while (lines.length && !lines[lines.length - 1]) lines.pop();
-      if (lines.length) items.push({ kind: 'text', html: lines.join('<br>') });
-      lines = [];
-    };
-    let shown = 0;
-    let wanted = 0;
-    let last = -1;
-    for (let i = 0; i < doc.length; i++) {
-      const b = doc[i];
-      // Numbers are counted over the whole note, shown or not.
-      let number = 0;
-      if (!fmt.LISTS.has(b.type)) counters.fill(0);
-      else {
-        for (let l = b.level + 1; l < counters.length; l++) counters[l] = 0;
-        if (b.type === 'ol') number = ++counters[b.level];
-        else counters[b.level] = 0;
-      }
-      if (filter && !count(matches[i], b)) continue;
-      wanted++;
-      if (shown >= maxBlocks) continue;
-      shown++;
-      if (filter && last >= 0 && i > last + 1) lines.push(grey('\u22ef'));
-      last = i;
-      if (b.type === 'table') {
-        // A row a line, the heading row bold; when filtering, the rows
-        // with a match.
-        b.rows.forEach((r, k) => {
-          if (filter && !matches[i][k].length) return;
-          const inner = runsHtml(rowRuns(r), matches[i][k]);
-          lines.push(k === 0 && b.head && inner ? `<b>${inner}</b>` : inner);
-        });
-        continue;
-      }
-      const inner = runsHtml(b.runs, matches[i]);
-      const pad = INDENT.repeat(b.level);
-      if (b.type === 'check') {
-        flush();
-        items.push({ kind: 'check', index: i, html: pad + (inner || grey('(empty)')), checked: b.checked });
-      } else if (b.type === 'ol') {
-        lines.push(`${pad}${number}.\u2002${inner}`);
-      } else if (b.type === 'ul') {
-        lines.push(`${pad}\u2022\u2002${inner}`);
-      } else {
-        lines.push(/^h[123]$/.test(b.type) && inner ? `<b>${inner}</b>` : inner);
-      }
-    }
-    flush();
-    return { items, hidden: wanted - shown, hits, filtered: filter };
-  }
-
-  // ── Search results ───────────────────────────────────────────────────
-
-  // One note in a list of search results: its title and up to `max`
-  // stretches of its text around the matches, all with the matches
-  // marked, and how many matches there are. Gmail finds a note by words
-  // anywhere in it, so a note can come back with nothing to mark.
-  function searchResult(title, docIn, terms, { context = 40, max = 2 } = {}) {
-    const text = fmt.docText(fmt.normaliseDoc(docIn));
-    const inTitle = search.findMatches(title, terms);
-    const inText = search.findMatches(text, terms);
-    const excerpts = search.excerpts(text, inText, { context, max })
-      .map(e => `${e.cutBefore ? '\u2026' : ''}${highlight(e.text, e.marks)}${e.cutAfter ? '\u2026' : ''}`);
-    return { titleHtml: highlight(title, inTitle), excerpts, count: inTitle.length + inText.length };
-  }
-
-  const matchCount = n => `${n} match${n === 1 ? '' : 'es'}`;
-
-  // ── Changing a note ──────────────────────────────────────────────────
-
-  // Ticks from the card's boxes. Only the boxes that were on the card
-  // (`indices`) are read: an item past the end of a long note keeps its
-  // state, rather than reading as unticked because it had no box.
-  function applyTicks(docIn, indices, ticked) {
-    const doc = fmt.normaliseDoc(docIn).map(b => ({ ...b }));
-    for (const i of indices || []) {
-      if (doc[i] && doc[i].type === 'check') doc[i].checked = ticked.has(i);
-    }
-    return doc;
-  }
-
-  // Typed lines as blocks: each line a checklist item or a bullet, or -
-  // as text - read like a paste, so "- milk" or "**bold**" still mean
-  // what they would on a computer. Leading spaces indent list items.
-  function linesToBlocks(text, as = 'p') {
-    const lines = String(text || '').replace(/\r\n?/g, '\n').replace(/\t/g, '  ').split('\n');
-    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
-    while (lines.length && !lines[0].trim()) lines.shift();
-    if (!lines.length) return [];
-    if (as === 'check' || as === 'ul' || as === 'ol') {
-      return fmt.normaliseDoc(lines.filter(l => l.trim()).map(l => {
-        const m = /^( *)(?:[-*+•]\s+|\d{1,3}[.)]\s+)?(?:\[([ xX]?)\]\s*|([☐☑])\s*)?(.*)$/.exec(l);
-        const level = Math.floor(m[1].length / 2);
-        const checked = m[2] === 'x' || m[2] === 'X' || m[3] === '☑';
-        return fmt.block(as, [{ text: m[4].trim() }], { level, checked: as === 'check' && checked });
-      }));
-    }
-    const joined = lines.join('\n');
-    return fmt.looksLikeMarkdown(joined) ? fmt.fromMarkdown(joined) : fmt.normaliseDoc(lines.map(l => fmt.block('p', [{ text: l }])));
-  }
-
-  const blank = b => b.type === 'p' && !b.runs.some(r => r.text.trim());
-
-  // New blocks at the end, in place of any empty lines the note ends with.
-  function appendBlocks(docIn, blocks) {
-    const doc = fmt.normaliseDoc(docIn).slice();
-    if (!blocks.length) return doc;
-    while (doc.length && blank(doc[doc.length - 1])) doc.pop();
-    return fmt.normaliseDoc(doc.concat(blocks));
-  }
-
-  // Ticks not saved yet, carried from one card to the next as "3.1,5.0"
-  // (block index, ticked or not) when the card is redrawn - by Find, say -
-  // so redrawing never quietly drops one.
-  function encodeTicks(map) {
-    return Object.keys(map || {}).map(Number).sort((x, y) => x - y).map(i => `${i}.${map[i] ? 1 : 0}`).join(',');
-  }
-
-  function decodeTicks(s) {
-    const out = {};
-    String(s || '').split(',').forEach(part => {
-      const m = /^(\d+)\.([01])$/.exec(part);
-      if (m) out[Number(m[1])] = m[2] === '1';
-    });
-    return out;
-  }
-
-  // A doc with ticks applied from such a map.
-  function withTicks(doc, map) {
-    const indices = Object.keys(map || {}).map(Number);
-    return applyTicks(doc, indices, new Set(indices.filter(i => map[i])));
-  }
-
-  function docsEqual(a, b) {
-    return JSON.stringify(fmt.normaliseDoc(a)) === JSON.stringify(fmt.normaliseDoc(b));
-  }
-
-  // ── Folders and the list ─────────────────────────────────────────────
-
-  const folderPath = f => f.path.split('/').join(' › ');
-
-  function folderName(folderId, folders) {
-    const f = (folders || []).find(x => x.id === folderId);
-    return f ? folderPath(f) : '';
-  }
-
-  // Dropdown items: a first one standing for no folder (or every folder,
-  // in the list's filter), then the tree. Dropdown values must not be
-  // empty, so the first has a value of its own.
-  function folderOptions(folders, selected, { first = 'No folder', firstValue = 'none' } = {}) {
-    const known = (folders || []).some(f => f.id === selected);
-    return [{ text: first, value: firstValue, selected: !known }]
-      .concat((folders || []).map(f => ({ text: folderPath(f), value: f.id, selected: f.id === selected })));
-  }
-
-  // One line under a note's title in the list: where it is and when it
-  // last changed.
-  function noteSubtitle(note, folders, now = Date.now()) {
-    const where = folderName(note.folderId, folders);
-    const when = util.relativeDate(note.updated, now);
-    return [where, when ? `edited ${when}` : ''].filter(Boolean).join(' · ');
-  }
 
   // ── The board ────────────────────────────────────────────────────────
   //
@@ -3321,20 +2904,14 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
       : board.removeLabelDiff(columns, labelIdOf(columns));
   }
 
-  function boardOptions(columns, currentId) {
-    const known = columns.some(c => c.id === currentId);
-    return [{ text: 'Not on the board', value: 'none', selected: !known }]
-      .concat(columns.map(c => ({ text: c.title, value: c.id, selected: c.id === currentId })));
-  }
+  // ── Ids ──────────────────────────────────────────────────────────────
 
-  // ── Message ids ──────────────────────────────────────────────────────
-
-  // Gmail's API names a message by a hexadecimal id. Gmail's own pages
-  // name it in decimal ("msg-f:1849…"); should one arrive that way, it is
-  // the same number.
-  function apiMessageId(id) {
+  // Gmail's API names a message or a conversation by a hexadecimal id.
+  // Gmail's own pages name them in decimal ("msg-f:1849…",
+  // "thread-f:1849…"); should one arrive that way, it is the same number.
+  function apiId(id) {
     const s = String(id || '').trim();
-    const m = /^msg-[af]:(\d+)$/.exec(s) || /^(\d{18,})$/.exec(s);
+    const m = /^(?:msg|thread)-[af]:(\d+)$/.exec(s) || /^(\d{18,})$/.exec(s);
     if (!m) return s;
     let digits = m[1].replace(/^0+(?=\d)/, '').split('').map(Number);
     let hex = '';
@@ -3353,11 +2930,7 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
     return hex || '0';
   }
 
-  const api = {
-    esc, runsHtml, highlight, cardItems, searchResult, matchCount, applyTicks, encodeTicks, decodeTicks, withTicks, linesToBlocks, appendBlocks, docsEqual,
-    folderName, folderOptions, noteSubtitle, apiMessageId,
-    boardColumns, currentColumn, boardDiff, boardOptions,
-  };
+  const api = { esc, boardColumns, currentColumn, boardDiff, apiId };
 
   ns.panelLogic = api;
   if (node) module.exports = api;
@@ -3497,12 +3070,14 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
 // ════ addon/src/store.js ══════════════════════════════════════════════
 
 // ─────────────────────────────────────────────────────────────────────
-// Notes, from the phone panel
+// Notes and the board, from Apps Script
 //
-// The extension's notes store, made synchronous for Apps Script: every
-// trigger and button press starts afresh, reads what it needs, and is
-// done. Same label, same folders, same messages, same rules - a note
-// saved here is exactly what the extension would have saved.
+// The extension's notes store, made synchronous for Apps Script, for the
+// phone app's server side (app-server.js): every call starts afresh,
+// reads what it needs, and is done. Same label, same folders, same
+// messages, same rules - a note saved here is exactly what the extension
+// would have saved. And the little the phone panel needs: the open
+// email's place on the board, and a move to another column.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -3519,10 +3094,10 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
   const rootName = () => String(globalThis.MEMDESK_NOTES_LABEL || notesLogic.DEFAULT_LABEL).trim();
   const boardName = () => String(globalThis.MEMDESK_BOARD_LABEL || ns.logic.DEFAULT_ROOT).trim();
 
-  // What one card needs to know about the mailbox, read once per trigger
-  // or button press: the notes label (made if it is missing), its
-  // folders, the board's columns, and - only if a save needs it - the
-  // account's address. `labels`: Gmail's list of them, if already read.
+  // What a call from the phone app needs to know about the notes, read
+  // once per call: the notes label (made if it is missing), its folders,
+  // and - only if a save needs it - the account's address. `labels`:
+  // Gmail's list of them, if already read.
   function context(labels) {
     const name = rootName();
     let all = labels || gmail.call('GET', 'labels').labels || [];
@@ -3535,7 +3110,6 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
     return {
       root,
       folders: notesLogic.folderTree(all, root.name),
-      board: panel.boardColumns(all, boardName()),
       account() {
         if (!email) email = gmail.call('GET', 'profile').emailAddress;
         return email;
@@ -3558,27 +3132,6 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
   function metadata(refs) {
     return gmail.callAll(refs.map(m => ['GET', `messages/${m.id}`, { format: 'metadata', metadataHeaders: META }]))
       .filter(m => m && !m.error);
-  }
-
-  // Newest first, one entry per note: every note, one folder's, or what
-  // a Gmail search finds among them. A search reads the notes in full -
-  // each with `doc`, its content - so the results can show where the
-  // words are.
-  function list(ctx, { folderId = '', query = '', max = 20 } = {}) {
-    const r = gmail.call('GET', 'messages', { labelIds: folderId || ctx.root.id, q: query || undefined, maxResults: max + 10 });
-    const refs = r.messages || [];
-    const notes = query
-      ? gmail.callAll(refs.map(m => ['GET', `messages/${m.id}`, { format: 'full' }])).filter(m => m && !m.error).map(m => {
-        const n = describe(ctx, m);
-        n.doc = fmt.docFromParts(n.parts || {});
-        return n;
-      })
-      : metadata(refs).map(m => describe(ctx, m));
-    const { live } = notesLogic.dedupeNotes(notes);
-    // The scratchpad, when it is listed, at the top - as in the app.
-    const scratch = live.findIndex(n => n.noteId === notesLogic.SCRATCHPAD_ID);
-    if (scratch > 0 && !query) live.unshift(...live.splice(scratch, 1));
-    return { notes: live.slice(0, max), more: live.length > max || !!r.nextPageToken };
   }
 
   // Whether a message is a note, without reading its body.
@@ -3635,25 +3188,54 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
     gmail.modifyLabels(messageId, notesLogic.moveFolderDiff(ctx.root.id, ctx.folders, folderId || ''));
   }
 
-  // ── The board ────────────────────────────────────────────────────────
+  // ── The board, for the phone panel ───────────────────────────────────
+  //
+  // The panel opens on every email, so it reads as little as it can: the
+  // labels, for the columns, and the open conversation, side by side in
+  // one round trip. Nothing of the notes: no notes label is looked for,
+  // and none is made.
+
+  const columnsOf = labels => panel.boardColumns(labels, boardName());
+  const threadRead = id => ['GET', `threads/${encodeURIComponent(id)}`, { format: 'minimal' }];
+  const messageRead = id => ['GET', `messages/${encodeURIComponent(id)}`, { format: 'minimal' }];
 
   // A conversation's labels: those of all its messages together, which is
   // how the board sees it.
-  function thread(ctx, threadId) {
-    const t = gmail.call('GET', `threads/${encodeURIComponent(threadId)}`, { format: 'minimal' });
+  function threadOf(t) {
     const labelIds = [];
     (t.messages || []).forEach(m => (m.labelIds || []).forEach(id => {
       if (labelIds.indexOf(id) < 0) labelIds.push(id);
     }));
-    return { id: t.id || threadId, labelIds };
+    return { id: t.id, labelIds };
   }
 
-  // Into a column ('' for off the board).
-  function moveThread(ctx, threadId, columnId) {
-    gmail.modifyThread(threadId, panel.boardDiff(ctx.board, columnId || ''));
+  // The board's columns, and the open email's conversation. Gmail says
+  // which conversation is open, but not in what form; should it not say,
+  // or say it in a form its API does not take, the message says which
+  // conversation it is in, at the cost of a second round trip.
+  function openEmail(messageId, threadId) {
+    const [labels, got] = gmail.callAll([['GET', 'labels'], threadId ? threadRead(threadId) : messageRead(messageId)]);
+    if (labels.error) throw labels.error;
+    const columns = columnsOf(labels.labels || []);
+    if (threadId && !got.error) return { columns, thread: threadOf(got) };
+    if (got.error && !(threadId && messageId)) throw got.error;
+    if (threadId) console.warn(`The open conversation ${threadId} could not be read, so its message was: ${got.error.message}`);
+    const msg = threadId ? gmail.call(...messageRead(messageId)) : got;
+    return { columns, thread: threadOf(gmail.call(...threadRead(msg.threadId))) };
   }
 
-  ns.addonStore = { context, list, peek, open, newerVersion, save, move, thread, moveThread };
+  // Into a column ('' for off the board), with the columns as they are
+  // now. A column that has gone since the card was drawn changes nothing,
+  // rather than taking the email off the board.
+  function moveThread(threadId, columnId) {
+    const columns = columnsOf(gmail.call('GET', 'labels').labels || []);
+    const target = columnId ? columns.find(c => c.id === columnId) : null;
+    if (columnId && !target) throw new Error('That column is not on the board any more.');
+    gmail.modifyThread(threadId, panel.boardDiff(columns, target ? target.id : ''));
+    return { columns, target };
+  }
+
+  ns.addonStore = { context, peek, open, newerVersion, save, move, openEmail, moveThread };
 })();
 
 // ════ addon/src/cards.js ══════════════════════════════════════════════
@@ -3661,19 +3243,15 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
 // ─────────────────────────────────────────────────────────────────────
 // The phone panel's cards
 //
-// Gmail shows an add-on at the bottom of an open message on a phone,
-// and beside it on a computer. Opened on a note, the panel shows that
-// note: its text, a real check box for each checklist item, a box for
-// lines to add at the end, and its folder - with one Save for the lot.
-// Opened on any other email, it starts with that email's place on the
-// board - a column to choose, applied at once, as the button next to
-// Board does in Chrome - and then, as from Gmail's side panel with
-// nothing open, the newest notes, a search, and New note.
+// Gmail shows an add-on at the bottom of an open email in its phone app,
+// and beside it on a computer. The panel does one thing: it puts the
+// open email on the board. It says which column the email is in, with a
+// button for each column - one tap moves it there, as the button next to
+// Board does in Chrome - and one to take it off the board. The notes and
+// the calendar on a phone are the phone app's.
 //
-// Saving works as in the extension: a new version is inserted and the
-// old one goes to Trash. If the note changed elsewhere since the card
-// was drawn, nothing is saved and the latest version is shown instead,
-// with the lines that were being added still in their box.
+// It opens on every email, so it reads as little as it can (see
+// store.openEmail), and with no email open it reads nothing at all.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -3682,43 +3260,15 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
   const ns = (globalThis.gkb = globalThis.gkb || {});
   const store = ns.addonStore;
   const panel = ns.panelLogic;
-  const fmt = ns.noteFormat;
 
   const NAME = ns.APP_NAME;
-  const LIST_SIZE = 20;
-  const MAX_BLOCKS = 80;
   const GREY = '#5f6368';
-  const LINE_KINDS = { check: 'Checklist items', ul: 'Bullets', p: 'Text' };
-
-  // ── Event objects ────────────────────────────────────────────────────
-
-  function formValues(e) {
-    const out = {};
-    const inputs = (e && e.commonEventObject && e.commonEventObject.formInputs) || {};
-    Object.keys(inputs).forEach(k => {
-      const v = inputs[k] && inputs[k].stringInputs && inputs[k].stringInputs.value;
-      out[k] = Array.isArray(v) ? v.map(String) : [];
-    });
-    // The older shape of the same thing.
-    const legacy = (e && e.formInputs) || {};
-    Object.keys(legacy).forEach(k => { if (!(k in out)) out[k] = [].concat(legacy[k]).map(String); });
-    return out;
-  }
-
-  function value(e, name) {
-    const v = formValues(e)[name];
-    return v && v.length ? v[0] : '';
-  }
 
   const params = e => (e && e.commonEventObject && e.commonEventObject.parameters) || (e && e.parameters) || {};
 
-  // A folder chosen in a dropdown: its label id, or '' for none.
-  const chosenFolder = (ctx, v) => (ctx.folders.some(f => f.id === v) ? v : '');
-
   // ── Building blocks ──────────────────────────────────────────────────
 
-  const html = s => CardService.newTextParagraph().setText(s);
-  const greyText = s => html(`<font color="${GREY}">${panel.esc(s)}</font>`);
+  const greyText = s => CardService.newTextParagraph().setText(`<font color="${GREY}">${panel.esc(s)}</font>`);
 
   // Parameters travel as strings; empty ones are left out rather than
   // sent as "".
@@ -3736,216 +3286,44 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
     return b;
   }
 
-  function dropdown(name, title, options, onChange) {
-    const s = CardService.newSelectionInput()
-      .setType(CardService.SelectionInputType.DROPDOWN)
-      .setTitle(title)
-      .setFieldName(name);
-    options.forEach(o => s.addItem(o.text, o.value, o.selected));
-    if (onChange) s.setOnChangeAction(onChange);
-    return s;
-  }
-
-  function textInput(name, title, { hint = '', multiline = false, value: v = '' } = {}) {
-    const t = CardService.newTextInput().setFieldName(name).setTitle(title);
-    if (hint) t.setHint(hint);
-    if (multiline) t.setMultiline(true);
-    if (v) t.setValue(v);
-    return t;
-  }
-
-  function lineKinds(selected) {
-    return Object.keys(LINE_KINDS).map(v => ({ text: LINE_KINDS[v], value: v, selected: v === selected }));
-  }
-
-  function respond({ card, push = false, notify = '', changed = false }) {
+  function respond({ card, notify = '', changed = false }) {
     const r = CardService.newActionResponseBuilder();
-    if (card) r.setNavigation(push ? CardService.newNavigation().pushCard(card) : CardService.newNavigation().updateCard(card));
+    if (card) r.setNavigation(CardService.newNavigation().updateCard(card));
     if (notify) r.setNotification(CardService.newNotification().setText(notify));
     if (changed) r.setStateChanged(true);
     return r.build();
   }
 
-  // ── The list ─────────────────────────────────────────────────────────
-
-  // The open email's column. Choosing another moves it straight away.
-  function boardSection(ctx, thread) {
-    const cur = panel.currentColumn(ctx.board, thread.labelIds);
-    return CardService.newCardSection()
-      .setHeader('This email on the board')
-      .addWidget(dropdown('boardColumn', 'Column', panel.boardOptions(ctx.board, cur ? cur.id : ''),
-        action('onMoveThread', { threadId: thread.id })));
-  }
-
-  // `thread`: the open email's conversation, if there is one - its place on
-  // the board comes first.
-  function homeCard(ctx, { folderId = '', query = '', thread = null } = {}) {
-    const { notes, more } = store.list(ctx, { folderId, query, max: LIST_SIZE });
-    const where = (folderId && panel.folderName(folderId, ctx.folders)) || 'All notes';
-    const keep = { threadId: thread ? thread.id : '' };
-
-    const find = CardService.newCardSection()
-      .setHeader('Notes')
-      .addWidget(textInput('q', 'Search notes', { value: query }))
-      .addWidget(dropdown('folderFilter', 'Folder',
-        panel.folderOptions(ctx.folders, folderId, { first: 'All notes', firstValue: 'all' }), action('onFilterNotes', keep)))
-      .addWidget(CardService.newButtonSet().addButton(button('Search', 'onSearchNotes', keep)));
-
-    const list = CardService.newCardSection().setHeader(query ? `${where}: “${query}”` : where);
-    if (!notes.length) list.addWidget(greyText(query ? 'No notes match that search.' : 'No notes here yet.'));
-    const terms = query ? ns.searchLogic.queryTerms(query) : [];
-    notes.forEach(n => {
-      const item = CardService.newDecoratedText()
-        .setWrapText(true)
-        .setOnClickAction(action('onOpenNote', { messageId: n.messageId, q: query }));
-      let sub = panel.noteSubtitle(n, ctx.folders);
-      const snippet = String(n.snippet || '').replace(/\s+/g, ' ').trim();
-      if (terms.length && n.doc) {
-        // A search result: where the words are, as in Chrome.
-        const r = panel.searchResult(n.title, n.doc, terms);
-        item.setText(r.excerpts.length ? `${r.titleHtml}<br>${r.excerpts.join('<br>')}` : r.titleHtml);
-        if (r.count) sub = [sub, panel.matchCount(r.count)].filter(Boolean).join(' \u00b7 ');
-        else if (snippet) item.setBottomLabel(snippet.length > 90 ? `${snippet.slice(0, 89)}…` : snippet);
-      } else {
-        item.setText(panel.esc(n.title));
-        if (snippet) item.setBottomLabel(snippet.length > 90 ? `${snippet.slice(0, 89)}…` : snippet);
-      }
-      if (sub) item.setTopLabel(sub);
-      list.addWidget(item);
-    });
-    if (more) list.addWidget(greyText(`The newest ${LIST_SIZE} are shown. Search to find older notes.`));
-
-    const card = CardService.newCardBuilder()
-      .setName('home')
-      .setHeader(CardService.newCardHeader().setTitle(thread && ctx.board.length ? 'Board and notes' : 'Notes').setSubtitle(NAME));
-    if (thread && ctx.board.length) card.addSection(boardSection(ctx, thread));
-    return card
-      .addSection(find)
-      .addSection(list)
-      .setFixedFooter(CardService.newFixedFooter().setPrimaryButton(button('New note', 'onNewNote', { folderId }, true)))
-      .build();
-  }
-
-  // ── One note ─────────────────────────────────────────────────────────
-
-  // `query`: the words marked - from the search the note was opened
-  // from, or typed into Find; `only`: just the lines with them. `pending`
-  // ({ index: ticked }) and the other state are what the person had done
-  // on the card before it was redrawn, kept so a Find loses nothing.
-  function noteCard(ctx, opened, { addText = '', addAs = '', notice = '', query = '', only = false, pending = {}, folderId = null } = {}) {
-    const { note } = opened;
-    const doc = panel.withTicks(opened.doc, pending);
-    const terms = query ? ns.searchLogic.queryTerms(query) : [];
-    const { items, hidden, hits, filtered } = panel.cardItems(doc, { maxBlocks: MAX_BLOCKS, terms, only });
-    const checks = items.filter(it => it.kind === 'check').map(it => it.index);
-    // Unsaved ticks on lines this card does not show travel with Save.
-    const offCard = {};
-    Object.keys(pending).forEach(i => { if (checks.indexOf(Number(i)) < 0) offCard[i] = pending[i]; });
-    const state = { messageId: note.messageId, checks: checks.join(','), pending: panel.encodeTicks(offCard) };
-
-    const find = CardService.newCardSection()
-      .addWidget(textInput('find', 'Find in this note', { value: query }));
-    const findButtons = CardService.newButtonSet().addButton(button('Find', 'onFindInNote', Object.assign({ only: only ? '1' : '' }, state)));
-    if (terms.length) {
-      findButtons
-        .addButton(button(only ? 'Whole note' : 'Only lines with it', 'onFindInNote', Object.assign({ only: only ? '' : '1' }, state)))
-        .addButton(button('Clear', 'onFindInNote', Object.assign({ clear: '1' }, state)));
-    }
-    find.addWidget(findButtons);
-
-    const body = CardService.newCardSection();
-    if (notice) body.addWidget(html(`<font color="${GREY}"><i>${panel.esc(notice)}</i></font>`));
-    if (terms.length) {
-      // The title is the card's header, which cannot be marked, so it is
-      // only mentioned.
-      const inTitle = ns.searchLogic.findMatches(note.title, terms).length > 0;
-      const q = `\u201c${query}\u201d`;
-      let what = `${q} is not in the text itself`;
-      if (hits) what = `${panel.matchCount(hits)} for ${q}${inTitle ? ', and in the title' : ''}${filtered ? ' \u00b7 only the lines with them' : ''}`;
-      else if (inTitle) what = `${q} is in the title only`;
-      body.addWidget(greyText(what));
-    }
-    items.forEach(it => {
-      if (it.kind === 'text') {
-        body.addWidget(html(it.html));
-        return;
-      }
-      body.addWidget(CardService.newDecoratedText()
-        .setText(it.html)
-        .setWrapText(true)
-        .setSwitchControl(CardService.newSwitch()
-          .setFieldName(`c${it.index}`)
-          .setValue('1')
-          .setSelected(it.checked)
-          .setControlType(CardService.SwitchControlType.CHECK_BOX)));
-    });
-    if (!items.length && !terms.length) body.addWidget(greyText('This note is empty.'));
-    if (!items.length && terms.length && filtered) body.addWidget(greyText('No line has it.'));
-    if (hidden) body.addWidget(greyText(`…and ${hidden} more line${hidden === 1 ? '' : 's'}. Open the note in Gmail to see the rest.`));
-
-    const add = CardService.newCardSection()
-      .setHeader('Add to the end')
-      .addWidget(textInput('add', 'New lines', { hint: 'One item per line', multiline: true, value: addText }))
-      .addWidget(dropdown('addAs', 'Add as', lineKinds(addAs || (checks.length ? 'check' : 'p'))));
-
-    const where = CardService.newCardSection()
-      .setHeader('Folder')
-      .addWidget(dropdown('folder', 'Folder', panel.folderOptions(ctx.folders, folderId === null ? note.folderId : folderId)))
-      .addWidget(CardService.newButtonSet()
-        .addButton(button('All notes', 'onAllNotes'))
-        .addButton(button('New note', 'onNewNote', { folderId: note.folderId || '' })));
-
-    const subtitle = [panel.noteSubtitle(note, ctx.folders), note.own ? '' : 'an email kept as a note'].filter(Boolean).join(' \u00b7 ');
+  function card(name, title, subtitle, section) {
     return CardService.newCardBuilder()
-      .setName('note')
-      .setHeader(CardService.newCardHeader().setTitle(note.title).setSubtitle(subtitle || 'No folder'))
-      .addSection(find)
-      .addSection(body)
-      .addSection(add)
-      .addSection(where)
-      .setFixedFooter(CardService.newFixedFooter()
-        .setPrimaryButton(button('Save', 'onSaveNote', Object.assign({ q: query, only: only ? '1' : '' }, state), true)))
-      .build();
-  }
-
-  // Everything done on a note's card and not saved yet: ticks (those on
-  // the card, and those carried from an earlier card), lines to add, and
-  // the folder chosen.
-  function cardState(e, ctx) {
-    const p = params(e);
-    const pending = panel.decodeTicks(p.pending);
-    String(p.checks || '').split(',').filter(Boolean).forEach(i => { pending[Number(i)] = value(e, `c${i}`) !== ''; });
-    return { pending, addText: value(e, 'add'), addAs: value(e, 'addAs') || 'p', folderId: chosenFolder(ctx, value(e, 'folder')) };
-  }
-
-  // The note behind a message as it is now: the message itself while it
-  // is the current version, otherwise the version that replaced it.
-  function current(ctx, messageId) {
-    const opened = store.open(ctx, messageId);
-    const newer = store.newerVersion(ctx, opened.note);
-    if (newer) return { opened: store.open(ctx, newer.messageId), replaced: true, gone: false };
-    return { opened, replaced: false, gone: !(opened.note.inNotes && !opened.note.trashed) };
-  }
-
-  function noticeFor(c) {
-    if (c.replaced) return 'This is the latest version of this note.';
-    if (c.gone && c.opened.note.trashed) return 'This note is in Trash. Saving it brings it back.';
-    if (c.gone) return 'This email is no longer kept as a note. Saving it makes it one again.';
-    return '';
-  }
-
-  function newNoteCard(ctx, folderId) {
-    const section = CardService.newCardSection()
-      .addWidget(textInput('title', 'Title'))
-      .addWidget(textInput('body', 'Note', { hint: 'One item per line for a list', multiline: true }))
-      .addWidget(dropdown('bodyAs', 'Lines are', lineKinds('p')))
-      .addWidget(dropdown('folder', 'Folder', panel.folderOptions(ctx.folders, folderId || '')));
-    return CardService.newCardBuilder()
-      .setName('new')
-      .setHeader(CardService.newCardHeader().setTitle('New note').setSubtitle(NAME))
+      .setName(name)
+      .setHeader(CardService.newCardHeader().setTitle(title).setSubtitle(subtitle))
       .addSection(section)
-      .setFixedFooter(CardService.newFixedFooter().setPrimaryButton(button('Save note', 'onCreateNote', null, true)))
       .build();
+  }
+
+  // ── The cards ────────────────────────────────────────────────────────
+
+  // The open email's place on the board: a button for each column, the
+  // one it is in filled in, and one to take it off. `current`: its
+  // column, or null.
+  function boardCard(columns, threadId, current) {
+    const section = CardService.newCardSection();
+    if (!columns.length) {
+      section.addWidget(greyText(`The board has no columns yet. Open it once in Chrome or in the ${NAME} app, and the usual four are made.`));
+      return card('board', 'Not on the board', NAME, section);
+    }
+    const set = CardService.newButtonSet();
+    columns.forEach(c => set.addButton(button(c.title, 'onMoveThread', { threadId, columnId: c.id }, !!current && c.id === current.id)));
+    section.addWidget(set);
+    const archives = columns.filter(c => c.archiveOnDrop).map(c => c.title);
+    if (archives.length) section.addWidget(greyText(`${archives.join(' and ')} also archives it: out of the Inbox.`));
+    if (current) section.addWidget(CardService.newButtonSet().addButton(button('Take off the board', 'onMoveThread', { threadId })));
+    return card('board', current ? `On the board: ${current.title}` : 'Not on the board', NAME, section);
+  }
+
+  function homeCard() {
+    return card('home', NAME, 'The board', CardService.newCardSection().addWidget(greyText('Open an email to put it on the board.')));
   }
 
   // ── When things go wrong ─────────────────────────────────────────────
@@ -3960,11 +3338,7 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
   }
 
   function errorCard(err) {
-    return CardService.newCardBuilder()
-      .setName('error')
-      .setHeader(CardService.newCardHeader().setTitle(NAME).setSubtitle('Something went wrong'))
-      .addSection(CardService.newCardSection().addWidget(greyText(explain(err))))
-      .build();
+    return card('error', NAME, 'Something went wrong', CardService.newCardSection().addWidget(greyText(explain(err))));
   }
 
   function log(err) {
@@ -3977,145 +3351,33 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
   const act = fn => e => {
     try { return fn(e); } catch (err) { log(err); return respond({ notify: `Not done: ${explain(err)}` }); }
   };
-  const universal = fn => e => {
-    let card;
-    try { card = fn(e); } catch (err) { log(err); card = errorCard(err); }
-    return CardService.newUniversalActionResponseBuilder().displayAddOnCards([card]).build();
-  };
 
   // ── Triggers and buttons ─────────────────────────────────────────────
 
-  const onHomepage = cards(() => [homeCard(store.context())]);
+  // Gmail with no email open (its side panel on a computer).
+  const onHomepage = cards(() => [homeCard()]);
 
-  // A message was opened: its note if it is one, the list if not.
+  // An email was opened.
   const onGmailMessage = cards(e => {
-    const ctx = store.context();
     const g = (e && e.gmail) || (e && e.messageMetadata) || {};
-    const id = panel.apiMessageId(g.messageId);
-    let peeked = null;
-    if (id) {
-      try { peeked = store.peek(ctx, id); } catch (err) { log(err); }
-    }
-    if (peeked && (peeked.own || peeked.inNotes)) {
-      const c = current(ctx, id);
-      return [noteCard(ctx, c.opened, { notice: noticeFor(c) })];
-    }
-    let thread = null;
-    if (peeked && peeked.threadId && ctx.board.length) {
-      try { thread = store.thread(ctx, peeked.threadId); } catch (err) { log(err); }
-    }
-    return [homeCard(ctx, { thread })];
+    const messageId = panel.apiId(g.messageId);
+    const threadId = panel.apiId(g.threadId);
+    if (!messageId && !threadId) return [homeCard()];
+    const { columns, thread } = store.openEmail(messageId, threadId);
+    return [boardCard(columns, thread.id, panel.currentColumn(columns, thread.labelIds))];
   });
 
-  const onOpenNote = act(e => {
-    const ctx = store.context();
-    const p = params(e);
-    const c = current(ctx, p.messageId);
-    return respond({ card: noteCard(ctx, c.opened, { notice: noticeFor(c), query: p.q || '' }), push: true });
-  });
-
-  const onAllNotes = act(() => respond({ card: homeCard(store.context()), push: true }));
-
-  const onNewNote = act(e => {
-    const ctx = store.context();
-    return respond({ card: newNoteCard(ctx, chosenFolder(ctx, params(e).folderId)), push: true });
-  });
-
-  const onSearchNotes = act(e => {
-    const ctx = store.context();
-    const threadId = params(e).threadId;
-    return respond({
-      card: homeCard(ctx, {
-        folderId: chosenFolder(ctx, value(e, 'folderFilter')),
-        query: value(e, 'q').trim(),
-        thread: threadId && ctx.board.length ? store.thread(ctx, threadId) : null,
-      }),
-    });
-  });
-
-  // A column chosen for the open email. The dropdown already shows the
-  // choice, so only a confirmation comes back - which keeps it quick.
+  // A column's button, or Take off the board (no column).
   const onMoveThread = act(e => {
-    const ctx = store.context();
-    const threadId = params(e).threadId;
-    if (!threadId) return respond({ notify: 'Open an email first.' });
-    const target = ctx.board.find(c => c.id === value(e, 'boardColumn')) || null;
-    store.moveThread(ctx, threadId, target ? target.id : '');
+    const p = params(e);
+    if (!p.threadId) return respond({ notify: 'Open an email first.' });
+    const { columns, target } = store.moveThread(p.threadId, p.columnId || '');
     let said = 'Taken off the board.';
     if (target) said = target.archiveOnDrop ? `Moved to ${target.title} and archived.` : `Moved to ${target.title}.`;
-    return respond({ notify: said, changed: true });
+    return respond({ card: boardCard(columns, p.threadId, target), notify: said, changed: true });
   });
 
-  // Find in the open note: mark the words typed, show only the lines with
-  // them, or clear - redrawing the card with nothing that was done on it
-  // lost.
-  const onFindInNote = act(e => {
-    const ctx = store.context();
-    const p = params(e);
-    const st = cardState(e, ctx);
-    const c = current(ctx, p.messageId);
-    const query = p.clear ? '' : value(e, 'find').trim();
-    const keep = c.replaced ? {} : st.pending; // ticks belong to the version they were made on
-    return respond({
-      card: noteCard(ctx, c.opened, {
-        query, only: !!query && p.only === '1', pending: keep, addText: st.addText, addAs: st.addAs, folderId: st.folderId,
-        notice: c.replaced ? 'This note was changed somewhere else in the meantime. This is the latest version.' : noticeFor(c),
-      }),
-    });
-  });
-
-  const onSaveNote = act(e => {
-    const ctx = store.context();
-    const p = params(e);
-    const { pending, addText, addAs, folderId } = cardState(e, ctx);
-    const query = p.q || '';
-    const only = p.only === '1';
-
-    const c = current(ctx, p.messageId);
-    if (c.replaced) {
-      return respond({
-        card: noteCard(ctx, c.opened, {
-          addText, addAs, query, only,
-          notice: 'This note was changed somewhere else in the meantime. Here is the latest version: tick again, then save.',
-        }),
-        notify: 'Not saved: the note had changed.',
-      });
-    }
-
-    const { note, doc } = c.opened;
-    const next = panel.appendBlocks(panel.withTicks(doc, pending), panel.linesToBlocks(addText, addAs));
-    const contentChanged = !panel.docsEqual(next, doc);
-    const folderChanged = folderId !== note.folderId;
-    if (!contentChanged && !folderChanged && !c.gone) return respond({ notify: 'Nothing to save.' });
-
-    let id = note.messageId;
-    let said;
-    if (contentChanged || c.gone) {
-      id = store.save(ctx, note, { title: note.title, doc: next, folderId });
-      said = 'Saved.';
-    } else {
-      store.move(ctx, id, folderId);
-      said = folderId ? `Moved to ${panel.folderName(folderId, ctx.folders)}.` : 'Taken out of its folder.';
-    }
-    return respond({ card: noteCard(ctx, store.open(ctx, id), { query, only }), notify: said, changed: true });
-  });
-
-  const onCreateNote = act(e => {
-    const ctx = store.context();
-    const title = value(e, 'title').trim();
-    const blocks = panel.linesToBlocks(value(e, 'body'), value(e, 'bodyAs') || 'p');
-    if (!title && !blocks.length) return respond({ notify: 'Write a title or some text first.' });
-    const id = store.save(ctx, null, { title, doc: blocks.length ? blocks : fmt.emptyDoc(), folderId: chosenFolder(ctx, value(e, 'folder')) });
-    return respond({ card: noteCard(ctx, store.open(ctx, id)), notify: 'Note saved.', changed: true });
-  });
-
-  const onUniversalAllNotes = universal(() => homeCard(store.context()));
-  const onUniversalNewNote = universal(() => newNoteCard(store.context(), ''));
-
-  ns.panel = {
-    onHomepage, onGmailMessage, onOpenNote, onAllNotes, onNewNote, onSearchNotes,
-    onFilterNotes: onSearchNotes, onSaveNote, onFindInNote, onCreateNote, onMoveThread, onUniversalAllNotes, onUniversalNewNote,
-  };
+  ns.panel = { onHomepage, onGmailMessage, onMoveThread };
 })();
 
 // ════ addon/src/app-server.js ═════════════════════════════════════════
@@ -4554,23 +3816,15 @@ var globalThis = typeof globalThis !== 'undefined' ? globalThis : this;
 // Entry points
 //
 // Apps Script calls these by name - from the manifest, and from the
-// cards' buttons - so they are plain top-level functions. Each one
-// hands over to the panel.
+// cards' buttons, and from the phone app's google.script.run - so they
+// are plain top-level functions. Each one hands over to the panel or
+// the app.
 // ─────────────────────────────────────────────────────────────────────
 
+// The phone panel: an email opened (or none), and a column's button.
 function onHomepage(e) { return gkb.panel.onHomepage(e); }
 function onGmailMessage(e) { return gkb.panel.onGmailMessage(e); }
-function onOpenNote(e) { return gkb.panel.onOpenNote(e); }
-function onAllNotes(e) { return gkb.panel.onAllNotes(e); }
-function onNewNote(e) { return gkb.panel.onNewNote(e); }
-function onSearchNotes(e) { return gkb.panel.onSearchNotes(e); }
-function onFilterNotes(e) { return gkb.panel.onFilterNotes(e); }
-function onSaveNote(e) { return gkb.panel.onSaveNote(e); }
-function onFindInNote(e) { return gkb.panel.onFindInNote(e); }
-function onCreateNote(e) { return gkb.panel.onCreateNote(e); }
 function onMoveThread(e) { return gkb.panel.onMoveThread(e); }
-function onUniversalAllNotes(e) { return gkb.panel.onUniversalAllNotes(e); }
-function onUniversalNewNote(e) { return gkb.panel.onUniversalNewNote(e); }
 
 // The phone app: the page, and what its notes view asks of Gmail.
 function doGet(e) { return gkb.app.page(e); }

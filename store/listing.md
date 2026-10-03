@@ -32,7 +32,7 @@ redraws them. See [PUBLISHING.md](../PUBLISHING.md) for the whole process.
 > • Show or hide each calendar and task list with one click. Read-only: it never changes your calendar.
 >
 > ON YOUR PHONE
-> • A home-screen app with the board, your notes, the Scratchpad and your week, and a panel in the Gmail app.
+> • A home-screen app with the board, your notes, the Scratchpad and your week, and a panel in the Gmail app that puts the open email on the board.
 >
 > PRIVATE BY DESIGN
 > • There is no MemDesk server. Everything is in your own Gmail, as labels and messages, and MemDesk talks only to Google (Gmail, and Calendar and Tasks for the calendar), from your browser.

@@ -37,11 +37,7 @@
       "homepageTrigger": {
         "runFunction": "onHomepage",
         "enabled": true
-      },
-      "universalActions": [
-        { "label": "All notes", "runFunction": "onUniversalAllNotes" },
-        { "label": "New note", "runFunction": "onUniversalNewNote" }
-      ]
+      }
     },
     "gmail": {
       "contextualTriggers": [

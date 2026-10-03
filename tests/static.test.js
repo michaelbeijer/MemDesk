@@ -73,7 +73,7 @@ test('the preview loads exactly the manifest’s content scripts, in order', () 
 
 test('manifest: version, permissions and a key whose ID the README reports', () => {
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '0.20.0');
+  assert.equal(manifest.version, '0.21.0');
   assert.ok(read('README.md').includes(`badge/version-${manifest.version}-`), 'the README\'s version badge is current');
   assert.deepEqual(manifest.permissions.sort(), ['identity', 'storage']);
   // Gmail; and Calendar, Tasks and the address check for the calendar.

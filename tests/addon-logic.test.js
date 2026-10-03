@@ -1,14 +1,10 @@
-// The phone panel's pure parts: the browser APIs it supplies to Apps
-// Script, how a note is shown on a card, and what its controls change.
+// The add-on's pure parts: the browser APIs it supplies to Apps Script,
+// and the board as the phone panel reads and changes it.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const shims = require('../addon/src/shims.js');
 const panel = require('../addon/src/panel-logic.js');
-const fmt = require('../src/lib/note-format.js');
-
-const B = (type, runs, extra = {}) => fmt.block(type, runs, extra);
-const T = (text, marks = {}) => ({ text, ...marks });
 
 // ── Shims ────────────────────────────────────────────────────────────
 
@@ -62,97 +58,6 @@ test('random values fill the array', () => {
   assert.ok(new Set(a).size > 4);
 });
 
-// ── Showing a note ───────────────────────────────────────────────────
-
-test('a note as card items: text runs, bullets and numbers, a box per checklist item', () => {
-  const doc = [
-    B('h2', [T('Before Friday')]),
-    B('p', [T('Deliver to '), T('Kestrel', { b: true }), T(' by '), T('noon', { i: true }), T(', see '), T('the portal', { href: 'https://example.com/p?a=1&b=2' })]),
-    B('p', []),
-    B('check', [T('Proofread')], { checked: true }),
-    B('check', [T('Invoice <draft>')]),
-    B('check', [T('PO number')], { level: 1 }),
-    B('ol', [T('Zip')]), B('ol', [T('Upload')]), B('ol', [T('nested')], { level: 1 }), B('ol', [T('Done')]),
-    B('ul', [T('bullet')]), B('ul', [T('gone', { s: true })], { level: 1 }),
-    B('check', []),
-  ];
-  const { items, hidden } = panel.cardItems(doc);
-  assert.equal(hidden, 0);
-  assert.deepEqual(items, [
-    { kind: 'text', html: '<b>Before Friday</b><br>Deliver to <b>Kestrel</b> by <i>noon</i>, see <a href="https://example.com/p?a=1&amp;b=2">the portal</a>' },
-    { kind: 'check', index: 3, html: 'Proofread', checked: true },
-    { kind: 'check', index: 4, html: 'Invoice &lt;draft&gt;', checked: false },
-    { kind: 'check', index: 5, html: '  PO number', checked: false },
-    { kind: 'text', html: '1. Zip<br>2. Upload<br>  1. nested<br>3. Done<br>• bullet<br>  • <s>gone</s>' },
-    { kind: 'check', index: 12, html: '<font color="#5f6368">(empty)</font>', checked: false },
-  ]);
-});
-
-test('a long note shows its start, and says how much is not shown', () => {
-  const doc = Array.from({ length: 100 }, (_, i) => B('check', [T(`item ${i}`)]));
-  const { items, hidden } = panel.cardItems(doc, { maxBlocks: 80 });
-  assert.equal(items.length, 80);
-  assert.equal(hidden, 20);
-  assert.deepEqual(panel.cardItems([B('p', [])]).items, [], 'an empty note has nothing to show');
-});
-
-// ── Changing a note ──────────────────────────────────────────────────
-
-test('ticks change only the boxes that were on the card', () => {
-  const doc = [B('check', [T('a')]), B('p', [T('x')]), B('check', [T('b')], { checked: true }), B('check', [T('c')], { checked: true })];
-  const out = panel.applyTicks(doc, [0, 2], new Set([0]));
-  assert.deepEqual(out.map(b => b.checked), [true, false, false, true], 'c was not on the card and keeps its tick');
-  assert.deepEqual(doc.map(b => b.checked), [false, false, true, true], 'the original is untouched');
-  assert.deepEqual(panel.applyTicks(doc, [1, 99], new Set([1, 99])).map(b => b.checked), [false, false, true, true], 'not boxes, not there');
-});
-
-test('typed lines as checklist items, bullets or text', () => {
-  const show = doc => doc.map(b => [b.type, b.level, b.checked, fmt.docText([b])]);
-  assert.deepEqual(show(panel.linesToBlocks('\n milk\n\n- [x] eggs\n  [ ] flour (sub)\n☑ jam\n\n', 'check')), [
-    ['check', 0, false, 'milk'], ['check', 0, true, 'eggs'], ['check', 1, false, 'flour (sub)'], ['check', 0, true, 'jam'],
-  ]);
-  assert.deepEqual(show(panel.linesToBlocks('one\n- two\n3. three', 'ul')), [['ul', 0, false, 'one'], ['ul', 0, false, 'two'], ['ul', 0, false, 'three']]);
-  assert.deepEqual(show(panel.linesToBlocks('plain line\n\nanother', 'p')), [['p', 0, false, 'plain line'], ['p', 0, false, ''], ['p', 0, false, 'another']]);
-  assert.deepEqual(show(panel.linesToBlocks('Call **Sam**\n- milk', 'p')), [['p', 0, false, 'Call Sam'], ['ul', 0, false, 'milk']], 'Markdown, as a paste reads it');
-  assert.deepEqual(panel.linesToBlocks('  \n \n', 'check'), []);
-});
-
-test('appending replaces the empty lines a note ends with', () => {
-  const doc = [B('p', [T('title line')]), B('p', []), B('p', [T(' ')])];
-  const out = panel.appendBlocks(doc, [B('check', [T('new')])]);
-  assert.deepEqual(out.map(b => [b.type, fmt.docText([b])]), [['p', 'title line'], ['check', 'new']]);
-  assert.deepEqual(panel.appendBlocks(doc, []), fmt.normaliseDoc(doc), 'nothing to add changes nothing');
-  assert.ok(panel.docsEqual(doc, fmt.normaliseDoc(doc)));
-  assert.ok(!panel.docsEqual(doc, out));
-});
-
-// ── Folders, the list, ids ───────────────────────────────────────────
-
-test('folder dropdown items and names', () => {
-  const folders = [{ id: 'L1', path: 'Work' }, { id: 'L2', path: 'Work/Clients' }];
-  assert.deepEqual(panel.folderOptions(folders, 'L2'), [
-    { text: 'No folder', value: 'none', selected: false },
-    { text: 'Work', value: 'L1', selected: false },
-    { text: 'Work › Clients', value: 'L2', selected: true },
-  ]);
-  assert.equal(panel.folderOptions(folders, 'gone')[0].selected, true, 'an unknown folder selects the first item');
-  assert.equal(panel.folderOptions(folders, '', { first: 'All notes', firstValue: 'all' })[0].text, 'All notes');
-  assert.equal(panel.folderName('L2', folders), 'Work › Clients');
-  assert.equal(panel.folderName('', folders), '');
-  const now = new Date(2026, 9, 2, 12, 0).getTime();
-  assert.equal(panel.noteSubtitle({ folderId: 'L1', updated: now - 3 * 3600e3 }, folders, now), 'Work · edited 3 h');
-  assert.equal(panel.noteSubtitle({ folderId: '', updated: now - 120e3 }, folders, now), 'edited 2 min');
-});
-
-test('message ids: hexadecimal as they are, Gmail\'s decimal form converted', () => {
-  assert.equal(panel.apiMessageId('19a0c0de100000'), '19a0c0de100000');
-  assert.equal(panel.apiMessageId('msg-f:1849302938475610123'), BigInt('1849302938475610123').toString(16));
-  assert.equal(panel.apiMessageId('1849302938475610123'), BigInt('1849302938475610123').toString(16));
-  assert.equal(panel.apiMessageId('msg-a:r-1234'), 'msg-a:r-1234', 'anything else is left alone');
-  assert.equal(panel.apiMessageId('1234567890123456'), '1234567890123456', 'sixteen digits can be hexadecimal');
-  assert.equal(panel.apiMessageId(''), '');
-});
-
 // ── The board ────────────────────────────────────────────────────────
 
 test('board columns come from the labels under _Board: the usual four in order, then the rest', () => {
@@ -175,93 +80,20 @@ test('moves: one column only, Done out of the Inbox, off the board touches nothi
   assert.deepEqual(panel.boardDiff(cols, 'L2'), { addLabelIds: ['L2'], removeLabelIds: ['L1', 'L4'] });
   assert.deepEqual(panel.boardDiff(cols, 'L4'), { addLabelIds: ['L4'], removeLabelIds: ['L1', 'L2', 'INBOX'] });
   assert.deepEqual(panel.boardDiff(cols, ''), { addLabelIds: [], removeLabelIds: ['L1', 'L2', 'L4'] });
-  assert.deepEqual(panel.boardOptions(cols, 'L2').map(o => [o.text, o.value, o.selected]),
-    [['Not on the board', 'none', false], ['To do', 'L1', false], ['Doing', 'L2', true], ['Done', 'L4', false]]);
-  assert.equal(panel.boardOptions(cols, '')[0].selected, true);
 });
 
-// ── Search matches ───────────────────────────────────────────────────
+// ── Ids ──────────────────────────────────────────────────────────────
 
-test('matches are marked inside bold, italic and links, split where they cross a run', () => {
-  const search = require('../src/lib/search-logic.js');
-  const runs = [T('see the '), T('Kestrel', { b: true }), T(' port'), T('al now', { href: 'https://example.com/' })];
-  const text = runs.map(r => r.text).join('');
-  const html = panel.runsHtml(runs, search.findMatches(text, search.queryTerms('kestrel portal')));
-  assert.equal(html, 'see the <b><font color="#e8710a"><b>Kestrel</b></font></b> <font color="#e8710a"><b>port</b></font>' +
-    '<a href="https://example.com/"><font color="#e8710a"><b>al</b></font> now</a>');
-  assert.equal(panel.runsHtml(runs), panel.runsHtml(runs, []), 'no matches, nothing marked');
-  assert.equal(panel.highlight('Café <x>', search.findMatches('Café <x>', search.queryTerms('cafe'))),
-    '<font color="#e8710a"><b>Café</b></font> &lt;x&gt;');
-});
-
-test('card items with search terms: marks in every kind of line, and a count over the whole note', () => {
-  const search = require('../src/lib/search-logic.js');
-  const doc = [B('h2', [T('Invoice plan')]), B('check', [T('Send the invoice')]), B('ul', [T('invoices, two')]), B('p', [T('invoice')])];
-  const { items, hits } = panel.cardItems(doc, { terms: search.queryTerms('invoice'), maxBlocks: 3 });
-  assert.equal(hits, 4, 'the hidden last line counts too');
-  assert.deepEqual(items.map(i => i.html), [
-    '<b><font color="#e8710a"><b>Invoice</b></font> plan</b>',
-    'Send the <font color="#e8710a"><b>invoice</b></font>',
-    '• <font color="#e8710a"><b>invoice</b></font>s, two',
-  ]);
-  assert.equal(panel.cardItems(doc).hits, 0);
-});
-
-test('a table on a card: a row a line, the heading row bold, matches marked and counted', () => {
-  const search = require('../src/lib/search-logic.js');
-  const t = fmt.table([
-    [{ runs: [T('Language')] }, { runs: [T('Rate')] }],
-    [{ runs: [T('NL', { b: true })] }, { runs: [T('0,08 per\nword')] }],
-    [{ runs: [T('DE')] }, { runs: [T('0,10 per word')] }],
-  ], { head: true });
-  const doc = [B('check', [T('Quote')]), t, B('check', [T('Send')])];
-  const { items } = panel.cardItems(doc);
-  assert.deepEqual(items.map(i => [i.kind, i.index, i.html]), [
-    ['check', 0, 'Quote'],
-    ['text', undefined, '<b>Language | Rate</b><br><b>NL</b> | 0,08 per word<br>DE | 0,10 per word'],
-    ['check', 2, 'Send'],
-  ], 'the boxes keep their places in the note');
-  const found = panel.cardItems(doc, { terms: search.queryTerms('word'), only: true });
-  assert.equal(found.hits, 2);
-  assert.deepEqual(found.items.map(i => i.html), [
-    '<b>NL</b> | 0,08 per <font color="#e8710a"><b>word</b></font><br>DE | 0,10 per <font color="#e8710a"><b>word</b></font>',
-  ]);
-  assert.match(panel.searchResult('Rates', doc, search.queryTerms('DE')).excerpts[0], /DE<\/b><\/font> \| 0,10/);
-});
-
-test('a search result: marked title, up to two excerpts, a count', () => {
-  const search = require('../src/lib/search-logic.js');
-  const doc = fmt.fromPlain(`${'filler '.repeat(20)}the glossary is ready\n${'more '.repeat(30)}glossary two\n${'x '.repeat(40)}glossary three`);
-  const r = panel.searchResult('Glossary notes', doc, search.queryTerms('glossary'));
-  assert.equal(r.count, 4);
-  assert.equal(r.titleHtml, '<font color="#e8710a"><b>Glossary</b></font> notes');
-  assert.equal(r.excerpts.length, 2);
-  assert.match(r.excerpts[0], /^….*the <font color="#e8710a"><b>glossary<\/b><\/font> is ready.*…$/);
-  assert.equal(panel.matchCount(1), '1 match');
-  assert.equal(panel.matchCount(3), '3 matches');
-  assert.deepEqual(panel.searchResult('Untitled', doc, search.queryTerms('absent')), { titleHtml: 'Untitled', excerpts: [], count: 0 });
-});
-
-test('only the lines with a match: a "⋯" for each gap, numbers as in the whole note', () => {
-  const search = require('../src/lib/search-logic.js');
-  const doc = [B('p', [T('alpha')]), B('p', [T('beta')]), B('ol', [T('one')]), B('ol', [T('alpha two')]), B('check', [T('alpha box')])];
-  const { items, hits, filtered, hidden } = panel.cardItems(doc, { terms: search.queryTerms('alpha'), only: true });
-  assert.equal(hits, 3);
-  assert.equal(filtered, true);
-  assert.equal(hidden, 0);
-  assert.deepEqual(items.map(i => i.kind === 'check' ? `[${i.index}] ${i.html}` : i.html), [
-    '<font color="#e8710a"><b>alpha</b></font><br><font color="#5f6368">⋯</font><br>2. <font color="#e8710a"><b>alpha</b></font> two',
-    '[4] <font color="#e8710a"><b>alpha</b></font> box',
-  ]);
-  assert.equal(panel.cardItems(doc, { only: true }).items.length, 2, 'with nothing to find, the whole note');
-  assert.equal(panel.cardItems(doc, { terms: search.queryTerms('alpha'), only: true, maxBlocks: 2 }).hidden, 1);
-});
-
-test('unsaved ticks travel as text and come back the same', () => {
-  assert.equal(panel.encodeTicks({ 5: false, 3: true }), '3.1,5.0');
-  assert.deepEqual(panel.decodeTicks('3.1,5.0,junk,7.2'), { 3: true, 5: false });
-  assert.deepEqual(panel.decodeTicks(''), {});
-  const doc = [B('check', [T('a')]), B('check', [T('b')], { checked: true })];
-  assert.deepEqual(panel.withTicks(doc, { 0: true, 1: false }).map(b => b.checked), [true, false]);
-  assert.deepEqual(panel.withTicks(doc, {}).map(b => b.checked), [false, true]);
+test('ids: hexadecimal as they are, Gmail\'s decimal forms of messages and conversations converted', () => {
+  const hex = n => BigInt(n).toString(16);
+  assert.equal(panel.apiId('19a0c0de100000'), '19a0c0de100000');
+  assert.equal(panel.apiId('msg-f:1849302938475610123'), hex('1849302938475610123'));
+  assert.equal(panel.apiId('thread-f:1849302938475610123'), hex('1849302938475610123'));
+  assert.equal(panel.apiId('thread-a:1849302938475610123'), hex('1849302938475610123'));
+  assert.equal(panel.apiId('1849302938475610123'), hex('1849302938475610123'));
+  assert.equal(panel.apiId('msg-a:r-1234'), 'msg-a:r-1234', 'anything else is left alone');
+  assert.equal(panel.apiId('thread-a:r-1234'), 'thread-a:r-1234');
+  assert.equal(panel.apiId('1234567890123456'), '1234567890123456', 'sixteen digits can be hexadecimal');
+  assert.equal(panel.apiId(''), '');
+  assert.equal(panel.apiId(undefined), '');
 });
