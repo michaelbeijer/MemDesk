@@ -80,6 +80,39 @@
   .shot { margin: 18px auto 0; max-width: 1040px; padding-bottom: 64px; }
   .shot img { width: 100%; border-radius: 16px; box-shadow: 0 24px 60px rgba(20, 6, 50, .45), 0 0 0 1px rgba(255, 255, 255, .12); }
 
+  /* Every picture opens full size, without a script: it is a link to its
+     lightbox, which :target shows. A click outside the picture, Close or
+     Back closes it; Previous and Next step through them all. */
+  .zoomable { display: block; position: relative; cursor: zoom-in; border-radius: 14px; }
+  .zoomable:focus-visible { outline: 3px solid var(--violet-light); outline-offset: 4px; }
+  .zoom-hint {
+    position: absolute; right: 14px; bottom: 14px; padding: 5px 12px; border-radius: 999px;
+    background: rgba(20, 6, 50, .74); color: #fff; font-size: 13px; opacity: 0; transition: opacity .15s; pointer-events: none;
+  }
+  .zoomable:hover .zoom-hint, .zoomable:focus-visible .zoom-hint { opacity: 1; }
+  @media (hover: none) { .zoom-hint { opacity: .9; } }
+  .lightbox {
+    display: none; position: fixed; inset: 0; z-index: 50; padding: 18px;
+    background: rgba(12, 6, 28, .95); align-items: center; justify-content: center;
+  }
+  .lightbox:target { display: flex; }
+  body:has(.lightbox:target) { overflow: hidden; }
+  .lightbox-close { position: absolute; inset: 0; cursor: zoom-out; }
+  .lightbox figure { position: relative; margin: 0; display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 100%; max-height: 100%; }
+  .lightbox figure > a { display: block; cursor: zoom-in; }
+  .lightbox img { max-width: 100%; max-height: calc(100vh - 120px); width: auto; height: auto; border-radius: 10px; box-shadow: 0 30px 80px rgba(0, 0, 0, .55); }
+  .lightbox figcaption { color: #e9e5f7; font-size: 15px; text-align: center; max-width: 60em; }
+  .lightbox nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 20px; margin-top: 6px; font-size: 14px; }
+  .lightbox nav a { color: #fff; }
+
+  /* Screenshots: all of them, in one place */
+  .screens h2 { text-align: center; }
+  .screens .lead { text-align: center; color: var(--muted); margin: 0 auto 32px; max-width: 36em; }
+  .gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+  .gallery figure { margin: 0; }
+  .gallery img { border-radius: 10px; box-shadow: 0 6px 24px rgba(46, 16, 101, .16); aspect-ratio: 2400 / 1600; object-fit: cover; object-position: top; }
+  .gallery figcaption { margin-top: 8px; font-size: 14px; color: var(--muted); text-align: center; }
+
   /* What it does */
   section { padding: 72px 0; }
   section h2 { font-size: clamp(26px, 3.4vw, 36px); line-height: 1.2; margin: 0 0 14px; font-weight: 600; letter-spacing: -.3px; }
@@ -118,6 +151,7 @@
     .feature.flip .text { order: 0; }
     .feature + .feature { margin-top: 64px; }
     .points { grid-template-columns: 1fr 1fr; }
+    .gallery { grid-template-columns: 1fr 1fr; }
     section { padding: 56px 0; }
   }
   @media (max-width: 520px) {
@@ -138,6 +172,7 @@
     <a class="brand" href="./"><img src="icon.svg" alt="" width="34" height="34">MemDesk</a>
     <nav>
       <a class="hide-small" href="#what">What it does</a>
+      <a href="#screens">Screenshots</a>
       <a href="privacy/">Privacy</a>
       <a href="https://github.com/michaelbeijer/MemDesk">GitHub</a>
     </nav>
@@ -153,8 +188,8 @@
     <p class="platforms">Chrome on your computer · the Gmail app and a home‑screen app on Android</p>
   </div>
   <div class="wrap shot">
-    <img src="img/hero.jpg" width="2400" height="1460"
-      alt="MemDesk in three Chrome windows - the board, the notes and the calendar - with the phone app's week in front of them">
+    <a class="zoomable" id="shot-hero" href="#view-hero" title="See it full size"><img src="img/hero.jpg" width="2400" height="1460"
+      alt="MemDesk in three Chrome windows - the board, the notes and the calendar - with the phone app's week in front of them"><span class="zoom-hint" aria-hidden="true">Full size</span></a>
   </div>
 </header>
 
@@ -170,8 +205,8 @@
           <p>Give a card your own title, a note and a colour without touching the email itself.
             And while you read an email, one button at the bottom of Gmail files it in a column.</p>
         </div>
-        <img src="img/board.jpg" width="2400" height="1744" loading="lazy"
-          alt="The board in Gmail: To do, Doing, Waiting and Done, half in light mode and half in dark">
+        <a class="zoomable" id="shot-board" href="#view-board" title="See it full size"><img src="img/board.jpg" width="2400" height="1744" loading="lazy"
+          alt="The board in Gmail: To do, Doing, Waiting and Done, half in light mode and half in dark"><span class="zoom-hint" aria-hidden="true">Full size</span></a>
       </div>
 
       <div class="feature flip">
@@ -184,8 +219,8 @@
           <p>Folders nest as deep as you like. The Scratchpad is always open: one note for whatever
             needs writing down right now, the same on every computer and phone.</p>
         </div>
-        <img src="img/notes.jpg" width="2400" height="1744" loading="lazy"
-          alt="The notes: nested folders on the left, the list in the middle, a checklist note open on the right">
+        <a class="zoomable" id="shot-notes" href="#view-notes" title="See it full size"><img src="img/notes.jpg" width="2400" height="1744" loading="lazy"
+          alt="The notes: nested folders on the left, the list in the middle, a checklist note open on the right"><span class="zoom-hint" aria-hidden="true">Full size</span></a>
       </div>
 
       <div class="feature">
@@ -197,8 +232,8 @@
           <p>A task with a date sits in its day, ready to tick. The ones without a date, and any
             that are overdue, wait at the side. A task made from an email opens the email.</p>
         </div>
-        <img src="img/calendar.jpg" width="2400" height="1520" loading="lazy"
-          alt="The calendar in Gmail: a week of events and tasks beside a small month, and on a phone the same week as two columns of days">
+        <a class="zoomable" id="shot-calendar" href="#view-calendar" title="See it full size"><img src="img/calendar.jpg" width="2400" height="1520" loading="lazy"
+          alt="The calendar in Gmail: a week of events and tasks beside a small month, and on a phone the same week as two columns of days"><span class="zoom-hint" aria-hidden="true">Full size</span></a>
       </div>
 
       <div class="feature flip">
@@ -210,8 +245,25 @@
           <p>And a panel in the Gmail app puts the open email on the board: one tap for its
             column.</p>
         </div>
-        <img src="img/phone.jpg" width="2400" height="1520" loading="lazy"
-          alt="Three phones: the board, the Scratchpad, and the week as two columns of days">
+        <a class="zoomable" id="shot-phone" href="#view-phone" title="See it full size"><img src="img/phone.jpg" width="2400" height="1520" loading="lazy"
+          alt="Three phones: the board, the Scratchpad, and the week as two columns of days"><span class="zoom-hint" aria-hidden="true">Full size</span></a>
+      </div>
+    </div>
+  </section>
+
+  <section class="screens" id="screens">
+    <div class="wrap">
+      <h2>Screenshots</h2>
+      <p class="lead">Exactly what you get, as it looks in Gmail and on a phone. Click any picture to see it full size.</p>
+      <div class="gallery">
+        <figure><a class="zoomable" href="#view-hero" title="See it full size"><img src="img/hero.jpg" width="2400" height="1460" loading="lazy" alt="MemDesk in three Chrome windows - the board, the notes and the calendar - with the phone app's week in front of them"><span class="zoom-hint" aria-hidden="true">Full size</span></a><figcaption>MemDesk in Gmail</figcaption></figure>
+        <figure><a class="zoomable" href="#view-board" title="See it full size"><img src="img/board.jpg" width="2400" height="1744" loading="lazy" alt="The board in Gmail: To do, Doing, Waiting and Done, half in light mode and half in dark"><span class="zoom-hint" aria-hidden="true">Full size</span></a><figcaption>The board</figcaption></figure>
+        <figure><a class="zoomable" href="#view-gmail" title="See it full size"><img src="img/gmail.jpg" width="2400" height="1650" loading="lazy" alt="An email open in Gmail, with the On board: Doing menu open below it"><span class="zoom-hint" aria-hidden="true">Full size</span></a><figcaption>Filing an email</figcaption></figure>
+        <figure><a class="zoomable" href="#view-notes" title="See it full size"><img src="img/notes.jpg" width="2400" height="1744" loading="lazy" alt="The notes: nested folders on the left, the list in the middle, a checklist note open on the right"><span class="zoom-hint" aria-hidden="true">Full size</span></a><figcaption>The notes</figcaption></figure>
+        <figure><a class="zoomable" href="#view-scratchpad" title="See it full size"><img src="img/scratchpad.jpg" width="2400" height="1520" loading="lazy" alt="The Scratchpad open in Chrome beside the notes list, and on a phone, where the app opens on it"><span class="zoom-hint" aria-hidden="true">Full size</span></a><figcaption>The Scratchpad</figcaption></figure>
+        <figure><a class="zoomable" href="#view-search" title="See it full size"><img src="img/search.jpg" width="2400" height="1744" loading="lazy" alt="A search for termbase, marked in the results and in the open note"><span class="zoom-hint" aria-hidden="true">Full size</span></a><figcaption>Search</figcaption></figure>
+        <figure><a class="zoomable" href="#view-calendar" title="See it full size"><img src="img/calendar.jpg" width="2400" height="1520" loading="lazy" alt="The calendar in Gmail: a week of events and tasks beside a small month, and on a phone the same week as two columns of days"><span class="zoom-hint" aria-hidden="true">Full size</span></a><figcaption>The calendar</figcaption></figure>
+        <figure><a class="zoomable" href="#view-phone" title="See it full size"><img src="img/phone.jpg" width="2400" height="1520" loading="lazy" alt="Three phones: the board, the Scratchpad, and the week as two columns of days"><span class="zoom-hint" aria-hidden="true">Full size</span></a><figcaption>On a phone</figcaption></figure>
       </div>
     </div>
   </section>
@@ -251,6 +303,79 @@
     <span><a href="privacy/">Privacy</a> · <a href="https://github.com/michaelbeijer/MemDesk">GitHub</a> · <a href="https://beijer.uk/contact/">Contact</a></span>
   </div>
 </footer>
+
+<div class="lightbox" id="view-hero" role="dialog" aria-label="MemDesk in Gmail, full size">
+  <a class="lightbox-close" href="#shot-hero" aria-label="Close"></a>
+  <figure>
+    <a href="img/hero.jpg" title="The picture on its own, to zoom in"><img src="img/hero.jpg" width="2400" height="1460" loading="lazy" alt="MemDesk in three Chrome windows - the board, the notes and the calendar - with the phone app's week in front of them"></a>
+    <figcaption>MemDesk in three Chrome windows - the board, the notes and the calendar - with the phone app's week in front of them
+      <nav><a href="#view-phone">‹ Previous</a><a href="img/hero.jpg">The picture on its own</a><a href="#shot-hero">Close</a><a href="#view-board">Next ›</a></nav>
+    </figcaption>
+  </figure>
+</div>
+<div class="lightbox" id="view-board" role="dialog" aria-label="The board, full size">
+  <a class="lightbox-close" href="#shot-board" aria-label="Close"></a>
+  <figure>
+    <a href="img/board.jpg" title="The picture on its own, to zoom in"><img src="img/board.jpg" width="2400" height="1744" loading="lazy" alt="The board in Gmail: To do, Doing, Waiting and Done, half in light mode and half in dark"></a>
+    <figcaption>The board in Gmail: To do, Doing, Waiting and Done, half in light mode and half in dark
+      <nav><a href="#view-hero">‹ Previous</a><a href="img/board.jpg">The picture on its own</a><a href="#shot-board">Close</a><a href="#view-gmail">Next ›</a></nav>
+    </figcaption>
+  </figure>
+</div>
+<div class="lightbox" id="view-gmail" role="dialog" aria-label="Filing an email, full size">
+  <a class="lightbox-close" href="#screens" aria-label="Close"></a>
+  <figure>
+    <a href="img/gmail.jpg" title="The picture on its own, to zoom in"><img src="img/gmail.jpg" width="2400" height="1650" loading="lazy" alt="An email open in Gmail, with the On board: Doing menu open below it"></a>
+    <figcaption>An email open in Gmail, with the On board: Doing menu open below it
+      <nav><a href="#view-board">‹ Previous</a><a href="img/gmail.jpg">The picture on its own</a><a href="#screens">Close</a><a href="#view-notes">Next ›</a></nav>
+    </figcaption>
+  </figure>
+</div>
+<div class="lightbox" id="view-notes" role="dialog" aria-label="The notes, full size">
+  <a class="lightbox-close" href="#shot-notes" aria-label="Close"></a>
+  <figure>
+    <a href="img/notes.jpg" title="The picture on its own, to zoom in"><img src="img/notes.jpg" width="2400" height="1744" loading="lazy" alt="The notes: nested folders on the left, the list in the middle, a checklist note open on the right"></a>
+    <figcaption>The notes: nested folders on the left, the list in the middle, a checklist note open on the right
+      <nav><a href="#view-gmail">‹ Previous</a><a href="img/notes.jpg">The picture on its own</a><a href="#shot-notes">Close</a><a href="#view-scratchpad">Next ›</a></nav>
+    </figcaption>
+  </figure>
+</div>
+<div class="lightbox" id="view-scratchpad" role="dialog" aria-label="The Scratchpad, full size">
+  <a class="lightbox-close" href="#screens" aria-label="Close"></a>
+  <figure>
+    <a href="img/scratchpad.jpg" title="The picture on its own, to zoom in"><img src="img/scratchpad.jpg" width="2400" height="1520" loading="lazy" alt="The Scratchpad open in Chrome beside the notes list, and on a phone, where the app opens on it"></a>
+    <figcaption>The Scratchpad open in Chrome beside the notes list, and on a phone, where the app opens on it
+      <nav><a href="#view-notes">‹ Previous</a><a href="img/scratchpad.jpg">The picture on its own</a><a href="#screens">Close</a><a href="#view-search">Next ›</a></nav>
+    </figcaption>
+  </figure>
+</div>
+<div class="lightbox" id="view-search" role="dialog" aria-label="Search, full size">
+  <a class="lightbox-close" href="#screens" aria-label="Close"></a>
+  <figure>
+    <a href="img/search.jpg" title="The picture on its own, to zoom in"><img src="img/search.jpg" width="2400" height="1744" loading="lazy" alt="A search for termbase, marked in the results and in the open note"></a>
+    <figcaption>A search for termbase, marked in the results and in the open note
+      <nav><a href="#view-scratchpad">‹ Previous</a><a href="img/search.jpg">The picture on its own</a><a href="#screens">Close</a><a href="#view-calendar">Next ›</a></nav>
+    </figcaption>
+  </figure>
+</div>
+<div class="lightbox" id="view-calendar" role="dialog" aria-label="The calendar, full size">
+  <a class="lightbox-close" href="#shot-calendar" aria-label="Close"></a>
+  <figure>
+    <a href="img/calendar.jpg" title="The picture on its own, to zoom in"><img src="img/calendar.jpg" width="2400" height="1520" loading="lazy" alt="The calendar in Gmail: a week of events and tasks beside a small month, and on a phone the same week as two columns of days"></a>
+    <figcaption>The calendar in Gmail: a week of events and tasks beside a small month, and on a phone the same week as two columns of days
+      <nav><a href="#view-search">‹ Previous</a><a href="img/calendar.jpg">The picture on its own</a><a href="#shot-calendar">Close</a><a href="#view-phone">Next ›</a></nav>
+    </figcaption>
+  </figure>
+</div>
+<div class="lightbox" id="view-phone" role="dialog" aria-label="On a phone, full size">
+  <a class="lightbox-close" href="#shot-phone" aria-label="Close"></a>
+  <figure>
+    <a href="img/phone.jpg" title="The picture on its own, to zoom in"><img src="img/phone.jpg" width="2400" height="1520" loading="lazy" alt="Three phones: the board, the Scratchpad, and the week as two columns of days"></a>
+    <figcaption>Three phones: the board, the Scratchpad, and the week as two columns of days
+      <nav><a href="#view-calendar">‹ Previous</a><a href="img/phone.jpg">The picture on its own</a><a href="#shot-phone">Close</a><a href="#view-hero">Next ›</a></nav>
+    </figcaption>
+  </figure>
+</div>
 
 </body>
 </html>
