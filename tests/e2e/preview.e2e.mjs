@@ -1525,7 +1525,8 @@ try {
     const [mon, tue, fri] = await Promise.all([0, 1, 4].map(i => days.nth(i).boundingBox()));
     assert.ok(tue.y > mon.y && Math.abs(tue.x - mon.x) < 2, 'Tuesday under Monday');
     assert.ok(Math.abs(fri.y - mon.y) < 2 && fri.x > mon.x, 'Friday beside Monday');
-    assert.doesNotMatch(await calTitle(p), /^Week/, 'the days alone, which fit');
+    assert.match(await calTitle(p), /^W\d+ \d+/, 'the week’s number, short, ahead of its days');
+    assert.equal(await p.locator('.cal-title').evaluate(e => e.scrollWidth <= e.clientWidth + 1), true, 'all of it');
     await p.screenshot({ path: join(SCREENS, 'preview-calendar-narrow.png'), animations: 'disabled' });
 
     // The month: a grid of days, a line for each thing on them; a tap on a

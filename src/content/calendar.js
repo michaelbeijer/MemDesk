@@ -106,10 +106,14 @@
       })));
     els.head = h('div', { class: 'cal-head' },
       h('div', { class: 'cal-nav' },
+        // Narrow, a calendar with today's date in it, as on Android: the
+        // word would leave no room for the week's number.
         h('button', {
-          class: 'btn btn-outline cal-today', type: 'button', text: 'Today', dataset: { key: 'cal-today' },
-          title: 'Today (T)', onclick: () => go(cal.dateKey(new Date())),
-        }),
+          class: 'btn btn-outline cal-today', type: 'button', dataset: { key: 'cal-today' },
+          title: 'Today (T)', 'aria-label': 'Today', onclick: () => go(cal.dateKey(new Date())),
+        },
+        h('span', { class: 'today-word', text: 'Today' }),
+        h('span', { class: 'today-icon', 'aria-hidden': 'true' }, icon('calendar', 24), els.todayNum = h('span', { class: 'today-num' }))),
         nav(-1, 'Previous', 'prev'),
         nav(1, 'Next', 'next'),
         // Narrow only: which way the days run in the two columns.
@@ -430,7 +434,16 @@
     els.phoneView.replaceChildren(icon(month ? 'columns' : 'month', 20));
     els.phoneView.title = month ? 'Show the week' : 'Show the month';
     els.phoneView.setAttribute('aria-label', els.phoneView.title);
-    els.title.textContent = cal.title(v, C.anchor, C.today, { short: C.narrow });
+    els.todayNum.textContent = String(Number(C.today.slice(8)));
+    // On a phone the week's number is a small "W41" ahead of its days:
+    // "Week 41 ·" does not fit beside them and the buttons.
+    const title = cal.title(v, C.anchor, C.today, { short: C.narrow });
+    if (C.narrow && v === 'week') {
+      const n = cal.isoWeek(C.anchor);
+      els.title.replaceChildren(h('span', { class: 'cal-wk', text: `W${n}`, title: `Week ${n}` }), ` ${title}`);
+    } else {
+      els.title.textContent = title;
+    }
     for (const b of els.views.children) b.setAttribute('aria-selected', String(b.dataset.view === v));
     const panel = statusPanel();
     els.wrap.classList.toggle('cal-panel', !!panel);

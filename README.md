@@ -442,7 +442,8 @@ in Gmail and the notes follow.
   with a coloured line for each of the first few things on it and "+2" for
   the rest. Tap a day for its week; swipe for the next or previous month;
   the same button goes back to the week. The phone remembers which you last
-  used. To make room, the week's title is its days, without its number.
+  used. To make room, the week's title is its number, short ("W41"), and
+  its days.
 
 ### Storage
 

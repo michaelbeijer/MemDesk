@@ -585,7 +585,10 @@ await r.step('the calendar tab: the week as two columns of days, the month as th
   await q(page, '[data-key="view:calendar"]').tap();
   await q(page, '.cal .ev').first().waitFor();
   assert.equal(await q(page, '.cal').getAttribute('data-narrow'), 'true');
-  assert.match(await calTitle(page), /^\d+( [A-Z][a-z]{2})? – \d+ [A-Z][a-z]{2}/, 'the week’s days, without its number, which would not fit');
+  assert.match(await calTitle(page), /^W\d+ \d+( [A-Z][a-z]{2})? – \d+ [A-Z][a-z]{2}/, 'the week’s number, short, and its days');
+  assert.equal(await q(page, '.cal-title').evaluate(e => e.scrollWidth <= e.clientWidth + 1), true, 'all of it, on a phone');
+  assert.equal(await q(page, '.today-num').innerText(), String(new Date().getDate()), 'Today: a calendar with today’s date in it');
+  assert.equal(await q(page, '[data-key="cal-today"]').getAttribute('aria-label'), 'Today');
   assert.equal(await visible(page, '.cal-views'), false, 'the computer’s views are not the phone’s');
   const days = q(page, '.cal-week > .day:not(.mini-tile)');
   assert.equal(await days.count(), 7);
