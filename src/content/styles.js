@@ -1466,6 +1466,25 @@ button.box { padding: 0; background: none; color: inherit; cursor: pointer; }
 .cal-edit-check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .cal-edit-where { padding: 4px 0; }
 .cal-edit .dialog-body > .note, .cal-edit-part > .note { margin: 0; font-size: 12px; color: var(--fg-3); }
+/* How it repeats: Google's menu, and its Custom panel. */
+.cal-edit [hidden] { display: none !important; }
+.cal-repeat-custom { display: grid; gap: 10px; margin-top: 8px; padding: 12px; border-radius: 12px; background: var(--hover); }
+.cal-every { width: 5em; flex: none; text-align: center; }
+.cal-days { display: flex; gap: 6px; }
+.cal-day-pick {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--fg-2);
+  font-weight: 500;
+  cursor: pointer;
+}
+.cal-day-pick[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.cal-ends { display: grid; gap: 6px; }
+.cal-ends .cal-edit-check { gap: 8px; }
+.cal-ends .text-input { height: 32px; }
 
 /* Month */
 .cal-month { flex: 1; display: flex; flex-direction: column; min-height: 0; }

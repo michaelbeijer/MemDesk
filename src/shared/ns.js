@@ -21,7 +21,7 @@
   const APP_NAME = 'MemDesk';
   // Shown in the logo's menu. The same as manifest.json's (a test says so),
   // for the phone app too, which has no manifest to read it from.
-  const APP_VERSION = '0.24.0';
+  const APP_VERSION = '0.25.0';
 
   // ── Storage keys ─────────────────────────────────────────────────────
   //

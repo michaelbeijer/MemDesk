@@ -334,7 +334,10 @@ test('the calendar in the app: Calendar and Tasks in one round trip, reads only'
 
   // Nothing but the four reads.
   assert.throws(() => p.server('appGoogleMany', [['calendar', 'calendars/primary/acl', {}]]), /not_allowed/);
-  assert.throws(() => p.server('appGoogleMany', [['calendar', 'calendars/primary/events/ev1', {}]]), /not_allowed/);
+  // One event on its own: a repeating event's series, for its rule.
+  const [series] = plain(p.server('appGoogleMany', [['calendar', `calendars/${encodeURIComponent('test@example.com')}/events/standup`, {}]]));
+  assert.deepEqual(series.recurrence, ['RRULE:FREQ=WEEKLY;BYDAY=SA']);
+  assert.throws(() => p.server('appGoogleMany', [['calendar', 'calendars/primary/events/ev1/instances', {}]]), /not_allowed/);
   assert.throws(() => p.server('appGoogleMany', [['gmail', 'profile', {}]]), /not_allowed/);
   assert.throws(() => p.server('appGoogleMany', [['tasks', 'lists/abc/tasks/clear', {}]]), /not_allowed/);
 });

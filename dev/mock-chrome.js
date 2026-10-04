@@ -846,7 +846,11 @@
       ev(FAMILY, 'Choir rehearsal', at(1, 19, 30), at(1, 21, 30)),
       ev(JOBS, 'Call Bram about the office action', at(2, 11), at(2, 11, 30)),
       ev(JOBS, 'Lumenra glossary delivery', at(3, 14), at(3, 15)),
+      // A weekly series: Google's event for it, read only on its own, and
+      // its occurrences, as the calendar lists them (singleEvents).
+      ev(ME, 'Stand-up', at(5, 9), at(5, 9, 15), { id: 'standup', recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=SA'], series: true }),
       ev(ME, 'Stand-up', at(5, 9), at(5, 9, 15), { recurringEventId: 'standup' }),
+      ev(ME, 'Stand-up', at(12, 9), at(12, 9, 15), { recurringEventId: 'standup' }),
       // Organised by someone else, who did not let guests change it.
       ev(FAMILY, 'Pub quiz', at(3, 19, 30), at(3, 22), { organizer: { self: false } }),
       ev(ME, 'Working from home', day(0), day(5), { eventType: 'workingLocation' }),
@@ -881,7 +885,7 @@
       task(ADMIN, 'Back up the TMs', { due: due(-10) }),
     ];
 
-    const strip = ({ calendarId, list, ...rest }) => rest;
+    const strip = ({ calendarId, list, series, ...rest }) => rest;
     const startMs = e => (e.start.dateTime ? Date.parse(e.start.dateTime) : new Date(`${e.start.date}T00:00:00`).getTime());
     const endMs = e => (e.end.dateTime ? Date.parse(e.end.dateTime) : new Date(`${e.end.date}T00:00:00`).getTime());
     const fail = (status, message) => { const err = new Error(message); err.code = `http_${status}`; throw err; };
@@ -914,6 +918,7 @@
             start: timeWith({}, body.start), end: timeWith({}, body.end), etag: version(),
           };
           if (body.location) e.location = body.location;
+          if (body.recurrence && body.recurrence.length) e.recurrence = body.recurrence;
           events.push(e);
           return strip(e);
         }
@@ -923,7 +928,15 @@
         if (method === 'DELETE') {
           e.status = 'cancelled';
           e.etag = version();
+          // A series goes with every occurrence of it.
+          if (e.series) {
+            for (const x of events) if (x.recurringEventId === e.id) { x.status = 'cancelled'; x.etag = version(); }
+          }
           return null;
+        }
+        if ('recurrence' in body) {
+          if (body.recurrence && body.recurrence.length) e.recurrence = body.recurrence;
+          else delete e.recurrence;
         }
         for (const k of ['summary', 'location']) {
           if (!(k in body)) continue;
@@ -980,9 +993,14 @@
         const from = Date.parse(query.timeMin);
         const to = Date.parse(query.timeMax);
         return {
-          items: events.filter(e => e.calendarId === id && startMs(e) < to && endMs(e) > from)
+          items: events.filter(e => !e.series && e.calendarId === id && startMs(e) < to && endMs(e) > from)
             .sort((a, b) => startMs(a) - startMs(b)).map(strip),
         };
+      }
+      if (service === 'calendar' && (mm = /^calendars\/([^/]+)\/events\/([^/]+)$/.exec(path))) {
+        const e = events.find(x => x.calendarId === decodeURIComponent(mm[1]) && x.id === decodeURIComponent(mm[2]));
+        if (!e) fail(404, 'Not Found');
+        return strip(e);
       }
       if (service === 'tasks' && path === 'users/@me/lists') return { items: lists.map(l => Object.assign({ kind: 'tasks#taskList' }, l)) };
       if (service === 'tasks' && (mm = /^lists\/([^/]+)\/tasks$/.exec(path))) {

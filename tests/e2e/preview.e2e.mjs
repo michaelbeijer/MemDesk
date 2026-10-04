@@ -1829,15 +1829,158 @@ try {
     await p.context().close();
   });
 
-  await r.step('calendar: one occurrence of a repeating event says a change is to it alone', async () => {
+  // ── Repeating events ──
+
+  const fakeById = (p, id) => p.evaluate(i => {
+    const e = window.__fakeCalendar.events.find(x => x.id === i);
+    return e ? JSON.parse(JSON.stringify(e)) : null;
+  }, id);
+  const standUp = p => p.locator('.cal-week a.ev', { hasText: 'Stand-up' });
+  const repeatSelect = p => p.locator('[data-key="cal-edit-repeat"]');
+
+  await r.step('calendar: a new event or one that did not repeat is set to repeat - from Google’s menu or a custom rule', async () => {
     const p = await openPage();
     await openCalendar(p);
-    await p.locator('.cal-week a.ev', { hasText: 'Stand-up' }).click();
-    assert.match(await editor(p).innerText(), /It repeats: a change here is to this one only\./);
-    await p.keyboard.press('Escape');
+    const friday = await dayKey(p, 4);
+    await weekDay(p, 4).locator('.day-add').click();
+    await p.keyboard.type('Gym 18:00');
+    const options = await repeatSelect(p).locator('option').allInnerTexts();
+    assert.deepEqual(options, ['Does not repeat', 'Daily', 'Weekly on Friday', 'Monthly on the ' + options[3].split('the ')[1], options[4],
+      'Every weekday (Monday to Friday)', 'Custom…']);
+    assert.match(options[3], /^Monthly on the (first|second|third|fourth|last) Friday$/);
+    await repeatSelect(p).selectOption('weekly');
+    await p.locator('[data-key="cal-edit-save"]').click();
+    await until(async () => !!(await fakeEvent(p, 'Gym')), 'added');
+    const gym = await fakeEvent(p, 'Gym');
+    assert.deepEqual(gym.recurrence, ['RRULE:FREQ=WEEKLY;BYDAY=FR']);
+    assert.ok(gym.start.dateTime.startsWith(`${friday}T18:00`) && gym.start.timeZone, 'with its time zone, as a repeating event needs');
+
+    // Custom: every two weeks on Monday and Thursday, five times.
+    await until(async () => !(await p.evaluate(() => window.gkb.calendar.isLoading())), 'read back');
     await p.locator('.cal-week a.ev', { hasText: 'Lumenra glossary delivery' }).click();
-    assert.doesNotMatch(await editor(p).innerText(), /It repeats/);
+    assert.equal(await repeatSelect(p).inputValue(), 'none');
+    await repeatSelect(p).selectOption('custom');
+    await p.locator('[data-key="cal-edit-every"]').fill('2');
+    for (const d of ['TH', 'MO']) await p.locator(`[data-key="cal-edit-day:${d}"]`).click(); // Thursday was ticked: off, Monday on
+    await p.locator('[data-key="cal-edit-day:TH"]').click();
+    await p.locator('[data-key="cal-edit-ends:after"]').check();
+    await p.locator('[data-key="cal-edit-count"]').fill('5');
+    await p.screenshot({ path: join(SCREENS, 'preview-calendar-repeat.png'), animations: 'disabled' });
+    await p.locator('[data-key="cal-edit-save"]').click();
+    await editor(p).waitFor({ state: 'detached' });
+    await until(async () => (await fakeEvent(p, 'Lumenra glossary delivery')).recurrence, 'it repeats');
+    assert.deepEqual((await fakeEvent(p, 'Lumenra glossary delivery')).recurrence, ['RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,TH;COUNT=5']);
     await p.context().close();
+  });
+
+  await r.step('calendar: an occurrence of a series - this event, or all events, from the series’ first day', async () => {
+    const p = await openPage();
+    await openCalendar(p);
+    const saturday = await dayKey(p, 5);
+    const series = await fakeById(p, 'standup');
+    const occurrence = (await p.evaluate(() => window.__fakeCalendar.events.filter(x => x.recurringEventId === 'standup').map(x => x.id)));
+
+    // This event: the occurrence alone, at its own version.
+    await standUp(p).click();
+    await until(async () => (await repeatSelect(p).inputValue()) === 'weekly', 'the series’ rule, read');
+    assert.equal(await repeatSelect(p).locator('option:checked').innerText(), 'Weekly on Saturday');
+    await p.locator('[data-key="cal-edit-title"]').fill('Stand-up, short one');
+    await p.locator('[data-key="cal-edit-save"]').click();
+    const row = editor(p).locator('.cal-edit-confirm').filter({ hasText: 'for this event only, or for all events' });
+    await row.waitFor();
+    assert.equal(await p.locator('[data-key="cal-edit-scope-one"]').isVisible(), true);
+    await p.locator('[data-key="cal-edit-scope-one"]').click();
+    await editor(p).waitFor({ state: 'detached' });
+    await until(async () => (await fakeById(p, occurrence[0])).summary === 'Stand-up, short one', 'this one');
+    assert.equal((await fakeById(p, occurrence[1])).summary, 'Stand-up', 'not next week’s');
+    assert.equal((await fakeById(p, 'standup')).summary, 'Stand-up', 'nor the series');
+    let [sent] = (await sentChanges(p)).slice(-1);
+    assert.equal(sent.path, `calendars/${encodeURIComponent(series.calendarId)}/events/${occurrence[0]}`);
+    assert.ok(!('recurrence' in sent.body), 'an occurrence has no rule of its own');
+
+    // All events, from next week's: the series moves to 09:30 from its first day.
+    await p.keyboard.press('j');
+    await standUp(p).waitFor();
+    await standUp(p).click();
+    await until(async () => (await repeatSelect(p).inputValue()) === 'weekly', 'read');
+    await p.locator('[data-key="cal-edit-title"]').fill('Team stand-up');
+    await p.locator('[data-key="cal-edit-start-time"]').fill('09:30');
+    await p.locator('[data-key="cal-edit-end-time"]').fill('09:45');
+    await p.locator('[data-key="cal-edit-save"]').click();
+    await p.locator('[data-key="cal-edit-scope-all"]').click();
+    await editor(p).waitFor({ state: 'detached' });
+    await until(async () => (await fakeById(p, 'standup')).summary === 'Team stand-up', 'the series');
+    const after = await fakeById(p, 'standup');
+    assert.ok(after.start.dateTime.startsWith(`${saturday}T09:30`), `from its first day: ${after.start.dateTime}`);
+    assert.deepEqual(after.recurrence, ['RRULE:FREQ=WEEKLY;BYDAY=SA'], 'the rule kept');
+    [sent] = (await sentChanges(p)).slice(-1);
+    assert.equal(sent.path, `calendars/${encodeURIComponent(series.calendarId)}/events/standup`);
+    assert.equal(sent.etag, series.etag, 'at the version it was read at');
+    await p.context().close();
+  });
+
+  await r.step('calendar: a new rule is for all events; stopping a series waits out an Undo', async () => {
+    const p = await openPage();
+    await openCalendar(p);
+    await standUp(p).click();
+    await until(async () => (await repeatSelect(p).inputValue()) === 'weekly', 'read');
+    await repeatSelect(p).selectOption('daily');
+    await p.locator('[data-key="cal-edit-save"]').click();
+    await until(async () => /how it repeats is for all events/.test(await editor(p).locator('.cal-edit-confirm').first().innerText()), 'it says so');
+    assert.equal(await p.locator('[data-key="cal-edit-scope-one"]').isVisible(), false, 'not for one event');
+    await p.locator('[data-key="cal-edit-scope-all"]').click();
+    await until(async () => JSON.stringify((await fakeById(p, 'standup')).recurrence) === '["RRULE:FREQ=DAILY"]', 'daily now');
+
+    // Stop it repeating: asked, then an Undo, then Google.
+    await until(async () => !(await p.evaluate(() => window.gkb.calendar.isLoading())), 'read back');
+    await standUp(p).first().click();
+    await until(async () => (await repeatSelect(p).inputValue()) === 'daily', 'read');
+    await repeatSelect(p).selectOption('none');
+    await p.locator('[data-key="cal-edit-save"]').click();
+    await until(async () => /It will stop repeating: the other events in the series go/.test(await editor(p).locator('.cal-edit-confirm').first().innerText()), 'warned');
+    const before = (await sentChanges(p)).length;
+    await p.locator('[data-key="cal-edit-scope-all"]').click();
+    await p.locator('.toast', { hasText: 'will stop repeating' }).locator('.toast-action').click();
+    await p.waitForTimeout(9500);
+    assert.equal((await sentChanges(p)).length, before, 'undone: nothing sent');
+    await standUp(p).first().click();
+    await until(async () => (await repeatSelect(p).inputValue()) === 'daily', 'read');
+    await repeatSelect(p).selectOption('none');
+    await p.locator('[data-key="cal-edit-save"]').click();
+    await p.locator('[data-key="cal-edit-scope-all"]').click();
+    await until(async () => !(await fakeById(p, 'standup')).recurrence, 'no longer repeating', 13000);
+    await p.context().close();
+  });
+
+  await r.step('calendar: deleting an occurrence - this event, or the whole series, after its Undo', async () => {
+    const p = await openPage();
+    await openCalendar(p);
+    const series = await fakeById(p, 'standup');
+    await standUp(p).click();
+    await p.locator('[data-key="cal-edit-delete"]').click();
+    assert.match(await editor(p).locator('.cal-edit-confirm').last().innerText(), /this event only, or every event in the series\?/);
+    await until(async () => (await p.locator('[data-key="cal-edit-delete-all"]').getAttribute('aria-disabled')) === 'false', 'the series read');
+    await p.locator('[data-key="cal-edit-delete-all"]').click();
+    assert.equal(await standUp(p).count(), 0, 'gone from the screen at once');
+    await p.keyboard.press('j');
+    await p.locator('.cal-week .day[data-day]').first().waitFor();
+    assert.equal(await standUp(p).count(), 0, 'next week’s too');
+    await until(async () => (await fakeById(p, 'standup')).status === 'cancelled', 'the series deleted in Google', 13000);
+    const [sent] = (await sentChanges(p)).slice(-1);
+    assert.deepEqual(sent, { method: 'DELETE', path: `calendars/${encodeURIComponent(series.calendarId)}/events/standup`, body: null, etag: series.etag });
+    await p.context().close();
+
+    // A series that cannot be read: this event only, and it says so.
+    const q = await openPage();
+    await openCalendar(q);
+    await q.evaluate(() => { const f = window.__fakeCalendar; f.events.splice(f.events.findIndex(x => x.id === 'standup'), 1); });
+    await standUp(q).click();
+    await until(async () => /the series could not be read/.test(await editor(q).innerText()), 'it says so');
+    await q.locator('[data-key="cal-edit-save"]').click();
+    assert.equal(await q.locator('[data-key="cal-edit-scope-all"]').getAttribute('aria-disabled'), 'true');
+    await q.locator('[data-key="cal-edit-scope-one"]').click();
+    await editor(q).waitFor({ state: 'detached' });
+    await q.context().close();
   });
 
   await r.step('calendar: the week as two rows, Monday to Thursday above Friday to Sunday, remembered; wide and in the week only', async () => {
