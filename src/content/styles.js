@@ -1377,6 +1377,175 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .scratch-tile .ne-linkbar, .scratch-tile .ne-tablebar { margin: 0 0 6px; }
 .scratch-tile .ne-linkbar .text-input { min-width: 0; }
 .sunday .day-head, .sunday .day-head .dname, .mcell.sunday:not(.today) .mday, .aday.sunday .aday-date { color: var(--c-red); }
+
+/* The week by the hour: one grid that scrolls, the days' heads and their
+   all-day rows held at the top, the hours down the side. --hour is an
+   hour's height; whatever is in the hours is placed by minutes after
+   midnight (--from, --to) and, side by side, as --col of --cols. */
+.cal-week.hours {
+  --hour: 48px;
+  --head: 42px;
+  --allday: calc(var(--allday-rows, 1) * 25px + 9px);
+  --gutter: 60px;
+  display: grid;
+  grid-template-columns: var(--gutter) repeat(7, minmax(0, 1fr));
+  align-content: start;
+  gap: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.cal-week.hours[data-zones="2"] { --gutter: 108px; }
+.cal-week.hours .day,
+.cal-week.hours .day.today {
+  --day-bg: var(--surface);
+  display: block;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--day-bg);
+}
+.cal-week.hours .day.weekend { --day-bg: color-mix(in srgb, var(--surface) 55%, var(--col)); }
+.cal-week.hours .day-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: var(--head);
+  margin: 0;
+  padding: 0 6px 0 10px;
+  background: var(--day-bg);
+}
+.cal-week.hours .day.today .dnum {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  border-radius: 13px;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.cal-week.hours .day.today .badge { display: none; }
+.cal-week.hours .grid-allday {
+  position: sticky;
+  top: var(--head);
+  z-index: 3;
+  height: var(--allday);
+  overflow-y: auto;
+  padding: 4px;
+  gap: 3px;
+  background: var(--day-bg);
+  border-bottom: 1px solid var(--border);
+}
+.cal-week.hours .grid-allday .item .t { -webkit-line-clamp: 1; }
+.grid-body {
+  position: relative;
+  height: calc(24 * var(--hour));
+  background-image: linear-gradient(var(--border) 1px, transparent 1px);
+  background-size: 100% var(--hour);
+}
+.grid-body > .timed,
+.grid-body > .grid-resize,
+.drop-ghost {
+  position: absolute;
+  left: calc(var(--col, 0) * (100% - 8px) / var(--cols, 1) + 2px);
+  width: calc((100% - 8px) / var(--cols, 1) - 2px);
+}
+.grid-body > .timed,
+.drop-ghost {
+  top: calc(var(--from) * var(--hour) / 60 + 1px);
+  height: calc((var(--to) - var(--from)) * var(--hour) / 60 - 2px);
+}
+.cal-week.hours .timed {
+  z-index: 1;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0;
+  overflow: hidden;
+  padding: 2px 6px;
+  background-color: color-mix(in srgb, var(--c, var(--accent)) 22%, var(--surface));
+}
+.cal-week.hours .timed .t { flex: none; font-weight: 500; }
+.cal-week.hours .timed .time { font-size: 11.5px; }
+.cal-week.hours .timed.short { flex-direction: row; align-items: baseline; gap: 6px; min-height: 16px; padding-top: 0; padding-bottom: 0; font-size: 11.5px; line-height: 14px; }
+.cal-week.hours .timed.short .t { flex: 0 1 auto; -webkit-line-clamp: 1; }
+.cal-week.hours .timed.short .time { flex: none; }
+.cal-week.hours .timed.resizing { z-index: 2; box-shadow: var(--shadow-1); }
+/* The bottom edge of an event that can be changed: dragged, its end.
+   The last few pixels of it as shown (a short one is shown taller than
+   it is), so that the rest can still be clicked and dragged. */
+.grid-body > .grid-resize {
+  z-index: 2;
+  top: calc(max(var(--to) * var(--hour) / 60 - 1px, var(--from) * var(--hour) / 60 + 17px) - 5px);
+  height: 5px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+/* Where a dragged event would go, and now. */
+.drop-ghost {
+  z-index: 2;
+  padding: 1px 6px;
+  border: 2px dashed var(--accent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 500;
+  pointer-events: none;
+}
+.now-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--from) * var(--hour) / 60 - 1px);
+  z-index: 2;
+  height: 2px;
+  background: var(--c-red);
+  pointer-events: none;
+}
+.now-line::before {
+  content: "";
+  position: absolute;
+  left: -5px;
+  top: -4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--c-red);
+}
+/* The hours down the side, in one or two time zones. */
+.grid-corner {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  height: calc(var(--head) + var(--allday));
+  display: flex;
+  align-items: flex-end;
+  padding: 0 4px 4px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.grid-zones {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  height: 26px;
+  padding: 0 4px 0 2px;
+  border-radius: 8px;
+  color: var(--fg-3);
+  font-size: 10.5px;
+}
+.grid-zones:hover { background: var(--hover); color: var(--fg); }
+.grid-zones span { flex: 1; text-align: right; white-space: nowrap; }
+.grid-zones .icon { flex: none; }
+.grid-hours { display: grid; grid-template-rows: repeat(24, var(--hour)); }
+.grid-hour { display: flex; gap: 2px; padding: 0 8px 0 4px; font-size: 11px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.grid-hour span { flex: 1; height: max-content; text-align: right; transform: translateY(-50%); }
+.grid-hour .other, .grid-zones .other { opacity: .7; }
 .badge { padding: 1px 7px; border-radius: 9px; background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 500; }
 .day.past .item { opacity: .78; }
 .mini-tile { display: none; }

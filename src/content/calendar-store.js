@@ -107,11 +107,17 @@
     return write('tasks', 'PATCH', cal.taskPath(item), cal.tickBody(done));
   }
 
-  function move(item, fromDay, toDay, timeZone) {
-    const body = cal.moveBody(item, fromDay, toDay, timeZone);
+  // `startMin`: dropped at a time of day in the week by the hour.
+  function move(item, fromDay, toDay, timeZone, startMin) {
+    const body = cal.moveBody(item, fromDay, toDay, timeZone, startMin);
     return item.kind === 'task'
       ? write('tasks', 'PATCH', cal.taskPath(item), body)
       : write('calendar', 'PATCH', cal.eventPath(item), body, item.etag);
+  }
+
+  // Its bottom edge dragged in the week by the hour: a new end.
+  function resize(item, end, timeZone) {
+    return write('calendar', 'PATCH', cal.eventPath(item), cal.resizeBody(item, end, timeZone), item.etag);
   }
 
   // What the editor holds: a change to `item`, or a new one when there is
@@ -162,5 +168,5 @@
     return write('calendar', 'DELETE', seriesPath(item, s), undefined, s.etag);
   }
 
-  ns.calendarStore = { loadSources, loadRange, forget, tick, move, save, remove, series, saveSeries, removeSeries, SIGN_IN };
+  ns.calendarStore = { loadSources, loadRange, forget, tick, move, resize, save, remove, series, saveSeries, removeSeries, SIGN_IN };
 })();

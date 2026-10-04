@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.25.0" src="https://img.shields.io/badge/version-0.25.0-6D28D9">
+  <img alt="Version 0.26.0" src="https://img.shields.io/badge/version-0.26.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -78,15 +78,18 @@ a find bar to step from one to the next.
 ### 📅 Your week, tasks and all
 
 A third tab: your Google Calendar with Google Tasks woven into it. The week
-as seven columns or as two rows, the month, or the next four weeks as one
-list. A task with
+by the hour, as in Google Calendar (with a second time zone beside yours if
+you like), or as two rows; the month, or the next four weeks as one list. A
+task with
 a date sits in its day, ready to tick; the ones without a date, and any that
 are overdue, wait at the side; a task made from an email opens the email.
 Every calendar and task list shows or hides with one click. On the phone it is
 the week as two columns of days, with the month as the eighth, swiped to the
 next week. And it works both ways: open an event and change it, tick a task
-off, drag either to another day, or press **+** on a day and type "Dentist
-14:30" - it all goes straight to Google Calendar and Google Tasks.
+off, drag either to another day or an event to another time, drag an
+event's bottom edge to change when it ends, click an empty hour to add one,
+or press **+** on a day and type "Dentist 14:30" - it all goes straight to
+Google Calendar and Google Tasks.
 
 <img src="images/calendar.jpg" width="100%" alt="The calendar in Gmail: a week of events and tasks beside a small month, the calendars and the tasks with no date; on a phone, the same week as two columns of days">
 
@@ -133,7 +136,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.25.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.26.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -346,12 +349,22 @@ in Gmail and the notes follow.
   the board and the notes never needed it, and keep working whatever you
   answer. (Connected before 0.24.0, when it only read? Then it asks once
   more, the first time you change something.)
-- **Week, Month, Agenda** at the top right. The week is seven columns, without
-  an hour grid: the times are on the items, on the 24-hour clock (09:30,
-  19:30). The button just left of **Week**
-  turns it into two rows instead, Monday to Thursday above Friday to Sunday,
-  which gives each day more room across; this computer remembers which you
-  chose. The space left over, beside Sunday, holds the **Scratchpad**: the
+- **Week, Month, Agenda** at the top right. The week is by the hour, as in
+  Google Calendar, on the 24-hour clock (09:30, 19:30): seven columns of
+  days beside the hours, each day's all-day events and tasks along its top,
+  the rest where they happen, side by side when they overlap, and a red line
+  for now. It opens at seven in the morning, scrolls, and keeps its place as
+  things change.
+- **A second time zone**: the corner above the hours names yours ("GMT+2").
+  Click it to add a second one, whose hours show beside yours - New York,
+  say, or London - and click it again to change it or take it away. This
+  computer remembers it. In a week when only one of the two puts its clocks
+  forward or back, the second one's hours are those of today (or of the
+  week's Monday), so they are an hour out on the days before the change.
+- **Two rows**: the button just left of **Week**
+  turns the week into two rows instead, Monday to Thursday above Friday to
+  Sunday, without the hours, which gives each day more room across; this
+  computer remembers which you chose. The space left over, beside Sunday, holds the **Scratchpad**: the
   same note as in Notes, typed into right there. It saves as you type (or
   with Ctrl+S) and takes the same keys and typed lists, without the
   toolbar. What you type in one place is there in the other when you switch
@@ -382,13 +395,22 @@ in Gmail and the notes follow.
 - **Tick a task off** with its box, and again to undo; click its title for the
   editor (title, day or none, done). A task made from an email (with an
   envelope) opens that email on a Ctrl-click.
-- **Drag** an event or a task to another day: an event keeps its times, a
-  task gets the new day. Drag a task onto the tasks with no date to take its
-  day away.
+- **Drag** an event or a task to another day. Dropped on a day's name, an
+  event keeps its times; dropped in the hours, it starts where its top is let
+  go, to the quarter hour, and keeps its length - on the same day too. While
+  you drag, a dashed box shows where it will go. A task gets the new day.
+  Drag a task onto the tasks with no date to take its day away.
+- **The bottom edge** of an event in the hours: drag it up or down to change
+  when the event ends, in quarter hours (a quarter of an hour long at
+  least). Meetings you may not change have no edge and do not move.
+- **One event of a series**, dragged or made longer, changes that event only,
+  as in Google Calendar; open it to change all of them.
 - **The +** on a day adds to it. Type "Dentist 14:30" and it is an event at
   that time (an hour long; "9:15-10:00" gives both); "Pay the invoice", with no
   time, a task due that day. Or choose **Event** or **Task** yourself. A new
   event goes in your main calendar, unless you pick another.
+- **Click an empty half hour** in the week: the editor opens on a new event
+  there, an hour long. Type its title and press Enter.
 - **Delete** is in the editor, and asks first, naming what and from which
   calendar. Then it goes from the screen, with an **Undo** for eight
   seconds, and only after that is Google asked to delete it: close the tab
@@ -723,9 +745,11 @@ npm run test:app              # (c) the phone app at a phone's size
   creation. It checks the fake mailbox's labels after each step. And the
   calendar, against a fake Calendar and Tasks: the week, month and agenda,
   the keys, showing and hiding sources, connecting it, Tasks not allowed, and
-  the narrow week; and changing it: the editor, ticking, dragging, adding,
-  deleting with its Undo, and every change refused that should be (changed
-  in Google meanwhile, not allowed yet, failing).
+  the narrow week; the week by the hour and its second time zone; and
+  changing it: the editor, ticking, dragging to a day and to a time, an
+  event's bottom edge, adding (with the + and in the hours), deleting with
+  its Undo, and every change refused that should be (changed in Google
+  meanwhile, not allowed yet, failing).
 - (b) starts Chromium with `--load-extension`. It tries new headless first and
   falls back to `xvfb-run` if the service worker does not appear. It checks the
   worker, the extension ID, the setup page, the allow-lists, and that the content

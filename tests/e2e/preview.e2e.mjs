@@ -1383,7 +1383,7 @@ try {
     const ys = await days.evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().top)));
     assert.equal(new Set(ys).size, 1, 'seven columns side by side');
     assert.equal(await p.locator('.mini-tile').isVisible(), false, 'the small month is in the sidebar instead');
-    assert.equal(await p.locator('.cal-week .day.today .badge').innerText(), 'today');
+    assert.equal(await p.locator('.cal-week .day.today .badge').textContent(), 'today', 'named, for a screen reader; by the hour, its date is ringed');
 
     const text = await weekText(p);
     for (const t of ['Kestrel Medical: kick-off call', 'Lumenra glossary delivery', 'Grandma’s birthday', 'Quote for Ingrid', 'Proofread the IFU']) {
@@ -1392,7 +1392,7 @@ try {
     for (const t of ['Working from home', 'Cancelled: weekly sync', 'Old and deleted']) assert.ok(!text.includes(t), `not ${t}`);
     assert.equal(await p.locator('.task.done').filter({ hasText: 'Proofread the IFU' }).count(), 1);
     const kickOff = p.locator('.cal-week .ev').filter({ hasText: 'Kestrel Medical: kick-off call' });
-    assert.equal(await kickOff.locator('.time').innerText(), '09:30', 'the 24-hour clock, whatever the browser’s language');
+    assert.equal(await kickOff.locator('.time').innerText(), '09:30 – 10:15', 'the 24-hour clock, whatever the browser’s language');
 
     // Each links to where it lives in Google, in a tab of its own (Ctrl-click;
     // a plain click opens the editor). A task's box is a button of its own.
@@ -1575,7 +1575,7 @@ try {
     assert.equal(sent.method, 'PATCH');
     assert.equal(sent.etag, before.etag, 'the version it was read at');
     assert.deepEqual(Object.keys(sent.body).sort(), ['end', 'location', 'start', 'summary'], 'nothing but what the editor edits');
-    await until(async () => /15:30\s+Lumenra glossary: final delivery/.test(await weekDay(p, 3).innerText()), 'on screen as Google has it');
+    await until(async () => /Lumenra glossary: final delivery\s+15:30 – 16:15/.test(await weekDay(p, 3).innerText()), 'on screen as Google has it');
     await p.context().close();
   });
 
@@ -1626,11 +1626,11 @@ try {
     await p.context().close();
   });
 
-  await r.step('calendar: dragged to another day - an event keeps its time, a task gets the day, or none in the tray', async () => {
+  await r.step('calendar: dragged to another day’s head - an event keeps its time, a task gets the day, or none in the tray', async () => {
     const p = await openPage();
     await openCalendar(p);
     const [monday, tuesday, wednesday, friday] = await Promise.all([0, 1, 2, 4].map(o => dayKey(p, o)));
-    await p.locator('.cal-week a.ev', { hasText: 'Kestrel Medical: kick-off call' }).dragTo(weekDay(p, 4));
+    await p.locator('.cal-week a.ev', { hasText: 'Kestrel Medical: kick-off call' }).dragTo(weekDay(p, 4).locator('.day-head'));
     await until(async () => (await fakeEvent(p, 'Kestrel Medical: kick-off call')).start.dateTime.startsWith(`${friday}T09:30`), 'Friday, still 09:30');
     assert.ok((await fakeEvent(p, 'Kestrel Medical: kick-off call')).end.dateTime.startsWith(`${friday}T10:15`));
     await until(async () => (await weekDay(p, 4).innerText()).includes('Kestrel Medical'), 'on Friday');
@@ -1651,13 +1651,287 @@ try {
 
     // Twice, before Google's answer to the first is read back: the second
     // names the version the first made, so no false "changed meanwhile".
-    await weekDay(p, 2).locator('a.ev', { hasText: 'Call Bram' }).dragTo(weekDay(p, 0));
-    await weekDay(p, 0).locator('a.ev', { hasText: 'Call Bram' }).dragTo(weekDay(p, 1));
+    await weekDay(p, 2).locator('a.ev', { hasText: 'Call Bram' }).dragTo(weekDay(p, 0).locator('.day-head'));
+    await weekDay(p, 0).locator('a.ev', { hasText: 'Call Bram' }).dragTo(weekDay(p, 1).locator('.day-head'));
     await until(async () => (await fakeEvent(p, 'Call Bram about the office action')).start.dateTime.startsWith(`${tuesday}T11:00`), 'Tuesday');
     await until(async () => !(await p.evaluate(() => window.gkb.calendar.isLoading())), 'read back');
     assert.equal(await p.locator('.toast-error').count(), 0, 'no error');
     assert.ok((await weekDay(p, 1).innerText()).includes('Call Bram'));
     assert.ok(!(await weekDay(p, 0).innerText()).includes('Call Bram'), `not ${monday}`);
+    await p.context().close();
+  });
+
+  // ── The week by the hour ──
+
+  // Where a time of day is on a day's hours, on the page; and where an
+  // event is on them, in minutes after midnight.
+  const hourPoint = async (p, i, minutes, dx = 0.5) => {
+    const box = await weekDay(p, i).locator('.grid-body').boundingBox();
+    const at = { x: box.x + box.width * dx, y: box.y + box.height * minutes / 1440 };
+    const view = p.viewportSize();
+    assert.ok(at.y > 0 && at.y < view.height, `${minutes} minutes is on screen`);
+    return at;
+  };
+  const minutesOf = (p, el) => el.evaluate(e => {
+    const body = e.closest('.grid-body').getBoundingClientRect();
+    const b = e.getBoundingClientRect();
+    const m = y => Math.round((y - body.top) / body.height * 1440);
+    return { from: m(b.top), to: m(b.bottom), left: Math.round(b.left), width: Math.round(b.width) };
+  });
+
+  await r.step('calendar: by the hour - events where they happen, all-day ones and tasks above, the line for now, and a second time zone', async () => {
+    const p = await openPage();
+    await openCalendar(p);
+    assert.equal(await p.locator('.cal-week.hours').count(), 1, 'wide, the week is by the hour');
+    assert.equal(await p.locator('.grid-hour').count(), 24);
+    const week = p.locator('.cal-week');
+    const hour = await weekDay(p, 0).locator('.grid-body').evaluate(e => e.offsetHeight / 24);
+    assert.ok(Math.abs(await week.evaluate(e => e.scrollTop) - hour * 6.75) < 2, 'it opens at seven in the morning');
+
+    const kickOff = await minutesOf(p, weekDay(p, 1).locator('a.ev', { hasText: 'Kestrel Medical' }));
+    assert.ok(Math.abs(kickOff.from - 570) <= 2 && Math.abs(kickOff.to - 615) <= 3, `09:30 to 10:15: ${JSON.stringify(kickOff)}`);
+    assert.equal(await weekDay(p, 6).locator('.grid-allday', { hasText: 'Grandma’s birthday' }).count(), 1, 'all day: above the hours');
+    assert.equal(await weekDay(p, 4).locator('.grid-allday .task', { hasText: 'Quote for Ingrid' }).count(), 1, 'a task: above the hours');
+    assert.equal(await p.locator('.grid-body .task, .grid-body .all-day').count(), 0, 'neither in the hours');
+    assert.equal(await p.locator('.now-line').count(), 1);
+    assert.equal(await p.locator('.day.today .now-line').count(), 1, 'the line for now, today only');
+    // Held at the top while the hours scroll.
+    await week.evaluate(e => { e.scrollTop = e.scrollHeight; });
+    const head = await weekDay(p, 0).locator('.day-head').boundingBox();
+    const weekBox = await week.boundingBox();
+    assert.ok(Math.abs(head.y - weekBox.y) < 3, 'the days’ heads stay put');
+    assert.ok((await p.locator('.grid-corner').boundingBox()).y - weekBox.y < 3);
+    await week.evaluate((e, top) => { e.scrollTop = top; }, hour * 6.75);
+
+    // A second time zone, beside your own.
+    const zones = p.locator('[data-key="cal-zones"]');
+    assert.equal(await zones.getAttribute('aria-label'), 'Add a second time zone');
+    await zones.click();
+    await p.locator('.cal-zones').waitFor();
+    await p.locator('[data-key="cal-zone2"]').selectOption('America/New_York');
+    await p.locator('[data-key="cal-zones-done"]').click();
+    await until(async () => (await p.locator('.grid-zones span').count()) === 2, 'two time zones');
+    // New York's hour and offset on the day the hours are worked out for:
+    // today, in this week.
+    const want = await p.evaluate(() => {
+      const now = new Date();
+      const at = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9);
+      const f = o => new Intl.DateTimeFormat('en-GB', Object.assign({ timeZone: 'America/New_York' }, o));
+      return [f({ hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at),
+        f({ timeZoneName: 'shortOffset' }).formatToParts(at).find(x => x.type === 'timeZoneName').value];
+    });
+    assert.match(want[1], /^GMT-[45]$/);
+    const nine = await p.locator('.grid-hour').nth(9).evaluate(e => [...e.children].map(x => x.textContent));
+    assert.deepEqual(nine, [want[0], '09:00'], 'the second time zone’s hour beside your own');
+    assert.equal(await p.locator('.grid-zones .other').innerText(), want[1]);
+    assert.equal(await p.evaluate(async () => (await chrome.storage.local.get('pref:test@example.com:calendarZone2'))['pref:test@example.com:calendarZone2']), 'America/New_York', 'remembered');
+    await p.screenshot({ path: join(SCREENS, 'preview-calendar-hours.png'), animations: 'disabled' });
+    await zones.click();
+    await p.locator('[data-key="cal-zone2"]').selectOption('');
+    await p.locator('[data-key="cal-zones-done"]').click();
+    await until(async () => (await p.locator('.grid-zones span').count()) === 1, 'one again');
+    assert.equal(await p.locator('.cal-zones').count(), 0);
+    await p.context().close();
+
+    // A time zone that is no such thing is not used.
+    const q = await openPage();
+    await q.evaluate(() => chrome.storage.local.set({ 'pref:test@example.com:calendarZone2': 'Mars/Olympus_Mons' }));
+    await openCalendar(q);
+    assert.equal(await q.locator('.grid-zones span').count(), 1);
+    await q.context().close();
+  });
+
+  await r.step('calendar: by the hour - dragged to another time, in quarter hours, an event keeps its length; overlapping ones go side by side', async () => {
+    const p = await openPage();
+    await openCalendar(p);
+    const [tuesday, thursday] = await Promise.all([1, 3].map(o => dayKey(p, o)));
+    const kickOff = () => p.locator('.cal-week a.ev', { hasText: 'Kestrel Medical: kick-off call' });
+    // Held 6px down from its top, let go 6px below 15:00 on Thursday.
+    const from = await kickOff().boundingBox();
+    const to = await hourPoint(p, 3, 15 * 60);
+    await p.mouse.move(from.x + 20, from.y + 6);
+    await p.mouse.down();
+    await p.mouse.move(to.x, to.y + 10, { steps: 4 });
+    await p.mouse.move(to.x, to.y + 6, { steps: 2 });
+    const ghost = p.locator('.drop-ghost');
+    await ghost.waitFor();
+    assert.equal(await ghost.innerText(), '15:00 – 15:45', 'where it would go, shown while dragging');
+    await p.mouse.up();
+    await until(async () => (await fakeEvent(p, 'Kestrel Medical: kick-off call')).start.dateTime.startsWith(`${thursday}T15:00`), 'Thursday at 15:00');
+    assert.ok((await fakeEvent(p, 'Kestrel Medical: kick-off call')).end.dateTime.startsWith(`${thursday}T15:45`), 'still three quarters of an hour');
+    assert.equal(await ghost.count(), 0);
+    const sent = (await sentChanges(p)).at(-1);
+    assert.deepEqual([sent.method, Object.keys(sent.body).sort().join(), !!sent.etag], ['PATCH', 'end,start', true], 'its times only, at the version read');
+
+    // The same day, later: to the nearest quarter hour.
+    await until(async () => !(await p.evaluate(() => window.gkb.calendar.isLoading())), 'read back');
+    const now = await kickOff().boundingBox();
+    const later = await hourPoint(p, 3, 16 * 60 + 20);
+    await p.mouse.move(now.x + 20, now.y + 6);
+    await p.mouse.down();
+    await p.mouse.move(later.x, later.y + 10, { steps: 4 });
+    await p.mouse.move(later.x, later.y + 6, { steps: 2 });
+    await p.mouse.up();
+    await until(async () => (await fakeEvent(p, 'Kestrel Medical: kick-off call')).start.dateTime.startsWith(`${thursday}T16:15`), '16:15, not 16:20');
+    assert.ok(!(await weekDay(p, 1).innerText()).includes('Kestrel Medical'), `not on ${tuesday}`);
+
+    // Let go where it already is: nothing is sent.
+    await until(async () => !(await p.evaluate(() => window.gkb.calendar.isLoading())), 'read back');
+    const count = (await sentChanges(p)).length;
+    const here = await kickOff().boundingBox();
+    await p.mouse.move(here.x + 20, here.y + 6);
+    await p.mouse.down();
+    await p.mouse.move(here.x + 24, here.y + 9, { steps: 3 });
+    await p.mouse.move(here.x + 20, here.y + 7, { steps: 2 });
+    await p.mouse.up();
+    await p.waitForTimeout(300);
+    assert.equal((await sentChanges(p)).length, count, 'nothing sent');
+
+    // Lumenra's delivery is 14:00 to 15:00 that day: dropped at 14:30,
+    // the two share the hour, side by side.
+    const lumenra = p.locator('.cal-week a.ev', { hasText: 'Lumenra glossary delivery' });
+    const k = await kickOff().boundingBox();
+    const half = await hourPoint(p, 3, 14 * 60 + 30);
+    await p.mouse.move(k.x + 20, k.y + 6);
+    await p.mouse.down();
+    await p.mouse.move(half.x, half.y + 10, { steps: 4 });
+    await p.mouse.move(half.x, half.y + 6, { steps: 2 });
+    await p.mouse.up();
+    await until(async () => (await fakeEvent(p, 'Kestrel Medical: kick-off call')).start.dateTime.startsWith(`${thursday}T14:30`), '14:30');
+    await until(async () => !(await p.evaluate(() => window.gkb.calendar.isLoading())), 'read back');
+    const [a, b] = [await minutesOf(p, lumenra), await minutesOf(p, kickOff())];
+    assert.ok(b.left >= a.left + a.width - 2, `side by side: ${JSON.stringify([a, b])}`);
+    assert.ok(Math.abs(a.width - b.width) < 3, 'half each');
+    assert.equal(await p.locator('.toast-error').count(), 0, 'no error');
+    await p.context().close();
+  });
+
+  await r.step('calendar: by the hour - an event’s bottom edge changes when it ends; a click on an empty half hour adds one there', async () => {
+    const p = await openPage();
+    await openCalendar(p);
+    const [monday, thursday, friday] = await Promise.all([0, 3, 4].map(o => dayKey(p, o)));
+    const edge = p.locator('.grid-resize[title*="Lumenra glossary delivery"]');
+    const was = await fakeEvent(p, 'Lumenra glossary delivery');
+    const e = await edge.boundingBox();
+    const end = await hourPoint(p, 3, 16 * 60 + 30);
+    await p.mouse.move(e.x + e.width / 2, e.y + e.height / 2);
+    await p.mouse.down();
+    await p.mouse.move(end.x, end.y - 20, { steps: 4 });
+    await p.mouse.move(end.x, end.y + 3, { steps: 2 });
+    assert.equal(await p.locator('.cal-week a.ev', { hasText: 'Lumenra glossary delivery' }).locator('.time').innerText(), '14:00 – 16:30', 'the new end, shown while dragging');
+    await p.mouse.up();
+    await until(async () => (await fakeEvent(p, 'Lumenra glossary delivery')).end.dateTime.startsWith(`${thursday}T16:30`), 'ends at 16:30');
+    assert.deepEqual((await fakeEvent(p, 'Lumenra glossary delivery')).start, was.start, 'still starts at 14:00');
+    const sent = (await sentChanges(p)).at(-1);
+    assert.deepEqual([sent.method, Object.keys(sent.body).join(), !!sent.etag], ['PATCH', 'end', true], 'its end only, at the version read');
+    assert.equal(await editor(p).count(), 0, 'letting go of the edge opens nothing');
+    await until(async () => !(await p.evaluate(() => window.gkb.calendar.isLoading())), 'read back');
+    const span = await minutesOf(p, p.locator('.cal-week a.ev', { hasText: 'Lumenra glossary delivery' }));
+    assert.ok(Math.abs(span.to - 990) <= 3, `to 16:30 on screen: ${JSON.stringify(span)}`);
+
+    // Not before a quarter of an hour after it starts.
+    const e2 = await edge.boundingBox();
+    const up = await hourPoint(p, 3, 13 * 60);
+    await p.mouse.move(e2.x + e2.width / 2, e2.y + e2.height / 2);
+    await p.mouse.down();
+    await p.mouse.move(up.x, up.y, { steps: 6 });
+    await p.mouse.up();
+    await until(async () => (await fakeEvent(p, 'Lumenra glossary delivery')).end.dateTime.startsWith(`${thursday}T14:15`), 'a quarter of an hour, at least');
+
+    // The button let go where the page never heard it (outside the
+    // window): nothing changes, then or at the next click.
+    await until(async () => !(await p.evaluate(() => window.gkb.calendar.isLoading())), 'read back');
+    const sentBefore = (await sentChanges(p)).length;
+    const lost = await edge.evaluate((el, y) => {
+      const r = el.getBoundingClientRect();
+      const at = (type, clientY, buttons) => ({ bubbles: true, cancelable: true, pointerId: 7, button: type === 'pointerdown' ? 0 : -1, buttons, clientX: r.left + 10, clientY });
+      el.dispatchEvent(new PointerEvent('pointerdown', at('pointerdown', r.top + 2, 1)));
+      window.dispatchEvent(new PointerEvent('pointermove', at('pointermove', y, 1)));
+      const during = el.parentNode.querySelector('.timed.resizing') ? 'resizing' : '';
+      window.dispatchEvent(new PointerEvent('pointermove', at('pointermove', y + 40, 0)));
+      window.dispatchEvent(new PointerEvent('pointerup', at('pointerup', y + 40, 0)));
+      return [during, document.querySelectorAll('.timed.resizing').length];
+    }, (await hourPoint(p, 3, 18 * 60)).y);
+    assert.deepEqual(lost, ['resizing', 0], 'it stopped when the button was found let go');
+    await p.waitForTimeout(300);
+    assert.equal((await sentChanges(p)).length, sentBefore, 'nothing sent');
+    assert.equal(await p.locator('.cal-week a.ev', { hasText: 'Lumenra glossary delivery' }).evaluate(e => e.style.getPropertyValue('--to')), '855', 'still to 14:15 on screen');
+
+    // Someone else's meeting: no edge, and it does not move.
+    assert.equal(await p.locator('.grid-resize[title*="Pub quiz"]').count(), 0);
+    assert.equal(await p.locator('.cal-week .ev', { hasText: 'Pub quiz' }).getAttribute('draggable'), null);
+
+    // A click on an empty half hour: a new event there, an hour long.
+    const at = await hourPoint(p, 0, 13 * 60 + 10, 0.3);
+    await p.mouse.click(at.x, at.y);
+    await editor(p).waitFor();
+    assert.equal(await p.locator('[data-key="cal-edit-kind:event"]').getAttribute('aria-pressed'), 'true', 'an event');
+    assert.equal(await p.locator('[data-key="cal-edit-start-time"]').inputValue(), '13:00');
+    assert.equal(await p.locator('[data-key="cal-edit-end-time"]').inputValue(), '14:00');
+    assert.equal(await p.locator('[data-key="cal-edit-start-day"]').inputValue(), monday);
+    await p.keyboard.type('Translation review');
+    await p.keyboard.press('Enter');
+    await until(async () => !!(await fakeEvent(p, 'Translation review')), 'added');
+    const added = await fakeEvent(p, 'Translation review');
+    assert.ok(added.start.dateTime.startsWith(`${monday}T13:00`) && added.end.dateTime.startsWith(`${monday}T14:00`), JSON.stringify(added));
+    await until(async () => (await weekDay(p, 0).locator('.grid-body').innerText()).includes('Translation review'), 'in the hours');
+
+    // Late in the evening, it ends the next day.
+    await until(async () => !(await p.evaluate(() => window.gkb.calendar.isLoading())), 'read back');
+    await p.locator('.cal-week').evaluate(w => { w.scrollTop = w.scrollHeight; });
+    const late = await hourPoint(p, 4, 23 * 60 + 40, 0.3);
+    await p.mouse.click(late.x, late.y);
+    await editor(p).waitFor();
+    assert.equal(await p.locator('[data-key="cal-edit-start-time"]').inputValue(), '23:30');
+    assert.equal(await p.locator('[data-key="cal-edit-end-time"]').inputValue(), '00:30');
+    assert.equal(await p.locator('[data-key="cal-edit-end-day"]').inputValue(), await dayKey(p, 5));
+    assert.equal(await p.locator('[data-key="cal-edit-start-day"]').inputValue(), friday);
+    await p.keyboard.press('Escape');
+    await until(async () => (await editor(p).count()) === 0, 'closed');
+    assert.equal(await p.locator('.overlay').isVisible(), true, 'the board stays open');
+    await p.context().close();
+  });
+
+  await r.step('calendar: by the hour - a move or a new end that fails says so, and Google’s own times come back; the hours keep their place', async () => {
+    const p = await openPage('calendar=failwrite');
+    await openCalendar(p);
+    const lumenra = () => p.locator('.cal-week a.ev', { hasText: 'Lumenra glossary delivery' });
+    const before = await minutesOf(p, lumenra());
+    const was = await fakeEvent(p, 'Lumenra glossary delivery');
+    const e = await p.locator('.grid-resize[title*="Lumenra glossary delivery"]').boundingBox();
+    const end = await hourPoint(p, 3, 17 * 60);
+    await p.mouse.move(e.x + e.width / 2, e.y + e.height / 2);
+    await p.mouse.down();
+    await p.mouse.move(end.x, end.y, { steps: 5 });
+    await p.mouse.up();
+    await until(async () => /Couldn’t change when “Lumenra glossary delivery” ends: Backend Error/.test(await p.locator('.toast-error').innerText().catch(() => '')), 'it says so');
+    await until(async () => Math.abs((await minutesOf(p, lumenra())).to - before.to) <= 2, 'back to 15:00');
+    assert.deepEqual(await fakeEvent(p, 'Lumenra glossary delivery'), was, 'unchanged in Google');
+
+    const from = await lumenra().boundingBox();
+    const to = await hourPoint(p, 2, 10 * 60);
+    await p.mouse.move(from.x + 20, from.y + 6);
+    await p.mouse.down();
+    await p.mouse.move(to.x, to.y + 10, { steps: 4 });
+    await p.mouse.move(to.x, to.y + 6, { steps: 2 });
+    await p.mouse.up();
+    await until(async () => (await p.locator('.toast-error', { hasText: 'Couldn’t move “Lumenra glossary delivery”' }).count()) > 0, 'it says so');
+    assert.match(await p.locator('.toast-error', { hasText: 'Couldn’t move' }).innerText(), / at 10:00: Backend Error/);
+    await until(async () => (await weekDay(p, 3).innerText()).includes('Lumenra glossary delivery'), 'back on Thursday');
+
+    // Scrolled, the hours stay where they are through a redraw, and
+    // through the month and back.
+    const week = p.locator('.cal-week');
+    await week.evaluate(w => { w.scrollTop = 200; });
+    await p.waitForTimeout(100);
+    await p.locator('.src', { hasText: 'Family' }).click();
+    await p.locator('.src', { hasText: 'Family' }).click();
+    assert.equal(await week.evaluate(w => w.scrollTop), 200, 'after a redraw');
+    await p.keyboard.press('m');
+    await p.locator('.cal-month').waitFor();
+    await p.keyboard.press('w');
+    await p.locator('.cal-week.hours').waitFor();
+    assert.equal(await week.evaluate(w => w.scrollTop), 200, 'after the month');
     await p.context().close();
   });
 
@@ -1679,7 +1953,7 @@ try {
     const dentist = await fakeEvent(p, 'Hygienist');
     assert.equal(dentist.calendarId, me, 'in the main calendar');
     assert.ok(dentist.start.dateTime.startsWith(`${wednesday}T14:30`));
-    await until(async () => /14:30\s+Hygienist/.test(await weekDay(p, 2).innerText()), 'on Wednesday');
+    await until(async () => /Hygienist\s+14:30/.test(await weekDay(p, 2).innerText()), 'on Wednesday');
 
     await weekDay(p, 5).locator('.day-add').click();
     await p.keyboard.type('Pay the invoice');
@@ -1987,7 +2261,7 @@ try {
     const p = await openPage();
     await openCalendar(p);
     const btn = p.locator('[data-key="cal-layout"]');
-    assert.match(await btn.getAttribute('title'), /^The week in seven columns/);
+    assert.match(await btn.getAttribute('title'), /^The week by the hour/);
     await btn.click();
     await until(async () => (await p.locator('.cal').getAttribute('data-layout')) === 'rows', 'two rows');
     const at = await p.locator('.cal-week > .day[data-day]').evaluateAll(els => els.map(e => {

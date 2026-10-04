@@ -27,10 +27,10 @@ redraws them. See [PUBLISHING.md](../PUBLISHING.md) for the whole process.
 > • Search that marks the words, in the list and in the note.
 >
 > THE CALENDAR
-> • Your Google Calendar with Google Tasks in it: the week, the month, or the next four weeks as a list.
+> • Your Google Calendar with Google Tasks in it: the week by the hour (with a second time zone if you like), the month, or the next four weeks as a list.
 > • Tasks with a date sit in their day; the ones without wait at the side. A task made from an email opens the email.
 > • Show or hide each calendar and task list with one click.
-> • Both ways: change an event, tick a task off, drag either to another day, or add one with the + on a day ("Dentist 14:30"). It goes straight to Google Calendar and Google Tasks.
+> • Both ways: change an event, tick a task off, drag either to another day or time, drag an event's edge to change when it ends, or add one with a click in the hours or the + on a day ("Dentist 14:30"). It goes straight to Google Calendar and Google Tasks.
 >
 > ON YOUR PHONE
 > • A home-screen app with the board, your notes, the Scratchpad and your week, and a panel in the Gmail app that puts the open email on the board.
