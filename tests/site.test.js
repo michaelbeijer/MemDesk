@@ -55,3 +55,24 @@ test('the privacy page is PRIVACY.md, all of it', () => {
   const words = md.replace(/^- /gm, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/[*`#]/g, ' ').split(/\s+/).filter(Boolean);
   assert.ok(text.includes(tidy(words.join(' '))), 'the policy\'s words, in order');
 });
+
+test('every picture opens full size, without a script: a lightbox each, with a way on, back and out', () => {
+  const html = page('index.html');
+  const views = [...html.matchAll(/<div class="lightbox" id="view-([a-z]+)"/g)].map(m => m[1]);
+  assert.deepEqual(views, ['hero', 'board', 'gmail', 'notes', 'scratchpad', 'search', 'calendar', 'phone']);
+  const opened = [...html.matchAll(/class="zoomable"[^>]*href="#view-([a-z]+)"/g)].map(m => m[1]);
+  assert.equal(opened.length, 13, 'the five pictures by the text, and the eight in Screenshots');
+  for (const v of opened) assert.ok(views.includes(v), v);
+  for (const v of views) {
+    const at = html.indexOf(`<div class="lightbox" id="view-${v}"`);
+    const box = html.slice(at, html.indexOf('</figure>', at));
+    assert.ok(box.includes(`<img src="img/${v}.jpg" width="2400"`), `${v}: the picture, full size`);
+    assert.ok(box.includes(`href="img/${v}.jpg"`), `${v}: and on its own, to zoom in`);
+    const [, back] = /class="lightbox-close" href="#([a-z-]+)"/.exec(box);
+    assert.ok(html.includes(`id="${back}"`), `${v}: Close goes back to a place on the page`);
+    const steps = [...box.matchAll(/href="#view-([a-z]+)">(?:‹ Previous|Next ›)</g)].map(m => m[1]);
+    assert.equal(steps.length, 2, `${v}: Previous and Next`);
+    for (const to of steps) assert.ok(views.includes(to), `${v} → ${to}`);
+  }
+  assert.ok(html.includes('<a href="#screens">Screenshots</a>'), 'Screenshots in the top menu');
+});

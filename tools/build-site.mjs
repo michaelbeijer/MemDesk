@@ -19,7 +19,7 @@ const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = rel => readFileSync(join(REPO, rel), 'utf8');
 
 export const ICONS = ['icon.svg', 'icon-32.png', 'icon-192.png'];
-export const PICTURES = ['hero.jpg', 'board.jpg', 'notes.jpg', 'calendar.jpg', 'phone.jpg'];
+export const PICTURES = ['hero.jpg', 'board.jpg', 'gmail.jpg', 'notes.jpg', 'scratchpad.jpg', 'search.jpg', 'calendar.jpg', 'phone.jpg'];
 
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
