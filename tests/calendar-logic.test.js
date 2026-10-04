@@ -523,3 +523,45 @@ test('a change made on one occurrence, for the whole series: from its first day,
   assert.equal(occurrence.seriesId, 'abc');
   assert.equal(occurrence.recurring, true);
 });
+
+// ── The day by the hour ──────────────────────────────────────────────
+
+test('a day by the hour: from and to in minutes, side by side where they overlap, cut at midnight', () => {
+  const ev = (id, from, to) => ({ item: cal.eventItem({ id, summary: id, start: { dateTime: from }, end: { dateTime: to } }, OWN), cont: false });
+  const entries = [
+    ev('a', local(2026, 10, 6, 9), local(2026, 10, 6, 10)),
+    ev('b', local(2026, 10, 6, 9, 30), local(2026, 10, 6, 10, 30)),
+    ev('c', local(2026, 10, 6, 10), local(2026, 10, 6, 11)),
+    ev('d', local(2026, 10, 6, 13), local(2026, 10, 6, 14)),
+    ev('late', local(2026, 10, 6, 23), local(2026, 10, 7, 1)),
+    { item: cal.eventItem({ id: 'all', summary: 'all', start: { date: '2026-10-06' }, end: { date: '2026-10-07' } }, OWN), cont: false },
+    { item: cal.taskItem({ id: 't', title: 'task', due: '2026-10-06T00:00:00.000Z' }, LIST), cont: false },
+  ];
+  const show = list => list.map(p => [p.item.title, p.from, p.to, p.col, p.cols]);
+  assert.deepEqual(show(cal.dayLayout(entries, '2026-10-06')), [
+    ['a', 540, 600, 0, 2], ['b', 570, 630, 1, 2], ['c', 600, 660, 0, 2], ['d', 780, 840, 0, 1], ['late', 1380, 1440, 0, 1],
+  ], 'all-day events and tasks are not in the hours');
+  assert.deepEqual(show(cal.dayLayout(entries, '2026-10-07')), [['late', 0, 60, 0, 1]], 'the rest of it the next morning');
+  // Three at once: three columns.
+  const three = [ev('x', local(2026, 10, 6, 9), local(2026, 10, 6, 12)), ev('y', local(2026, 10, 6, 9), local(2026, 10, 6, 10)), ev('z', local(2026, 10, 6, 9, 15), local(2026, 10, 6, 9, 45))];
+  assert.deepEqual(show(cal.dayLayout(three, '2026-10-06')).map(p => [p[0], p[3], p[4]]), [['x', 0, 3], ['y', 1, 3], ['z', 2, 3]]);
+  // On the day the clocks go back, the hours are still the clock's.
+  assert.deepEqual(show(cal.dayLayout([ev('after', local(2026, 10, 25, 9), local(2026, 10, 25, 10))], '2026-10-25')), [['after', 540, 600, 0, 1]]);
+});
+
+test('dropped at a time of day: it starts then and keeps its length; its bottom edge sets its end', () => {
+  const tz = 'Europe/Amsterdam';
+  const call = cal.eventItem({ id: 'e', summary: 'Call', start: { dateTime: local(2026, 10, 6, 9, 30) }, end: { dateTime: local(2026, 10, 6, 10, 15) } }, OWN);
+  assert.deepEqual(cal.moveBody(call, '2026-10-06', '2026-10-08', tz, 14 * 60), {
+    start: { dateTime: '2026-10-08T14:00:00+02:00', timeZone: tz }, end: { dateTime: '2026-10-08T14:45:00+02:00', timeZone: tz },
+  });
+  assert.deepEqual(cal.moveBody(call, '2026-10-06', '2026-10-06', tz, 16 * 60 + 15).start.dateTime, '2026-10-06T16:15:00+02:00', 'the same day, later');
+  const moved = cal.movedItem(call, '2026-10-06', '2026-10-08', 14 * 60);
+  assert.deepEqual([moved.first, new Date(moved.start).getHours(), (moved.end - moved.start) / 60000], ['2026-10-08', 14, 45]);
+  // An all-day event or a task dropped in the hours just changes day.
+  const trip = cal.eventItem({ id: 't', summary: 'Trip', start: { date: '2026-10-06' }, end: { date: '2026-10-07' } }, OWN);
+  assert.deepEqual(cal.moveBody(trip, '2026-10-06', '2026-10-08', tz, 600), { start: { date: '2026-10-08' }, end: { date: '2026-10-09' } });
+  assert.equal(cal.movedItem(trip, '2026-10-06', '2026-10-08', 600).first, '2026-10-08');
+  assert.deepEqual(cal.resizeBody(call, new Date(2026, 9, 6, 11, 0).getTime(), tz), { end: { dateTime: '2026-10-06T11:00:00+02:00', timeZone: tz } });
+  assert.ok(cal.isAllowedRequest('calendar', 'PATCH', 'calendars/a/events/b', cal.resizeBody(call, Date.now(), tz)));
+});
