@@ -2,15 +2,13 @@
 // The calendar view
 //
 // The board's third tab: Google Calendar's events with Google Tasks'
-// tasks among them, day by day. Read-only for now: an event opens in
-// Google Calendar, a task in Google Tasks (or, made from an email, the
-// email itself).
+// tasks among them, day by day, changed here and in Google alike.
 //
-// On a computer there are three views - Week (seven columns, or two rows:
-// Monday to Thursday above Friday to Sunday and the scratchpad, at the
-// click of a button beside the views), Month and Agenda (four weeks as one
-// list) - beside a small month, the calendars and task lists to show or
-// hide, and the tasks with no date. Narrow, as
+// On a computer there are three views - Week (by the hour, as in Google
+// Calendar, or two rows: Monday to Thursday above Friday to Sunday and
+// the scratchpad, at the click of a button beside the views), Month and
+// Agenda (four weeks as one list) - beside a small month, the calendars
+// and task lists to show or hide, and the tasks with no date. Narrow, as
 // on a phone, it is always the week: two columns of days with the month
 // as the eighth tile, the sources as a row of chips above, and the tasks
 // with no date below. A swipe goes to the next or previous week, and a
@@ -38,12 +36,19 @@
   // A month cell shows this many, then "+2 more".
   const MONTH_ROWS = 4;
   const SWIPE_PX = 60;
+  // The week by the hour: a drag moves in quarter hours, a click adds at
+  // the half hour, and the hours open at seven in the morning.
+  const STEP_MIN = 15;
+  const CLICK_MIN = 30;
+  const FIRST_HOUR = 7;
 
   const C = {
     ctx: null,          // { root, onStateError, onLoaded, barChanged, prefs, connect }
     view: 'week',       // the view chosen on a wide screen
     order: 'down',      // narrow: the days down then across, or 'across' then down
-    layout: 'columns',  // wide, the week: seven columns, or two 'rows'
+    layout: 'columns',  // wide, the week: by the hour in seven columns, or two 'rows'
+    zone2: '',          // by the hour: a second time zone beside your own, or none
+    hoursTop: null,     // how far the hours were scrolled, kept across redraws
     anchor: '',         // the day in focus
     today: '',
     narrow: false,
@@ -62,7 +67,7 @@
     writes: Promise.resolve(), // changes go to Google one after another
     pending: 0,         // changes on their way: a read started before one lands is not shown
     later: new Map(),   // key → { timer, hides }: done on screen, sent to Google once its Undo has passed
-    drag: null,         // { item, from }: what is being dragged, and from which day ('' for no day)
+    drag: null,         // { item, from, timed, grab, startMin }: what is being dragged, and from which day ('' for no day)
     edit: null,         // the editor, while it is open
   };
 
@@ -161,12 +166,13 @@
     if (C.prefsRead) return;
     C.prefsRead = true;
     try {
-      const names = ['calendarView', 'calendarSources', 'calendarOrder', 'calendarWeekLayout'];
-      const [v, o, order, layout] = await Promise.all(names.map(n => C.ctx.prefs.get(n)));
+      const names = ['calendarView', 'calendarSources', 'calendarOrder', 'calendarWeekLayout', 'calendarZone2'];
+      const [v, o, order, layout, zone2] = await Promise.all(names.map(n => C.ctx.prefs.get(n)));
       if (cal.VIEWS.includes(v)) C.view = v;
       if (o && typeof o === 'object') C.overrides = o;
       if (order === 'across' || order === 'down') C.order = order;
       if (layout === 'rows' || layout === 'columns') C.layout = layout;
+      if (isZone(zone2)) C.zone2 = zone2;
     } catch { /* storage gone (extension reloaded); defaults will do */ }
   }
 
@@ -306,7 +312,7 @@
     draw();
   }
 
-  // On a computer, the week as seven columns, or as two rows: Monday to
+  // On a computer, the week by the hour, or as two rows: Monday to
   // Thursday above, Friday to Sunday below.
   function toggleLayout() {
     C.layout = C.layout === 'rows' ? 'columns' : 'rows';
@@ -377,8 +383,8 @@
     const rows = C.layout === 'rows';
     els.layout.replaceChildren(icon(rows ? 'rows' : 'columns', 20));
     els.layout.title = rows
-      ? 'The week in two rows, Monday to Thursday above Friday to Sunday. Click for seven columns.'
-      : 'The week in seven columns. Click for two rows, Monday to Thursday above Friday to Sunday.';
+      ? 'The week in two rows, Monday to Thursday above Friday to Sunday. Click for the week by the hour.'
+      : 'The week by the hour. Click for two rows, Monday to Thursday above Friday to Sunday.';
     els.layout.setAttribute('aria-label', els.layout.title);
     els.title.textContent = cal.title(v, C.anchor, C.today);
     for (const b of els.views.children) b.setAttribute('aria-selected', String(b.dataset.view === v));
@@ -395,6 +401,12 @@
       const week = drawWeek();
       // Already showing: left in place (see drawWeek).
       if (els.main.firstChild !== week || els.main.childNodes.length !== 1) els.main.replaceChildren(week);
+      // By the hour: where it was scrolled to, or seven in the morning
+      // (and a little before, so that its hour shows).
+      if (isHours()) {
+        const body = week.querySelector('.grid-body');
+        week.scrollTop = C.hoursTop !== null ? C.hoursTop : body ? body.offsetHeight / 24 * (FIRST_HOUR - 0.25) : 0;
+      }
     }
   }
 
@@ -571,9 +583,20 @@
     const byDay = cal.byDay(visibleItems(), keys);
     const loading = C.status === 'loading' && !C.shown;
     const tile = !C.narrow && C.layout === 'rows' && ns.notes ? ns.notes.scratchTile() : null;
-    const week = els.week || (els.week = h('div', { role: 'list' }));
-    week.className = loading ? 'cal-week loading' : 'cal-week';
+    if (!els.week) {
+      els.week = h('div', { role: 'list' });
+      els.week.addEventListener('scroll', () => {
+        if (els.week.classList.contains('hours')) C.hoursTop = els.week.scrollTop;
+      }, { passive: true });
+    }
+    const week = els.week;
+    const hours = isHours();
+    week.className = ['cal-week', hours && 'hours', loading && 'loading'].filter(Boolean).join(' ');
     for (const kid of [...week.children]) if (kid !== tile) kid.remove();
+    if (hours) {
+      week.append(...drawHours(keys, byDay));
+      return week;
+    }
     const days = keys.map(k => h('section', { class: dayClasses(k, 'day'), role: 'listitem', 'aria-label': longDate(k), dataset: { day: k, drop: k } },
       dayHead(k),
       h('div', { class: 'cal-items' }, byDay.get(k).map(e => itemEl(e)))));
@@ -582,6 +605,219 @@
     if (tile && tile.parentNode === week) days.forEach(d => week.insertBefore(d, tile));
     else week.append(...days, ...(tile ? [tile] : []));
     return week;
+  }
+
+  // ── The week by the hour ──
+  //
+  // On a computer, as in Google Calendar: seven columns beside the hours,
+  // each day's all-day events and tasks along the top, its other events
+  // placed by the hour, side by side where they overlap. The hours scroll
+  // under the days' heads. An event can be dragged to another time (in
+  // quarter hours) or day, and its bottom edge up or down to change when
+  // it ends; a click on an empty half hour adds one there.
+
+  const isHours = () => !C.narrow && view() === 'week' && C.layout === 'columns';
+
+  const pad2 = n => String(n).padStart(2, '0');
+  const clock = min => `${pad2(Math.floor(min / 60) % 24)}:${pad2(min % 60)}`;
+  const minuteOf = ms => { const d = new Date(ms); return d.getHours() * 60 + d.getMinutes(); };
+  const dayStart = k => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d).getTime(); };
+
+  function setVars(el, vars) {
+    for (const [name, value] of Object.entries(vars)) el.style.setProperty(name, String(value));
+    return el;
+  }
+
+  function drawHours(keys, byDay) {
+    // All-day events and tasks: a row tall enough for the busiest day,
+    // up to four; more than that scroll within their day.
+    const untimed = k => byDay.get(k).filter(e => e.item.kind !== 'event' || e.item.allDay);
+    const rows = Math.min(4, Math.max(1, ...keys.map(k => untimed(k).length)));
+    setVars(els.week, { '--allday-rows': rows });
+    els.week.dataset.zones = C.zone2 ? '2' : '1';
+    const now = minuteOf(Date.now());
+    const days = keys.map(k => h('section', {
+      class: dayClasses(k, 'day'), role: 'listitem', 'aria-label': longDate(k), dataset: { day: k, drop: k },
+    },
+    dayHead(k),
+    h('div', { class: 'cal-items grid-allday' }, untimed(k).map(e => itemEl(e))),
+    hoursBody(k, byDay.get(k), k === C.today ? now : -1)));
+    return [hoursColumn(keys), ...days];
+  }
+
+  function hoursBody(k, entries, now) {
+    const body = h('div', { class: 'grid-body', onclick: e => clickHour(e, k) });
+    for (const p of cal.dayLayout(entries, k)) body.append(...timedEls(p, k));
+    if (now >= 0) body.append(setVars(h('div', { class: 'now-line', 'aria-hidden': 'true' }), { '--from': now }));
+    return body;
+  }
+
+  // An event in the hours, and for one that ends that day and can be
+  // changed here, the edge that drags its end.
+  function timedEls(p, k) {
+    const { item } = p;
+    const place = { '--from': p.from, '--to': p.to, '--col': p.col, '--cols': p.cols };
+    const el = setVars(itemEl({ item, cont: p.cont }, { hours: p }), place);
+    if (!item.editable || !canChange() || cal.dateKey(item.end - 1) !== k) return [el];
+    const edge = h('span', {
+      class: 'grid-resize', title: `Drag to change when “${item.title}” ends`, 'aria-hidden': 'true',
+      onpointerdown: e => startResize(e, p, k, el),
+      onclick: () => openEditor(item),
+    });
+    return [el, setVars(edge, place)];
+  }
+
+  // The hours down the side, in your own time zone, and beside them in a
+  // second one if chosen. Its hours are worked out for today, or for the
+  // week's first day: in a week where one of the two puts its clocks
+  // forward or back and the other does not, they are an hour out on the
+  // days before the change.
+  function hoursColumn(keys) {
+    const base = keys.includes(C.today) ? C.today : keys[0];
+    const [y, m, d] = base.split('-').map(Number);
+    const at = hr => new Date(y, m - 1, d, hr);
+    const here = timeZone();
+    const zones = C.zone2 ? [C.zone2, here] : [here];
+    const label = z => `${z === here ? 'Your time zone' : 'Second time zone'}: ${zoneName(z)} (${zoneShort(z, at(12))})`;
+    const corner = h('div', { class: 'grid-corner' },
+      h('button', {
+        class: 'grid-zones', type: 'button', dataset: { key: 'cal-zones' }, onclick: openZones,
+        title: `${zones.map(label).join('\n')}\nClick to ${C.zone2 ? 'change or remove the second' : 'add a second'} time zone.`,
+        'aria-label': C.zone2 ? 'Time zones' : 'Add a second time zone',
+      },
+      zones.map(z => h('span', { class: z === here ? 'own' : 'other', text: zoneShort(z, at(12)) })),
+      C.zone2 ? null : icon('add', 14)));
+    const hours = [];
+    for (let hr = 0; hr < 24; hr++) {
+      hours.push(h('div', { class: 'grid-hour' }, hr ? zones.map(z => h('span', {
+        class: z === here ? 'own' : 'other', text: z === here ? clock(hr * 60) : zoneClock(z, at(hr)),
+      })) : null));
+    }
+    return h('div', { class: 'grid-times' }, corner, h('div', { class: 'grid-hours', 'aria-hidden': 'true' }, hours));
+  }
+
+  const zoneFormats = new Map();
+  function zoneFormat(z, options) {
+    const key = `${z}|${JSON.stringify(options)}`;
+    if (!zoneFormats.has(key)) zoneFormats.set(key, new Intl.DateTimeFormat('en-GB', Object.assign({ timeZone: z || undefined }, options)));
+    return zoneFormats.get(key);
+  }
+
+  function isZone(z) {
+    if (typeof z !== 'string' || !z) return false;
+    try { zoneFormat(z, {}); return true; } catch { return false; }
+  }
+
+  // "GMT+2", "GMT+5:30", "GMT".
+  function zoneShort(z, when) {
+    try {
+      const part = zoneFormat(z, { timeZoneName: 'shortOffset' }).formatToParts(when).find(x => x.type === 'timeZoneName');
+      return part ? part.value : z;
+    } catch { return z; }
+  }
+
+  const zoneName = z => String(z).replace(/_/g, ' ');
+  const zoneClock = (z, when) => zoneFormat(z, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(when);
+
+  function zoneList() {
+    try { return Intl.supportedValuesOf('timeZone'); } catch { return ['Europe/London', 'Europe/Amsterdam', 'America/New_York', 'America/Los_Angeles', 'Asia/Tokyo', 'UTC']; }
+  }
+
+  // The second time zone: chosen from all of them, or none.
+  function openZones() {
+    if (!C.ctx.dialog) return;
+    const here = timeZone();
+    const now = new Date();
+    const select = h('select', { class: 'text-input', id: 'gkb-cal-zone2', dataset: { key: 'cal-zone2' } },
+      h('option', { value: '', text: 'None' }),
+      zoneList().filter(z => z !== here).map(z => h('option', {
+        value: z, text: `${zoneName(z)} (${zoneShort(z, now)})`, selected: z === C.zone2,
+      })));
+    const done = () => {
+      C.zone2 = isZone(select.value) ? select.value : '';
+      savePref('calendarZone2', C.zone2);
+      C.ctx.dialog.close();
+      draw();
+    };
+    C.ctx.dialog.show(h('div', { class: 'dialog cal-zones', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'gkb-cal-zones-heading' },
+      h('div', { class: 'dialog-head' },
+        h('h2', { id: 'gkb-cal-zones-heading', text: 'Time zones' }),
+        h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', onclick: () => C.ctx.dialog.close() }, icon('close'))),
+      h('div', { class: 'dialog-body' },
+        h('p', { class: 'note', text: `The hours are in your own time zone, ${zoneName(here)} (${zoneShort(here, now)}), as set on this ${C.ctx.connect ? 'computer' : 'device'}. A second one shows beside them.` }),
+        h('div', { class: 'field' },
+          h('label', { class: 'field-label', for: 'gkb-cal-zone2', text: 'Second time zone' }),
+          select)),
+      h('div', { class: 'dialog-foot' },
+        h('span', { class: 'spacer' }),
+        h('button', { class: 'btn btn-text', type: 'button', text: 'Cancel', onclick: () => C.ctx.dialog.close() }),
+        h('button', { class: 'btn btn-primary', type: 'button', text: 'Done', dataset: { key: 'cal-zones-done' }, onclick: done }))),
+    { onClose: () => focusKey('cal-zones') });
+    select.focus();
+  }
+
+  // Where in the day a point on the hours is, in minutes after midnight;
+  // and that to the nearest `step` (or the one before, with `floor`),
+  // between `lo` and `hi`.
+  function minuteAt(body, y) {
+    const r = body.getBoundingClientRect();
+    return (y - r.top) / (r.height / 1440);
+  }
+  const snap = (min, step, lo, hi, floor = false) =>
+    Math.min(hi, Math.max(lo, (floor ? Math.floor(min / step) : Math.round(min / step)) * step));
+
+  // A click on an empty half hour: a new event there, an hour long.
+  function clickHour(e, k) {
+    if (e.target !== e.currentTarget || !canChange() || !writable('calendar').length) return;
+    openEditor(null, k, snap(minuteAt(e.currentTarget, e.clientY), CLICK_MIN, 0, 1440 - CLICK_MIN, true));
+  }
+
+  // The bottom edge of an event, dragged: where it ends, in quarter hours,
+  // not before a quarter hour after it starts. Followed on the window, so
+  // that it ends wherever the button is let go - even if the days are
+  // redrawn meanwhile. A button let go unseen (outside the window) ends
+  // it with nothing changed, not at the next click.
+  function startResize(e, p, k, el) {
+    if (e.button) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const body = e.currentTarget.parentNode;
+    const edge = e.currentTarget;
+    try { edge.setPointerCapture(e.pointerId); } catch { /* the window still hears it */ }
+    let to = p.to;
+    const time = el.querySelector('.time');
+    const move = ev => {
+      if (!(ev.buttons & 1)) { finish({ type: 'pointercancel' }); return; }
+      const min = snap(minuteAt(body, ev.clientY), STEP_MIN, p.from + STEP_MIN, 1440);
+      if (min === to) return;
+      to = min;
+      setVars(el, { '--to': to });
+      setVars(edge, { '--to': to });
+      if (time) time.textContent = `${timeText(p.item.start)} – ${clock(to)}`;
+    };
+    const finish = ev => {
+      window.removeEventListener('pointermove', move, true);
+      window.removeEventListener('pointerup', finish, true);
+      window.removeEventListener('pointercancel', finish, true);
+      el.classList.remove('resizing');
+      if (ev.type !== 'pointerup' || to === p.to) {
+        if (to !== p.to) draw();
+        return;
+      }
+      swallowClick();
+      resizeItem(p.item, dayStart(k) + to * 60000);
+    };
+    el.classList.add('resizing');
+    window.addEventListener('pointermove', move, true);
+    window.addEventListener('pointerup', finish, true);
+    window.addEventListener('pointercancel', finish, true);
+  }
+
+  // The click that ends a drag of an edge is not a click on what is under it.
+  function swallowClick() {
+    const stop = e => { e.stopPropagation(); e.preventDefault(); };
+    window.addEventListener('click', stop, { capture: true, once: true });
+    setTimeout(() => window.removeEventListener('click', stop, { capture: true }), 0);
   }
 
   function drawMonth() {
@@ -651,8 +887,9 @@
   // An event or a task, as a link to where it lives in Google. One that
   // can be changed here opens the editor on a plain click instead (Ctrl,
   // Shift or the middle button still open it in Google), can be dragged
-  // to another day, and a task's box ticks it.
-  function itemEl({ item, cont }, { compact = false, agenda = false, due = false } = {}) {
+  // to another day (or time), and a task's box ticks it. `hours`: its
+  // place in the week by the hour, from and to in minutes.
+  function itemEl({ item, cont }, { compact = false, agenda = false, due = false, hours = null } = {}) {
     const editable = !!item.editable && canChange();
     const tag = item.link || editable ? 'a' : 'div';
     const link = item.link ? { href: item.link, target: '_blank', rel: 'noopener noreferrer' } : editable ? { href: '#', role: 'button' } : {};
@@ -664,10 +901,22 @@
         openEditor(item);
       },
     } : {};
-    const drag = editable ? { draggable: 'true', ondragstart: e => startDrag(e, item) } : {};
+    // In the hours, a piece carried over from the day before moves by days only.
+    const drag = editable ? { draggable: 'true', ondragstart: e => startDrag(e, item, !!hours && !cont) } : {};
     if (item.kind === 'event') {
-      const time = item.allDay ? (agenda ? 'All day' : '') : cont ? (agenda ? 'until ' + timeText(item.end) : '…') : timeText(item.start);
       const tip = [item.title, whenText(item, cont), item.where].filter(Boolean).join('\n');
+      // In the hours: its title, then from and to - or, in half an hour
+      // or less, one line with when it starts.
+      if (hours) {
+        const short = hours.to - hours.from <= 30;
+        const when = cont ? `until ${timeText(item.end)}` : short ? timeText(item.start) : `${timeText(item.start)} – ${timeText(item.end)}`;
+        return tint(h(tag, Object.assign({
+          class: ['item', 'ev', 'timed', short && 'short'], title: tip,
+        }, link, edit, drag),
+        h('span', { class: 't', text: item.title }),
+        h('span', { class: 'time', text: when })), '--c', item.colour);
+      }
+      const time = item.allDay ? (agenda ? 'All day' : '') : cont ? (agenda ? 'until ' + timeText(item.end) : '…') : timeText(item.start);
       return tint(h(tag, Object.assign({
         class: ['item', 'ev', item.allDay && 'all-day', compact && 'compact'], title: tip,
       }, link, edit, drag),
@@ -798,29 +1047,50 @@
     if (el) el.focus({ preventScroll: true });
   }
 
-  // ── Dragging to another day ──
+  // ── Dragging to another day, or time ──
+  //
+  // `timed`: an event in the hours, which dropped in the hours starts
+  // where its top is let go - `grab` is how far down it was held.
 
-  function startDrag(e, item) {
+  function startDrag(e, item, timed = false) {
     const from = e.currentTarget.closest('[data-drop]');
     if (!from) { e.preventDefault(); return; }
-    C.drag = { item, from: from.dataset.drop };
+    const grab = timed ? e.clientY - e.currentTarget.getBoundingClientRect().top : 0;
+    C.drag = { item, from: from.dataset.drop, timed, grab, startMin: timed ? minuteOf(item.start) : -1 };
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', item.title);
     e.currentTarget.classList.add('dragging');
   }
 
-  // A day it is not already on; or No date, for a task.
+  // A day it is not already on, or in the hours a time it does not
+  // already start at; or No date, for a task. { el, day, at, body }, `at`
+  // in minutes or null for the day alone.
   function dropTarget(e) {
-    if (!C.drag) return null;
+    const d = C.drag;
+    if (!d) return null;
     const t = e.target && e.target.closest ? e.target.closest('[data-drop]') : null;
-    if (!t || !els.wrap.contains(t) || t.dataset.drop === C.drag.from) return null;
-    if (!t.dataset.drop && C.drag.item.kind !== 'task') return null;
-    return t;
+    if (!t || !els.wrap.contains(t)) return null;
+    if (!t.dataset.drop && d.item.kind !== 'task') return null;
+    const body = d.timed ? e.target.closest('.grid-body') : null;
+    const at = body ? snap(minuteAt(body, e.clientY - d.grab), STEP_MIN, 0, 1440 - STEP_MIN) : null;
+    if (t.dataset.drop === d.from && (at === null || at === d.startMin)) return null;
+    return { el: t, day: t.dataset.drop, at, body };
   }
 
+  // A day is outlined; a time, shown where the event would go.
   function markDrop(t) {
-    for (const x of els.wrap.querySelectorAll('.drop-here')) if (x !== t) x.classList.remove('drop-here');
-    if (t) t.classList.add('drop-here');
+    const day = t && t.at === null ? t.el : null;
+    for (const x of els.wrap.querySelectorAll('.drop-here')) if (x !== day) x.classList.remove('drop-here');
+    if (day) day.classList.add('drop-here');
+    if (!t || t.at === null) {
+      if (els.ghost) els.ghost.remove();
+      return;
+    }
+    const length = Math.round((C.drag.item.end - C.drag.item.start) / 60000);
+    if (!els.ghost) els.ghost = h('div', { class: 'drop-ghost', 'aria-hidden': 'true' });
+    els.ghost.textContent = `${clock(t.at)} – ${clock((t.at + length) % 1440)}`;
+    setVars(els.ghost, { '--from': t.at, '--to': Math.min(1440, t.at + Math.max(length, STEP_MIN)) });
+    if (els.ghost.parentNode !== t.body) t.body.append(els.ghost);
   }
 
   function onDragOver(e) {
@@ -837,7 +1107,7 @@
     endDrag();
     if (!t || !d) return;
     e.preventDefault();
-    moveItem(d.item, d.from, t.dataset.drop);
+    moveItem(d.item, d.from, t.day, t.at);
   }
 
   function endDrag() {
@@ -846,10 +1116,18 @@
     for (const x of els.wrap.querySelectorAll('.dragging')) x.classList.remove('dragging');
   }
 
-  function moveItem(item, from, to) {
-    showChanged(item.id, cal.movedItem(item, from, to));
-    change(versioned(item, it => store.move(it, from, to, timeZone())),
-      `Couldn’t move “${item.title}” to ${to ? longDate(to) : 'No date'}`);
+  // `at`: minutes after midnight, dropped in the hours; else null.
+  function moveItem(item, from, to, at = null) {
+    const startMin = at === null ? undefined : at;
+    showChanged(item.id, cal.movedItem(item, from, to, startMin));
+    change(versioned(item, it => store.move(it, from, to, timeZone(), startMin)),
+      `Couldn’t move “${item.title}” to ${to ? longDate(to) : 'No date'}${at === null ? '' : ` at ${clock(at)}`}`);
+  }
+
+  // Its bottom edge dragged in the hours: a new end, the start kept.
+  function resizeItem(item, end) {
+    showChanged(item.id, Object.assign({}, item, { end, last: cal.dateKey(end - 1) }));
+    change(versioned(item, it => store.resize(it, end, timeZone())), `Couldn’t change when “${item.title}” ends`);
   }
 
   // ── Done after an Undo ──
@@ -917,13 +1195,14 @@
   // ── The editor ──
   //
   // One dialog for an event or a task, new or not, in the board's dialog
-  // layer. New, it starts on the day whose + was pressed; typing
+  // layer. New, it starts on the day whose + was pressed (or, clicked in
+  // the hours, as an event an hour long from `at`, minutes); typing
   // "Dentist 14:30" makes it an event at that time, "Pay the invoice" a
   // task, until Event or Task is chosen by hand. An event can repeat, as
   // Google's own menu offers; one occurrence of a series asks, on saving
   // or deleting, whether that is for this event or for all of them.
 
-  function openEditor(item, day) {
+  function openEditor(item, day, at = null) {
     if (!canChange() || (item && !item.editable)) return;
     const cals = writable('calendar');
     const lists = writable('tasks');
@@ -942,6 +1221,11 @@
       series: null,
       back: item ? `cal-item:${item.id}` : `cal-add:${day}`,
     };
+    if (!item && at !== null && cals.length) {
+      const end = at + 60;
+      Object.assign(ed.event, { allDay: false, start: clock(at), end: clock(end % 1440), endDay: end >= 1440 ? cal.addDays(day, 1) : day });
+      Object.assign(ed, { kind: 'event', kindChosen: true, timesTouched: true });
+    }
     C.edit = ed;
     if (item && item.recurring && item.seriesId) {
       ed.series = { state: 'loading' };
@@ -1361,9 +1645,12 @@
     return true;
   }
 
-  // Every few seconds while open: past midnight, today moves on.
+  // Every few seconds while open: the line for now moves down the hours,
+  // and past midnight, today moves on.
   function tick() {
     const now = cal.dateKey(new Date());
+    const line = els.week && els.week.querySelector('.now-line');
+    if (line) setVars(line, { '--from': minuteOf(Date.now()) });
     if (now === C.today) return;
     if (C.anchor === C.today) C.anchor = now;
     C.today = now;

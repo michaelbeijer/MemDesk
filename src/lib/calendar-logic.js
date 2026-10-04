@@ -559,31 +559,91 @@
     return done ? { status: 'completed' } : { status: 'needsAction', completed: null };
   }
 
+  // Where a timed event goes when it moves: dragged to another day it
+  // keeps its times; dropped at a time of day (`startMin`, minutes after
+  // midnight on `toDay`) it starts then. Either way it keeps its length.
+  function movedTimes(item, fromDay, toDay, startMin) {
+    if (typeof startMin === 'number') {
+      const [y, mo, d] = toDay.split('-').map(Number);
+      const start = new Date(y, mo - 1, d, 0, startMin).getTime();
+      return { start, end: start + (item.end - item.start) };
+    }
+    const delta = daysBetween(fromDay, toDay);
+    const shift = ms => { const x = new Date(ms); x.setDate(x.getDate() + delta); return x.getTime(); };
+    return { start: shift(item.start), end: shift(item.end) };
+  }
+
+  const stampOf = (ms, timeZone) => {
+    const t = { dateTime: localStamp(dateKey(ms), clockOf(ms)) };
+    if (timeZone) t.timeZone = timeZone;
+    return t;
+  };
+
   // Dragged from one day to another (a task to '' for no day): an event
-  // keeps its times and length, a task gets the new day.
-  function moveBody(item, fromDay, toDay, timeZone) {
+  // keeps its times and length - or, dropped at a time of day, starts
+  // then - and a task gets the new day.
+  function moveBody(item, fromDay, toDay, timeZone, startMin) {
     if (item.kind === 'task') return { due: toDay ? `${toDay}T00:00:00.000Z` : null };
     const delta = daysBetween(fromDay, toDay);
     if (item.allDay) return { start: { date: addDays(item.first, delta) }, end: { date: addDays(item.last, delta + 1) } };
-    const at = ms => {
-      const d = new Date(ms);
-      d.setDate(d.getDate() + delta);
-      const t = { dateTime: localStamp(dateKey(d), clockOf(d)) };
-      if (timeZone) t.timeZone = timeZone;
-      return t;
-    };
-    return { start: at(item.start), end: at(item.end) };
+    const t = movedTimes(item, fromDay, toDay, startMin);
+    return { start: stampOf(t.start, timeZone), end: stampOf(t.end, timeZone) };
   }
 
   // The same move on the item on screen, until Google's answer is in.
-  function movedItem(item, fromDay, toDay) {
+  function movedItem(item, fromDay, toDay, startMin) {
     if (item.kind === 'task') return Object.assign({}, item, { due: toDay || '' });
-    const delta = daysBetween(fromDay, toDay);
-    const shift = ms => { const d = new Date(ms); d.setDate(d.getDate() + delta); return d.getTime(); };
-    return Object.assign({}, item, {
-      first: addDays(item.first, delta), last: addDays(item.last, delta),
-      start: item.allDay ? 0 : shift(item.start), end: item.allDay ? 0 : shift(item.end),
-    });
+    if (item.allDay) {
+      const delta = daysBetween(fromDay, toDay);
+      return Object.assign({}, item, { first: addDays(item.first, delta), last: addDays(item.last, delta) });
+    }
+    const t = movedTimes(item, fromDay, toDay, startMin);
+    return Object.assign({}, item, t, { first: dateKey(t.start), last: dateKey(Math.max(t.start, t.end - 1)) });
+  }
+
+  // Its bottom edge dragged: a new end, the start kept.
+  function resizeBody(item, endMs, timeZone) {
+    return { end: stampOf(endMs, timeZone) };
+  }
+
+  // ── The day by the hour ──
+  //
+  // A day's timed events, placed in the week's hour grid: from and to, in
+  // minutes after midnight on that day (one that runs past midnight is
+  // cut at the day's edges), and side by side where they overlap - `col`
+  // of `cols` in their cluster of overlapping events.
+  function dayLayout(entries, day) {
+    const [y, mo, d] = day.split('-').map(Number);
+    const dayStart = new Date(y, mo - 1, d).getTime();
+    const dayEnd = new Date(y, mo - 1, d + 1).getTime();
+    const minuteOf = ms => { const x = new Date(ms); return x.getHours() * 60 + x.getMinutes(); };
+    const placed = entries
+      .filter(e => e.item.kind === 'event' && !e.item.allDay && e.item.end > dayStart && e.item.start < dayEnd)
+      .map(e => {
+        const from = e.item.start <= dayStart ? 0 : minuteOf(e.item.start);
+        const to = e.item.end >= dayEnd ? 1440 : minuteOf(e.item.end);
+        return { item: e.item, cont: e.cont, from, to: Math.max(to, from + 1), col: 0, cols: 1 };
+      })
+      .sort((a, b) => a.from - b.from || b.to - a.to);
+    // Clusters of events that overlap one another, each laid out in columns.
+    let cluster = [];
+    let ends = [];
+    let reach = -1;
+    const close = () => {
+      for (const p of cluster) p.cols = ends.length;
+      cluster = [];
+      ends = [];
+    };
+    for (const p of placed) {
+      if (p.from >= reach) close();
+      let col = ends.findIndex(end => end <= p.from);
+      if (col < 0) { col = ends.length; ends.push(p.to); } else ends[col] = p.to;
+      p.col = col;
+      cluster.push(p);
+      reach = Math.max(reach, p.to);
+    }
+    close();
+    return placed;
   }
 
   // ── Repeating ────────────────────────────────────────────────────────
@@ -780,7 +840,7 @@
   const api = {
     SCOPES, BASES, USERINFO_URL, VIEWS, AGENDA_DAYS, DAY_NAMES, MONTHS, MONTHS_LONG, EVENT_COLOURS,
     isAllowedRequest, buildUrl,
-    normTime, parseQuick, localStamp, draftOf, newDraft, eventBody, taskBody, tickBody, moveBody, movedItem,
+    normTime, parseQuick, localStamp, draftOf, newDraft, eventBody, taskBody, tickBody, moveBody, movedItem, resizeBody, dayLayout,
     WEEKDAY_CODES, WEEKDAY_NAMES, repeatChoices, parseRule, customFor, customOf, customRule, repeatOf, ruleFor,
     recurrenceWith, describeRepeat, seriesDraft, startDayOf,
     eventsPath, eventPath, tasksPath, taskPath,
