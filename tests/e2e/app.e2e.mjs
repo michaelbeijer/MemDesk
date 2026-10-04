@@ -407,8 +407,12 @@ await r.step('the next visit opens on the phone’s copy at once, typing and all
   v.release();
   await settled(v.page);
   assert.equal(v.calls.includes('appBody'), false, 'still current: the text did not have to come again');
-  await q(v.page, '.brand .logo').tap();
-  await until(async () => /Opened in \d+\.\d s: .*ready to type \d+\.\d s, checked with Gmail \d+\.\d s/.test(await q(v.page, '.toast').innerText()), 'the timing, on tapping the logo');
+  // The timings are under Advanced in the logo's menu, not shown to everyone.
+  await q(v.page, '[data-key="about"]').tap();
+  assert.match(await q(v.page, '.menu').innerText(), /MemDesk \d+\.\d+\.\d+[\s\S]*memdesk\.app[\s\S]*Privacy[\s\S]*Advanced: startup timings/);
+  assert.equal(await q(v.page, '.toast').count(), 0, 'nothing shown yet');
+  await q(v.page, '[data-key="about:timings"]').tap();
+  await until(async () => /Opened in \d+\.\d s: .*ready to type \d+\.\d s, checked with Gmail \d+\.\d s/.test(await q(v.page, '.toast').innerText()), 'the timing, under Advanced');
   await v.page.close();
 });
 

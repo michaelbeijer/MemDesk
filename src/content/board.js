@@ -93,10 +93,14 @@
     els.tabs = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'View' },
       tab('board', 'Board', 'board'), tab('notes', 'Notes', 'note'), tab('calendar', 'Calendar', 'calendar'));
 
+    // The logo and name open a small menu: the version, the website and
+    // the privacy page, and - in the phone app - how long it took to open.
+    const brand = h('button', {
+      class: 'brand-btn', type: 'button', title: `About ${APP_NAME}`, 'aria-haspopup': 'menu', 'aria-expanded': 'false',
+      dataset: { key: 'about' }, onclick: e => openAbout(e.currentTarget),
+    }, h('span', { class: 'logo' }, logo(26)), h('span', { text: APP_NAME }));
     const bar = h('header', { class: 'bar' },
-      h('h1', { class: 'brand' },
-        h('span', { class: 'logo' }, logo(26)),
-        h('span', { text: APP_NAME })),
+      h('h1', { class: 'brand' }, brand),
       els.tabs,
       els.account,
       h('div', { class: 'spacer' }),
@@ -243,6 +247,26 @@
     if (PANEL_STATES.has(S.status) && S.status !== 'not_configured' && S.status !== 'no_account') S.status = 'idle';
     render();
     ns.calendar.load();
+  }
+
+  const SITE = 'https://memdesk.app/';
+
+  function openAbout(anchor) {
+    const link = (label, url) => ({ label, icon: 'open', key: `about:${label}`, onSelect: () => window.open(url, '_blank', 'noopener') });
+    const items = [
+      { heading: `${APP_NAME} ${ns.APP_VERSION}` },
+      { separator: true },
+      link('memdesk.app', SITE),
+      link('Privacy', `${SITE}privacy/`),
+    ];
+    // For finding out what is slow, not for every day: out of the way.
+    if (frame && frame.timings) {
+      items.push({ separator: true }, {
+        label: 'Advanced: startup timings', icon: 'tune', key: 'about:timings',
+        onSelect: () => toast(root, frame.timings(), { timeout: 8000 }),
+      });
+    }
+    openMenu(root, anchor, items, { label: `About ${APP_NAME}` });
   }
 
   function switchView(view) {

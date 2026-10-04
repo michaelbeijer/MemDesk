@@ -73,8 +73,9 @@ test('the preview loads exactly the manifest’s content scripts, in order', () 
 
 test('manifest: version, permissions and a key whose ID the README reports', () => {
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '0.22.0');
+  assert.equal(manifest.version, '0.23.0');
   assert.ok(read('README.md').includes(`badge/version-${manifest.version}-`), 'the README\'s version badge is current');
+  assert.equal(require('../src/shared/ns.js').APP_VERSION, manifest.version, 'the logo menu\'s version (src/shared/ns.js) is current');
   assert.deepEqual(manifest.permissions.sort(), ['identity', 'storage']);
   // Gmail; and Calendar, Tasks and the address check for the calendar.
   assert.deepEqual(manifest.host_permissions, ['https://gmail.googleapis.com/*', 'https://www.googleapis.com/*', 'https://tasks.googleapis.com/*']);

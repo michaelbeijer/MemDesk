@@ -603,7 +603,9 @@
   }
 
   function timeText(ms) {
-    if (!timeFormat) timeFormat = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+    // The 24-hour clock, two digits for the hour, whatever the browser's
+    // language would have chosen: "09:30", "19:30".
+    if (!timeFormat) timeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
     return timeFormat.format(new Date(ms));
   }
 

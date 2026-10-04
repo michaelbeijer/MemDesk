@@ -19,6 +19,9 @@
   const ns = (globalThis.gkb = globalThis.gkb || {});
 
   const APP_NAME = 'MemDesk';
+  // Shown in the logo's menu. The same as manifest.json's (a test says so),
+  // for the phone app too, which has no manifest to read it from.
+  const APP_VERSION = '0.23.0';
 
   // ── Storage keys ─────────────────────────────────────────────────────
   //
@@ -61,11 +64,12 @@
   const BUILT_IN_CLIENT_ID = '';
 
   ns.APP_NAME = APP_NAME;
+  ns.APP_VERSION = APP_VERSION;
   ns.BUILT_IN_CLIENT_ID = BUILT_IN_CLIENT_ID;
   ns.KEYS = KEYS;
   ns.HOST_IDS = HOST_IDS;
 
   if (typeof module === 'object' && module.exports) {
-    module.exports = { APP_NAME, KEYS, HOST_IDS };
+    module.exports = { APP_NAME, APP_VERSION, KEYS, HOST_IDS };
   }
 })();

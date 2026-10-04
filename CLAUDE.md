@@ -81,7 +81,8 @@ existing install. Steps stop at the first failure; screenshots go to
 ## Releasing a version
 
 1. Bump the version in `manifest.json`, `package.json`, `tests/static.test.js`,
-   and the README's badge and "Version x.y.z" line.
+   `APP_VERSION` in `src/shared/ns.js` (the logo menu shows it), and the
+   README's badge and "Version x.y.z" line.
 2. `node tools/build-addon.mjs`, then `npm test` and the three browser suites.
 3. Privacy: if what is stored or read changes, update `PRIVACY.md` (and its
    date); the website's privacy page is built from it.

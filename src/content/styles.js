@@ -302,6 +302,20 @@ button:disabled { cursor: default; }
   white-space: nowrap;
 }
 .brand .logo { display: flex; }
+.brand-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: -6px;
+  padding: 4px 10px 4px 6px;
+  border: 0;
+  border-radius: 20px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.brand-btn:hover, .brand-btn[aria-expanded="true"] { background: var(--hover); }
 .brand .dim { color: var(--fg-3); }
 .account {
   margin-left: 14px;
