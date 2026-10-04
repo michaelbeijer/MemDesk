@@ -9,11 +9,12 @@
 // the scratchpad, at the click of a button beside the views), Month and
 // Agenda (four weeks as one list) - beside a small month, the calendars
 // and task lists to show or hide, and the tasks with no date. Narrow, as
-// on a phone, it is always the week: two columns of days with the month
-// as the eighth tile, the sources as a row of chips above, and the tasks
-// with no date below. A swipe goes to the next or previous week, and a
-// button turns the order of the days from down-then-across to
-// across-then-down.
+// on a phone, it is the week - two columns of days with the month as the
+// eighth tile - or the month, a grid of days with a few lines each, a tap
+// on a day opening its week; the sources are a row of chips above, and
+// the tasks with no date below. A swipe goes to the next or previous week
+// or month, and in the week a button turns the order of the days from
+// down-then-across to across-then-down.
 //
 // Keys, as in Google Calendar: t today, j / n next, k / p previous,
 // w / m / a for the views.
@@ -47,6 +48,7 @@
   const C = {
     ctx: null,          // { root, onStateError, onLoaded, barChanged, prefs, connect }
     view: 'week',       // the view chosen on a wide screen
+    phoneView: 'week',  // and on a narrow one: the week or the month
     order: 'down',      // narrow: the days down then across, or 'across' then down
     layout: 'columns',  // wide, the week: by the hour in seven columns, or two 'rows'
     zone2: '',          // by the hour: a second time zone beside your own, or none
@@ -104,15 +106,24 @@
       })));
     els.head = h('div', { class: 'cal-head' },
       h('div', { class: 'cal-nav' },
+        // Narrow, a calendar with today's date in it, as on Android: the
+        // word would leave no room for the week's number.
         h('button', {
-          class: 'btn btn-outline cal-today', type: 'button', text: 'Today', dataset: { key: 'cal-today' },
-          title: 'Today (T)', onclick: () => go(cal.dateKey(new Date())),
-        }),
+          class: 'btn btn-outline cal-today', type: 'button', dataset: { key: 'cal-today' },
+          title: 'Today (T)', 'aria-label': 'Today', onclick: () => go(cal.dateKey(new Date())),
+        },
+        h('span', { class: 'today-word', text: 'Today' }),
+        h('span', { class: 'today-icon', 'aria-hidden': 'true' }, icon('calendar', 24), els.todayNum = h('span', { class: 'today-num' }))),
         nav(-1, 'Previous', 'prev'),
         nav(1, 'Next', 'next'),
         // Narrow only: which way the days run in the two columns.
         els.order = h('button', {
           class: 'icon-btn cal-order', type: 'button', dataset: { key: 'cal-order' }, onclick: toggleOrder,
+        }),
+        // Narrow only: the week or the month.
+        els.phoneView = h('button', {
+          class: 'icon-btn cal-phone-view', type: 'button', dataset: { key: 'cal-phone-view' },
+          onclick: () => setView(view() === 'month' ? 'week' : 'month'),
         })),
       els.title,
       // Wide, in the week by the hour: the night shown or not.
@@ -161,9 +172,10 @@
     return els.wrap;
   }
 
-  // A narrow view is always the week.
+  // Narrow, the week or the month; wide, any of the three.
+  const PHONE_VIEWS = ['week', 'month'];
   function view() {
-    return C.narrow ? 'week' : C.view;
+    return C.narrow ? C.phoneView : C.view;
   }
 
   function range() {
@@ -174,9 +186,10 @@
     if (C.prefsRead) return;
     C.prefsRead = true;
     try {
-      const names = ['calendarView', 'calendarSources', 'calendarOrder', 'calendarWeekLayout', 'calendarZone2', 'calendarNight'];
-      const [v, o, order, layout, zone2, night] = await Promise.all(names.map(n => C.ctx.prefs.get(n)));
+      const names = ['calendarView', 'calendarSources', 'calendarOrder', 'calendarWeekLayout', 'calendarZone2', 'calendarNight', 'calendarPhoneView'];
+      const [v, o, order, layout, zone2, night, phoneView] = await Promise.all(names.map(n => C.ctx.prefs.get(n)));
       if (cal.VIEWS.includes(v)) C.view = v;
+      if (PHONE_VIEWS.includes(phoneView)) C.phoneView = phoneView;
       if (o && typeof o === 'object') C.overrides = o;
       if (order === 'across' || order === 'down') C.order = order;
       if (layout === 'rows' || layout === 'columns') C.layout = layout;
@@ -338,10 +351,18 @@
     draw();
   }
 
+  // Narrow and wide each remember their own: a phone's month is not the
+  // computer's agenda.
   function setView(v) {
-    if (!cal.VIEWS.includes(v)) return;
-    C.view = v;
-    savePref('calendarView', v);
+    if (C.narrow) {
+      if (!PHONE_VIEWS.includes(v)) return;
+      C.phoneView = v;
+      savePref('calendarPhoneView', v);
+    } else {
+      if (!cal.VIEWS.includes(v)) return;
+      C.view = v;
+      savePref('calendarView', v);
+    }
     load();
   }
 
@@ -363,7 +384,7 @@
     const dx = e.changedTouches[0].clientX - touch.x;
     const dy = e.changedTouches[0].clientY - touch.y;
     touch = null;
-    if (Math.abs(dx) > SWIPE_PX && Math.abs(dx) > 1.5 * Math.abs(dy)) go(cal.step('week', C.anchor, dx < 0 ? 1 : -1));
+    if (Math.abs(dx) > SWIPE_PX && Math.abs(dx) > 1.5 * Math.abs(dy)) go(cal.step(view(), C.anchor, dx < 0 ? 1 : -1));
   }
 
   // ── Drawing ──────────────────────────────────────────────────────────
@@ -409,7 +430,20 @@
       ? 'All 24 hours. Click to leave out the night, 22:00 to 07:00, unless something is on then.'
       : 'The night, 22:00 to 07:00, is left out unless something is on then. Click for all 24 hours.';
     els.night.setAttribute('aria-label', 'All 24 hours');
-    els.title.textContent = cal.title(v, C.anchor, C.today);
+    const month = v === 'month';
+    els.phoneView.replaceChildren(icon(month ? 'columns' : 'month', 20));
+    els.phoneView.title = month ? 'Show the week' : 'Show the month';
+    els.phoneView.setAttribute('aria-label', els.phoneView.title);
+    els.todayNum.textContent = String(Number(C.today.slice(8)));
+    // On a phone the week's number is a small "W41" ahead of its days:
+    // "Week 41 ·" does not fit beside them and the buttons.
+    const title = cal.title(v, C.anchor, C.today, { short: C.narrow });
+    if (C.narrow && v === 'week') {
+      const n = cal.isoWeek(C.anchor);
+      els.title.replaceChildren(h('span', { class: 'cal-wk', text: `W${n}`, title: `Week ${n}` }), ` ${title}`);
+    } else {
+      els.title.textContent = title;
+    }
     for (const b of els.views.children) b.setAttribute('aria-selected', String(b.dataset.view === v));
     const panel = statusPanel();
     els.wrap.classList.toggle('cal-panel', !!panel);
@@ -556,8 +590,13 @@
     const m = cal.monthName(C.anchor);
     const rows = cal.monthWeeks(C.anchor);
     const month = C.anchor.slice(0, 7);
+    const name = `${m.long}${m.year !== Number(C.today.slice(0, 4)) ? ` ${m.year}` : ''}`;
     return h('div', { class: 'mini' },
-      h('div', { class: 'mini-head', text: `${m.long}${m.year !== Number(C.today.slice(0, 4)) ? ` ${m.year}` : ''}` }),
+      // Narrow, the month as the week's eighth tile: its name opens it.
+      C.narrow ? h('button', {
+        class: 'mini-head', type: 'button', text: name, title: 'Show the month', dataset: { key: 'cal-mini-month' },
+        onclick: () => setView('month'),
+      }) : h('div', { class: 'mini-head', text: name }),
       h('div', { class: 'mini-grid', role: 'grid', 'aria-label': `${m.long} ${m.year}` },
         cal.DAY_NAMES.map(d => h('span', { class: 'mini-dow', text: d[0], 'aria-hidden': 'true' })),
         rows.flat().map(k => h('button', {
@@ -867,6 +906,7 @@
     const keys = cal.days(r.start, r.end);
     const byDay = cal.byDay(visibleItems(), keys);
     const month = C.anchor.slice(0, 7);
+    if (C.narrow) return phoneMonth(keys, byDay, month);
     return h('div', { class: 'cal-month' },
       h('div', { class: 'month-dows', 'aria-hidden': 'true' }, cal.DAY_NAMES.map(d => h('span', { text: d }))),
       tint(h('div', { class: 'month-grid' },
@@ -883,6 +923,31 @@
             h('div', { class: 'cal-items' }, all.slice(0, more > 0 ? MONTH_ROWS - 1 : MONTH_ROWS).map(e => itemEl(e, { compact: true })),
               more > 0 ? h('button', { class: 'more', type: 'button', text: `+${more + 1} more`, onclick: () => openWeek(k) }) : null));
         })), '--rows', String(keys.length / 7)));
+  }
+
+  // On a phone: each day one button, with a line for each of the first
+  // few things on it in their colour, and "+2" for the rest; a tap opens
+  // that day's week, where they can be read and changed.
+  function phoneMonth(keys, byDay, month) {
+    const loading = C.status === 'loading' && !C.shown;
+    return h('div', { class: ['cal-month', 'phone-month', loading && 'loading'] },
+      h('div', { class: 'month-dows', 'aria-hidden': 'true' }, cal.DAY_NAMES.map(d => h('span', { text: d.slice(0, 1) }))),
+      tint(h('div', { class: 'month-grid' }, keys.map(k => {
+        const all = byDay.get(k);
+        const more = all.length - MONTH_ROWS;
+        const shown = all.slice(0, more > 0 ? MONTH_ROWS - 1 : MONTH_ROWS);
+        const label = `${longDate(k)}${all.length ? `: ${all.map(e => e.item.title).join(', ')}` : ', nothing on'}`;
+        return h('button', {
+          type: 'button', class: [...dayClasses(k, 'mcell'), k.slice(0, 7) !== month && 'other'],
+          'aria-label': label, dataset: { key: `cal-day:${k}`, day: k }, onclick: () => openWeek(k),
+        },
+        h('span', { class: 'mday', text: String(Number(k.slice(8))) }),
+        shown.map(({ item }) => tint(h('span', {
+          class: ['line', item.kind === 'task' ? 'task' : item.allDay ? 'all-day' : 'timed', item.done && 'done'],
+          text: item.title,
+        }), '--c', item.colour)),
+        more > 0 ? h('span', { class: 'more', text: `+${more + 1}` }) : null);
+      })), '--rows', String(keys.length / 7)));
   }
 
   function openWeek(k) {

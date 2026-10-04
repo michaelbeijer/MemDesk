@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.26.1" src="https://img.shields.io/badge/version-0.26.1-6D28D9">
+  <img alt="Version 0.27.0" src="https://img.shields.io/badge/version-0.27.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -86,7 +86,7 @@ a date sits in its day, ready to tick; the ones without a date, and any that
 are overdue, wait at the side; a task made from an email opens the email.
 Every calendar and task list shows or hides with one click. On the phone it is
 the week as two columns of days, with the month as the eighth, swiped to the
-next week. And it works both ways: open an event and change it, tick a task
+next week - or the whole month, a tap on a day opening its week. And it works both ways: open an event and change it, tick a task
 off, drag either to another day or an event to another time, drag an
 event's bottom edge to change when it ends, click an empty hour to add one,
 or press **+** on a day and type "Dentist 14:30" - it all goes straight to
@@ -137,7 +137,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.26.1 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.27.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -430,13 +430,20 @@ in Gmail and the notes follow.
   there starts hidden here); after that, this computer remembers.
 - **Tasks with no date**, and open tasks whose day has gone by, are listed
   under the calendars.
-- **On a phone**, or in a narrow window, it is always the week: two columns
+- **On a phone**, or in a narrow window, it is the week: two columns
   of days, Monday to Thursday and then Friday to Sunday, with the month as the
   eighth; the calendars are a row of chips above, and the tasks with no date
   below. Swipe sideways for the next or previous week. The button beside
   **›** turns the order round: Monday beside Tuesday, then Wednesday beside
   Thursday, and so on; the phone remembers which you chose. Dragging is for
   a computer; on a phone, change the day in the editor.
+- **The month on a phone**: the button at the end of the header (or the
+  month's name in the week's eighth tile) shows the whole month, each day
+  with a coloured line for each of the first few things on it and "+2" for
+  the rest. Tap a day for its week; swipe for the next or previous month;
+  the same button goes back to the week. The phone remembers which you last
+  used. To make room, the week's title is its number, short ("W41"), and
+  its days.
 
 ### Storage
 
