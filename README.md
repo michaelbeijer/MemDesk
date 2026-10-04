@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.26.0" src="https://img.shields.io/badge/version-0.26.0-6D28D9">
+  <img alt="Version 0.26.1" src="https://img.shields.io/badge/version-0.26.1-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -136,7 +136,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.26.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.26.1 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -353,8 +353,13 @@ in Gmail and the notes follow.
   Google Calendar, on the 24-hour clock (09:30, 19:30): seven columns of
   days beside the hours, each day's all-day events and tasks along its top,
   the rest where they happen, side by side when they overlap, and a red line
-  for now. It opens at seven in the morning, scrolls, and keeps its place as
-  things change.
+  for now.
+- **The day, not the night.** The hours shown are 07:00 to 22:00, filling the
+  window, so there is nothing to scroll. Something on earlier or later
+  widens them to fit it, so nothing is ever hidden. The moon button, just
+  left of the layout button, shows all 24 hours, with the night shaded; they
+  scroll then, opening a little before seven. This computer remembers
+  which you chose.
 - **A second time zone**: the corner above the hours names yours ("GMT+2").
   Click it to add a second one, whose hours show beside yours - New York,
   say, or London - and click it again to change it or take it away. This

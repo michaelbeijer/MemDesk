@@ -1253,8 +1253,10 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .cal-nav { display: flex; align-items: center; gap: 2px; flex: none; }
 .cal-order { display: none; }
 .cal[data-narrow="true"] .cal-order { display: inline-flex; }
-.cal-layout { display: none; }
+.cal-layout, .cal-night { display: none; }
 .cal[data-narrow="false"][data-view="week"] .cal-layout { display: inline-flex; }
+.cal[data-narrow="false"][data-view="week"][data-layout="columns"] .cal-night { display: inline-flex; }
+.cal-night[aria-pressed="true"] { background: var(--accent-soft); color: var(--on-accent-soft); }
 .btn-outline { height: 34px; padding: 0 16px; border: 1px solid var(--border-strong); color: var(--fg); margin-right: 4px; }
 .btn-outline:hover { background: var(--hover); }
 .cal-title {
@@ -1380,8 +1382,11 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 
 /* The week by the hour: one grid that scrolls, the days' heads and their
    all-day rows held at the top, the hours down the side. --hour is an
-   hour's height; whatever is in the hours is placed by minutes after
-   midnight (--from, --to) and, side by side, as --col of --cols. */
+   hour's height: the hours on screen (--hours of them, from --span-from)
+   fill the space there is, down to 36px each, and scroll after that.
+   Whatever is in the hours is placed by minutes after midnight (--from,
+   --to) and, side by side, as --col of --cols. */
+.cal[data-narrow="false"][data-view="week"][data-layout="columns"] .cal-main { container-type: size; }
 .cal-week.hours {
   --hour: 48px;
   --head: 42px;
@@ -1395,6 +1400,9 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--surface);
+}
+@supports (height: 1cqh) {
+  .cal-week.hours { --hour: max(36px, calc((100cqh - var(--head) - var(--allday) - 4px) / var(--hours, 24))); }
 }
 .cal-week.hours[data-zones="2"] { --gutter: 108px; }
 .cal-week.hours .day,
@@ -1440,11 +1448,17 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
   border-bottom: 1px solid var(--border);
 }
 .cal-week.hours .grid-allday .item .t { -webkit-line-clamp: 1; }
+/* The night, where it shows, a shade darker. */
 .grid-body {
+  --night: color-mix(in srgb, var(--col) 45%, transparent);
+  --dawn: calc((420 - var(--span-from, 0)) * var(--hour) / 60);
+  --dusk: calc((1320 - var(--span-from, 0)) * var(--hour) / 60);
   position: relative;
-  height: calc(24 * var(--hour));
-  background-image: linear-gradient(var(--border) 1px, transparent 1px);
-  background-size: 100% var(--hour);
+  height: calc(var(--hours, 24) * var(--hour));
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(var(--night) var(--dawn), transparent var(--dawn), transparent var(--dusk), var(--night) var(--dusk));
+  background-size: 100% var(--hour), 100% 100%;
 }
 .grid-body > .timed,
 .grid-body > .grid-resize,
@@ -1455,7 +1469,7 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 }
 .grid-body > .timed,
 .drop-ghost {
-  top: calc(var(--from) * var(--hour) / 60 + 1px);
+  top: calc((var(--from) - var(--span-from, 0)) * var(--hour) / 60 + 1px);
   height: calc((var(--to) - var(--from)) * var(--hour) / 60 - 2px);
 }
 .cal-week.hours .timed {
@@ -1479,7 +1493,7 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
    it is), so that the rest can still be clicked and dragged. */
 .grid-body > .grid-resize {
   z-index: 2;
-  top: calc(max(var(--to) * var(--hour) / 60 - 1px, var(--from) * var(--hour) / 60 + 17px) - 5px);
+  top: calc(max((var(--to) - var(--span-from, 0)) * var(--hour) / 60 - 1px, (var(--from) - var(--span-from, 0)) * var(--hour) / 60 + 17px) - 5px);
   height: 5px;
   cursor: ns-resize;
   touch-action: none;
@@ -1500,7 +1514,7 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
   position: absolute;
   left: 0;
   right: 0;
-  top: calc(var(--from) * var(--hour) / 60 - 1px);
+  top: calc((var(--from) - var(--span-from, 0)) * var(--hour) / 60 - 1px);
   z-index: 2;
   height: 2px;
   background: var(--c-red);
@@ -1542,9 +1556,12 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .grid-zones:hover { background: var(--hover); color: var(--fg); }
 .grid-zones span { flex: 1; text-align: right; white-space: nowrap; }
 .grid-zones .icon { flex: none; }
-.grid-hours { display: grid; grid-template-rows: repeat(24, var(--hour)); }
+.grid-hours { display: grid; grid-template-rows: repeat(var(--hours, 24), var(--hour)); }
+.now-line[hidden] { display: none; }
 .grid-hour { display: flex; gap: 2px; padding: 0 8px 0 4px; font-size: 11px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
 .grid-hour span { flex: 1; height: max-content; text-align: right; transform: translateY(-50%); }
+/* The first hour's line is the top edge: its time goes just below it. */
+.grid-hour:first-child span { transform: none; }
 .grid-hour .other, .grid-zones .other { opacity: .7; }
 .badge { padding: 1px 7px; border-radius: 9px; background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 500; }
 .day.past .item { opacity: .78; }
