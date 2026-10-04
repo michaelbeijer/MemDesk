@@ -1,5 +1,6 @@
 // The website (tools/build-site.mjs): every file the pages point to is
-// there, and the privacy page says what PRIVACY.md says.
+// there, the privacy page says what PRIVACY.md says, and the demo is
+// made of the real code. (tests/e2e/demo.e2e.mjs tries the demo itself.)
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -18,17 +19,19 @@ const page = rel => fs.readFileSync(path.join(OUT, rel), 'utf8');
 function localRefs(rel) {
   const html = page(rel);
   return [...html.matchAll(/\b(?:src|href)="([^"]+)"/g)].map(m => m[1])
-    .filter(u => !/^(https?:|mailto:|#)/.test(u))
+    .filter(u => !/^(https?:|mailto:|#|\?)/.test(u))
     .map(u => {
-      const p = path.posix.join(path.posix.dirname(rel), u.split('#')[0]);
+      const p = path.posix.join(path.posix.dirname(rel), u.split('#')[0].split('?')[0]);
       return p.endsWith('/') || p === '.' ? path.posix.join(p, 'index.html') : p;
     });
 }
 
+const DEMO_PAGES = ['demo/index.html', 'demo/phone/index.html', 'demo/phone/app.html', 'demo/phone/server.html'];
+
 test('the site has its pages, and everything they point to', () => {
-  for (const rel of ['index.html', 'privacy/index.html']) {
+  for (const rel of ['index.html', 'privacy/index.html', ...DEMO_PAGES]) {
     const refs = localRefs(rel);
-    assert.ok(refs.length > 3, rel);
+    assert.ok(refs.length >= 3, rel);
     for (const ref of refs) assert.ok(fs.existsSync(path.join(OUT, ref)), `${rel} points to ${ref}, which is not there`);
   }
 });
@@ -37,9 +40,47 @@ test('the pages run no scripts and load nothing from elsewhere but links', () =>
   for (const rel of ['index.html', 'privacy/index.html']) {
     const html = page(rel);
     assert.doesNotMatch(html, /<script\b/i, rel);
+  }
+  // The demo runs scripts, its own, and loads nothing from elsewhere either.
+  for (const rel of ['index.html', 'privacy/index.html', ...DEMO_PAGES]) {
+    const html = page(rel);
     assert.doesNotMatch(html, /\bsrc="https?:/i, rel);
     assert.doesNotMatch(html, /<link[^>]+href="https?:/i, rel);
   }
+});
+
+test('the demo is the real code: the preview’s content scripts, the phone app’s page, and Code.gs itself', () => {
+  const read = rel => fs.readFileSync(path.join(ROOT, rel), 'utf8');
+  const manifest = JSON.parse(read('manifest.json'));
+  const computer = page('demo/index.html');
+  // The extension's content scripts, in the manifest's order, as they are.
+  const scripts = [...computer.matchAll(/<script src="(src\/[^"]+)"/g)].map(m => m[1]);
+  assert.deepEqual(scripts, manifest.content_scripts[0].js);
+  for (const f of scripts) assert.equal(page(`demo/${f}`), read(f), f);
+  assert.equal(page('demo/mock-chrome.js'), read('dev/mock-chrome.js'));
+  // Made-up mail, tidy; the demo's bar and script; Gmail's rule on HTML.
+  assert.match(computer, /window\.__mockSearch = '\?showcase&latency=\d+'/);
+  assert.ok(computer.indexOf('__mockSearch') < computer.indexOf('<script src="mock-chrome.js">'), 'set before the fake loads');
+  assert.match(computer, /<div class="demobar"/);
+  assert.match(computer, /<script src="demo\.js"><\/script>\n<\/body>/);
+  assert.match(computer, /require-trusted-types-for 'script'/);
+  assert.doesNotMatch(computer, /<title>[^<]*Gmail/, 'not called Gmail');
+  // The phone: the app's page, with google.script standing in before
+  // anything else runs, and the script, Code.gs as built.
+  const appPage = page('demo/phone/app.html');
+  const run = appPage.indexOf('<script src="run.js">');
+  assert.ok(run > 0 && run < appPage.indexOf('var MODULES'), 'google.script before the app');
+  assert.equal(page('demo/phone/code.js'), read('addon/Code.gs'));
+  const server = page('demo/phone/server.html');
+  assert.ok(server.indexOf('apps-script-services.js') < server.indexOf('code.js'));
+  assert.ok(server.includes(JSON.stringify(JSON.parse(read('addon/appsscript.json')).urlFetchWhitelist)), 'the manifest’s whitelist');
+  assert.match(page('demo/phone/index.html'), /<div class="demobar"[\s\S]*aria-current="page">Phone</);
+});
+
+test('the website leads to the demo', () => {
+  const html = page('index.html');
+  assert.ok(html.includes('<a class="btn btn-ghost" href="demo/">Try the demo</a>'), 'beside Get MemDesk');
+  assert.ok(html.includes('<a href="demo/">Demo</a>'), 'in the top menu');
 });
 
 test('the privacy page is PRIVACY.md, all of it', () => {

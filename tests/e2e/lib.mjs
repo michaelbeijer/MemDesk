@@ -9,7 +9,9 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import { existsSync, readdirSync, mkdirSync } from 'node:fs';
-import { join, resolve, dirname } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { join, resolve, dirname, extname, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
@@ -109,4 +111,33 @@ export function watchErrors(page, sink, label = '') {
     if (msg.type() === 'error') sink.push(`${label}console: ${msg.text()}`);
   });
   page.on('pageerror', err => sink.push(`${label}pageerror: ${err.message}`));
+}
+
+// A folder, served over HTTP on a free port of this computer, as GitHub
+// Pages would serve it: what a page's frames do to one another needs an
+// origin, which a file:// page does not have. { url, close }.
+const TYPES = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.json': 'application/json',
+};
+export function serveFolder(dir) {
+  const root = resolve(dir);
+  const server = createServer(async (req, res) => {
+    let path = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+    if (path.endsWith('/')) path += 'index.html';
+    const file = resolve(root, `.${path}`);
+    if (file !== root && !file.startsWith(root + sep)) { res.writeHead(403); res.end(); return; }
+    try {
+      const body = await readFile(file);
+      res.writeHead(200, { 'content-type': TYPES[extname(file)] || 'application/octet-stream' });
+      res.end(body);
+    } catch {
+      res.writeHead(404, { 'content-type': 'text/plain' });
+      res.end('Not found');
+    }
+  });
+  return new Promise(ok => server.listen(0, '127.0.0.1', () => ok({
+    url: `http://127.0.0.1:${server.address().port}`,
+    close: () => new Promise(done => server.close(done)),
+  })));
 }

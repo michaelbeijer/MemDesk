@@ -108,14 +108,16 @@ const LOADER = `<script>
 })();
 </script>`;
 
-export function appHtml() {
+// `before`: what goes in ahead of the loader - the website's demo puts
+// its stand-in for google.script there.
+export function appHtml({ before = '' } = {}) {
   const modules = APP_FILES.map(f => [f, Buffer.from(readFileSync(join(REPO, f), 'utf8'), 'utf8').toString('base64url')]);
   const loader = LOADER.replace('__MODULES__', () => JSON.stringify(modules));
   for (const bad of ['//', '<!--', '</s']) {
     const body = loader.slice('<script>'.length, -'</script>'.length);
     if (body.includes(bad)) throw new Error(`the app's loader contains "${bad}"`);
   }
-  return readFileSync(join(REPO, 'addon', 'app', 'index.html'), 'utf8').replace('<!-- scripts -->', () => loader);
+  return readFileSync(join(REPO, 'addon', 'app', 'index.html'), 'utf8').replace('<!-- scripts -->', () => before + loader);
 }
 
 const HEADER = `// The phone panel and phone app ${VERSION}: a Gmail add-on and a web app, in Apps Script.
