@@ -158,6 +158,10 @@ test('titles say where you are', () => {
   assert.equal(cal.title('week', '2027-01-01', '2026-10-02'), 'Week 53 · 28 Dec 2026 – 3 Jan 2027');
   assert.equal(cal.title('week', '2025-10-01', '2026-10-02'), 'Week 40 · 29 Sep – 5 Oct 2025');
   assert.equal(cal.title('month', '2026-10-02', '2026-10-02'), 'October 2026');
+  // On a phone, the week's days without its number, which do not fit both.
+  assert.equal(cal.title('week', '2026-10-02', '2026-10-02', { short: true }), '28 Sep – 4 Oct');
+  assert.equal(cal.title('week', '2026-10-07', '2026-10-02', { short: true }), '5 – 11 Oct');
+  assert.equal(cal.title('month', '2026-10-02', '2026-10-02', { short: true }), 'October 2026');
   assert.equal(cal.title('agenda', '2026-10-02', '2026-10-02'), '2 – 29 Oct');
   assert.equal(cal.spanText('2026-10-02', '2026-10-02', '2026-10-02'), '2 Oct');
   assert.equal(cal.dayName('2026-10-04'), 'Sun');

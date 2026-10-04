@@ -240,14 +240,16 @@
     return `${d1} ${MONTHS[m1 - 1]} – ${d2} ${MONTHS[m2 - 1]}${year(y2)}`;
   }
 
-  function title(view, anchor, today) {
+  // `short`: on a phone, where the week's number does not fit beside its
+  // days.
+  function title(view, anchor, today, { short = false } = {}) {
     if (view === 'month') {
       const [y, m] = anchor.split('-').map(Number);
       return `${MONTHS_LONG[m - 1]} ${y}`;
     }
     const { start, end } = viewRange(view, anchor);
     const span = spanText(start, addDays(end, -1), today);
-    return view === 'week' ? `Week ${isoWeek(anchor)} · ${span}` : span;
+    return view === 'week' && !short ? `Week ${isoWeek(anchor)} · ${span}` : span;
   }
 
   function monthName(key) {

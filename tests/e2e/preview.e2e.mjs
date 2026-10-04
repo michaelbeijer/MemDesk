@@ -1525,7 +1525,44 @@ try {
     const [mon, tue, fri] = await Promise.all([0, 1, 4].map(i => days.nth(i).boundingBox()));
     assert.ok(tue.y > mon.y && Math.abs(tue.x - mon.x) < 2, 'Tuesday under Monday');
     assert.ok(Math.abs(fri.y - mon.y) < 2 && fri.x > mon.x, 'Friday beside Monday');
+    assert.doesNotMatch(await calTitle(p), /^Week/, 'the days alone, which fit');
     await p.screenshot({ path: join(SCREENS, 'preview-calendar-narrow.png'), animations: 'disabled' });
+
+    // The month: a grid of days, a line for each thing on them; a tap on a
+    // day opens its week. Narrow and wide each keep their own view.
+    const toggle = p.locator('[data-key="cal-phone-view"]');
+    assert.equal(await toggle.getAttribute('aria-label'), 'Show the month');
+    await toggle.click();
+    await p.locator('.phone-month').waitFor();
+    const thursday = await p.evaluate(() => window.__fakeCalendar.day(3));
+    const [y, m] = thursday.split('-').map(Number);
+    const monthTitle = `${['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][m - 1]} ${y}`;
+    if (thursday.slice(0, 7) === (await p.evaluate(() => window.__fakeCalendar.day(0))).slice(0, 7)) assert.equal(await calTitle(p), monthTitle);
+    assert.equal(await toggle.getAttribute('aria-label'), 'Show the week');
+    assert.equal(await p.locator('[data-key="cal-order"]').isVisible(), false, 'the order of the days is the week’s');
+    const cells = p.locator('.phone-month .mcell');
+    assert.equal((await cells.count()) % 7, 0);
+    const cell = p.locator(`.phone-month .mcell[data-day="${thursday}"]`);
+    await until(async () => /Lumenra glossary delivery/.test(await cell.innerText()), 'the month’s days read');
+    assert.match(await cell.getAttribute('aria-label'), /Lumenra glossary delivery/, 'named in full, for a screen reader');
+    assert.equal(await p.locator('.phone-month .mcell.today').count(), 1);
+    assert.equal(await p.evaluate(async () => (await chrome.storage.local.get('pref:test@example.com:calendarPhoneView'))['pref:test@example.com:calendarPhoneView']), 'month', 'remembered');
+    await p.screenshot({ path: join(SCREENS, 'preview-calendar-narrow-month.png'), animations: 'disabled' });
+    await p.locator('[data-key="cal-next"]').click();
+    await until(async () => (await calTitle(p)) !== monthTitle, 'the next month');
+    await p.locator('[data-key="cal-prev"]').click();
+    await cell.click();
+    await p.locator('.cal-week').waitFor();
+    assert.ok(await p.locator(`.cal-week > .day[data-day="${thursday}"]`).count(), 'that day’s week');
+    assert.equal(await toggle.getAttribute('aria-label'), 'Show the month');
+    // The week's small month opens the month too.
+    await p.locator('.mini-tile [data-key="cal-mini-month"]').click();
+    await p.locator('.phone-month').waitFor();
+    // Wide again: the computer's view, as it was.
+    await p.setViewportSize({ width: 1440, height: 900 });
+    await until(async () => (await p.locator('.cal').getAttribute('data-narrow')) === 'false', 'wide');
+    await p.locator('.cal-week.hours').waitFor();
+    assert.equal(await toggle.isVisible(), false);
     await p.context().close();
   });
 

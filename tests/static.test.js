@@ -73,7 +73,7 @@ test('the preview loads exactly the manifest’s content scripts, in order', () 
 
 test('manifest: version, permissions and a key whose ID the README reports', () => {
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '0.26.1');
+  assert.equal(manifest.version, '0.27.0');
   assert.ok(read('README.md').includes(`badge/version-${manifest.version}-`), 'the README\'s version badge is current');
   assert.equal(require('../src/shared/ns.js').APP_VERSION, manifest.version, 'the logo menu\'s version (src/shared/ns.js) is current');
   assert.deepEqual(manifest.permissions.sort(), ['identity', 'storage']);
