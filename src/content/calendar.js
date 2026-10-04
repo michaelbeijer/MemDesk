@@ -7,10 +7,10 @@
 // email itself).
 //
 // On a computer there are three views - Week (seven columns, or two rows:
-// Monday to Thursday above Friday to Sunday, at the click of a button
-// beside the views), Month and Agenda (four weeks as one list) - beside a
-// small month, the calendars and task lists to show or hide, and the
-// tasks with no date. Narrow, as
+// Monday to Thursday above Friday to Sunday and the scratchpad, at the
+// click of a button beside the views), Month and Agenda (four weeks as one
+// list) - beside a small month, the calendars and task lists to show or
+// hide, and the tasks with no date. Narrow, as
 // on a phone, it is always the week: two columns of days with the month
 // as the eighth tile, the sources as a row of chips above, and the tasks
 // with no date below. A swipe goes to the next or previous week, and a
@@ -378,7 +378,11 @@
     if (panel) els.main.replaceChildren(panel);
     else if (v === 'month') els.main.replaceChildren(drawMonth());
     else if (v === 'agenda') els.main.replaceChildren(drawAgenda());
-    else els.main.replaceChildren(drawWeek());
+    else {
+      const week = drawWeek();
+      // Already showing: left in place (see drawWeek).
+      if (els.main.firstChild !== week || els.main.childNodes.length !== 1) els.main.replaceChildren(week);
+    }
   }
 
   // What is on, from the sources that are on, by day.
@@ -530,17 +534,27 @@
     return [base, k === C.today && 'today', wd >= 5 && 'weekend', wd === 6 && 'sunday', k < C.today && 'past'];
   }
 
+  // The week is one element, kept: its days are drawn afresh each time,
+  // but the scratchpad tile in the two rows' eighth space is only ever
+  // moved in or out, never taken out and put back - that would take the
+  // cursor out of it whenever the week was redrawn mid-sentence.
   function drawWeek() {
     const r = range();
     const keys = cal.days(r.start, r.end);
     const byDay = cal.byDay(visibleItems(), keys);
     const loading = C.status === 'loading' && !C.shown;
-    return h('div', { class: ['cal-week', loading && 'loading'], role: 'list' },
-      keys.map(k => h('section', { class: dayClasses(k, 'day'), role: 'listitem', 'aria-label': longDate(k), dataset: { day: k } },
-        dayHead(k),
-        h('div', { class: 'cal-items' }, byDay.get(k).map(e => itemEl(e))))),
-      // The eighth tile, in the two columns of a narrow screen.
-      h('div', { class: 'day mini-tile', 'aria-hidden': C.narrow ? null : 'true' }, miniMonth()));
+    const tile = !C.narrow && C.layout === 'rows' && ns.notes ? ns.notes.scratchTile() : null;
+    const week = els.week || (els.week = h('div', { role: 'list' }));
+    week.className = loading ? 'cal-week loading' : 'cal-week';
+    for (const kid of [...week.children]) if (kid !== tile) kid.remove();
+    const days = keys.map(k => h('section', { class: dayClasses(k, 'day'), role: 'listitem', 'aria-label': longDate(k), dataset: { day: k } },
+      dayHead(k),
+      h('div', { class: 'cal-items' }, byDay.get(k).map(e => itemEl(e)))));
+    // The eighth tile, in the two columns of a narrow screen.
+    days.push(h('div', { class: 'day mini-tile', 'aria-hidden': C.narrow ? null : 'true' }, miniMonth()));
+    if (tile && tile.parentNode === week) days.forEach(d => week.insertBefore(d, tile));
+    else week.append(...days, ...(tile ? [tile] : []));
+    return week;
   }
 
   function drawMonth() {

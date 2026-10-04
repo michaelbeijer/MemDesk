@@ -1532,7 +1532,7 @@ try {
     assert.match(await btn.getAttribute('title'), /^The week in seven columns/);
     await btn.click();
     await until(async () => (await p.locator('.cal').getAttribute('data-layout')) === 'rows', 'two rows');
-    const at = await p.locator('.cal-week > .day:not(.mini-tile)').evaluateAll(els => els.map(e => {
+    const at = await p.locator('.cal-week > .day[data-day]').evaluateAll(els => els.map(e => {
       const b = e.getBoundingClientRect();
       return { x: Math.round(b.left), y: Math.round(b.top), h: Math.round(b.height) };
     }));
@@ -1555,6 +1555,7 @@ try {
     await p.setViewportSize({ width: 560, height: 900 });
     await until(async () => (await p.locator('.cal').getAttribute('data-narrow')) === 'true', 'narrow');
     assert.equal(await btn.isVisible(), false, 'narrow, it is the phone’s week');
+    assert.equal(await p.locator('.scratch-tile').count(), 0, 'with the small month as its eighth tile, not the scratchpad');
     const days = p.locator('.cal-week > .day:not(.mini-tile)');
     const [mon, tue] = await Promise.all([0, 1].map(i => days.nth(i).boundingBox()));
     assert.ok(tue.y > mon.y && Math.abs(tue.x - mon.x) < 2, 'Tuesday under Monday, as on a phone');
@@ -1565,6 +1566,87 @@ try {
     await openCalendar(q);
     assert.equal(await q.locator('.cal').getAttribute('data-layout'), 'rows', 'opened again, still two rows');
     await q.context().close();
+  });
+
+  await r.step('calendar: the scratchpad in the eighth space is the same note as in Notes, both ways; a redraw keeps the cursor', async () => {
+    const p = await openPage();
+    const scratchLive = () => p.evaluate(() => window.__fakeGmail.notesWithId('scratchpad000000').filter(n => !n.labels.includes('TRASH')));
+    await p.evaluate(() => chrome.storage.local.set({ 'pref:test@example.com:calendarWeekLayout': 'rows' }));
+    await openCalendar(p);
+    const tile = p.locator('.cal-week > .scratch-tile');
+    const tileBody = tile.locator('.ne-body');
+    await tile.locator('.ne-body[contenteditable="true"]').waitFor();
+    assert.equal(await tile.locator('.dname').innerText(), 'Scratchpad');
+    const days = p.locator('.cal-week > .day[data-day]');
+    const [thu, sun, box] = await Promise.all([days.nth(3).boundingBox(), days.nth(6).boundingBox(), tile.boundingBox()]);
+    assert.ok(Math.abs(box.x - thu.x) < 2 && Math.abs(box.y - sun.y) < 2, 'under Thursday, beside Sunday');
+    assert.equal(await tile.locator('.ne-toolbar').count(), 0, 'no toolbar');
+
+    // Typed into, it saves by itself, as the scratchpad.
+    await tileBody.click();
+    await p.keyboard.type('Ring the dentist');
+    await until(async () => /^Saved/.test(await tile.locator('.ne-status').innerText()), 'saved by itself', 10000);
+    assert.deepEqual((await scratchLive()).map(n => [n.subject, n.text]), [['Scratchpad', 'Ring the dentist']]);
+
+    // The week redrawn mid-sentence: the cursor stays where it was.
+    await p.keyboard.type(' on Monday');
+    await p.evaluate(() => window.gkb.calendar.load({ force: true }));
+    await until(async () => !(await p.evaluate(() => window.gkb.calendar.isLoading())), 'redrawn');
+    await p.keyboard.type(' at 9');
+    assert.equal(await tileBody.innerText(), 'Ring the dentist on Monday at 9');
+    await p.keyboard.press('Control+s');
+    await until(async () => (await scratchLive()).some(n => n.text.endsWith('at 9')), 'Ctrl+S saves at once', 2000);
+
+    // The same note in the Notes tab, and typed there, back in the tile.
+    await p.locator('[data-key="view:notes"]').click();
+    const notesBody = p.locator('.note-editor.scratch .ne-body');
+    await until(async () => (await notesBody.innerText()) === 'Ring the dentist on Monday at 9', 'in the notes');
+    await notesBody.click();
+    await p.keyboard.press('Control+End');
+    await p.keyboard.press('Enter');
+    await p.keyboard.type('Buy stamps');
+    await p.locator('[data-key="view:calendar"]').click();
+    await until(async () => /at 9\nBuy stamps$/.test(await tileBody.innerText()), 'in the tile');
+    // A save inserts the new version, then moves the old one to Trash.
+    await until(async () => {
+      const now = await scratchLive();
+      return now.length === 1 && now[0].text.endsWith('Buy stamps');
+    }, 'saved on leaving the tab, as one live version');
+
+    // With another note open in Notes, the tile still edits the scratchpad,
+    // and the other note stays open as it was.
+    await p.locator('[data-key="view:notes"]').click();
+    await p.locator('.note-item[data-note="n:rateschedule00000003"]').click();
+    await bodyReady(p, /Per-word rates/, 'the other note');
+    const rate = await p.evaluate(() => window.__fakeGmail.notesWithId('rateschedule00000003').filter(n => !n.labels.includes('TRASH')));
+    await p.locator('[data-key="view:calendar"]').click();
+    await tileBody.click();
+    await p.keyboard.press('Control+End');
+    await p.keyboard.type(' and the vet');
+    await p.keyboard.press('Control+s');
+    await until(async () => (await scratchLive()).some(n => n.text.endsWith('and the vet')), 'saved');
+    await p.locator('[data-key="view:notes"]').click();
+    await bodyReady(p, /Per-word rates/, 'the other note, still open');
+    assert.deepEqual(await p.evaluate(() => window.__fakeGmail.notesWithId('rateschedule00000003').filter(n => !n.labels.includes('TRASH'))), rate, 'untouched');
+    await p.locator('.scratch-item').click();
+    await bodyReady(p, /Buy stamps and the vet$/, 'the scratchpad, with the tile’s line');
+    await p.locator('[data-key="view:calendar"]').click();
+    await tileBody.waitFor();
+    await p.mouse.move(0, 0);
+    await p.screenshot({ path: join(SCREENS, 'preview-calendar-scratchpad.png'), animations: 'disabled' });
+    await p.context().close();
+  });
+
+  await r.step('calendar: without Gmail connected, the tile says so, and the calendar stays', async () => {
+    const p = await openPage('state=auth_required');
+    await p.evaluate(() => chrome.storage.local.set({ 'pref:test@example.com:calendarWeekLayout': 'rows' }));
+    await openCalendar(p);
+    const tile = p.locator('.cal-week > .scratch-tile');
+    await until(async () => /Couldn’t load the scratchpad/.test(await tile.locator('.ne-body').getAttribute('data-placeholder') || ''), 'the tile says why');
+    assert.equal(await tile.locator('.ne-body').getAttribute('contenteditable'), 'false');
+    assert.equal(await p.locator('.panel').count(), 0, 'no Connect Gmail panel over the calendar');
+    assert.ok((await weekText(p)).includes('Lumenra glossary delivery'));
+    await p.context().close();
   });
 
   await r.step('no console errors anywhere', async () => {

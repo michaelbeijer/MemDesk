@@ -63,7 +63,8 @@ Open the notes and you are already in it, cursor blinking: one note for
 whatever needs writing down right now, and the same one on every computer and
 phone, so a line jotted on the train is waiting at your desk. On the phone it
 fills the screen under the search box; in Chrome it is open whenever no other
-note is, and pinned at the top of the list.
+note is, and pinned at the top of the list - and it fills the spare corner of
+the calendar's week in two rows, so you can jot things down as you plan.
 
 <img src="images/scratchpad.jpg" width="100%" alt="The Scratchpad open in Chrome beside the notes list, and on a phone, where the app opens on it">
 
@@ -341,7 +342,11 @@ in Gmail and the notes follow.
   an hour grid: the times are on the items. The button just left of **Week**
   turns it into two rows instead, Monday to Thursday above Friday to Sunday,
   which gives each day more room across; this computer remembers which you
-  chose. The month shows a few things a day
+  chose. The space left over, beside Sunday, holds the **Scratchpad**: the
+  same note as in Notes, typed into right there. It saves as you type (or
+  with Ctrl+S) and takes the same keys and typed lists, without the
+  toolbar. What you type in one place is there in the other when you switch
+  tabs. The month shows a few things a day
   and "+2 more"; click a day's number to see its week. The agenda is the next
   four weeks as one list, skipping empty days.
 - **Today**, **‹** and **›** move about; so do the keys Google Calendar uses:
@@ -729,7 +734,7 @@ src/content/               classic scripts, in manifest order
   ui.js, styles.js         DOM builder, icons, menus, toasts, shadow hosts
   board.js, dock.js        the overlay (header, tabs, board) and the corner buttons
   note-editor.js           the formatted editor and its toolbar
-  notes.js                 the Notes tab: list, editor, autosave
+  notes.js                 the Notes tab: list, editor, autosave; the calendar's scratchpad tile
   calendar-store.js        Calendar and Tasks: sources, and what is on in a range
   calendar.js              the Calendar tab: week, month, agenda, phone week
   main.js                  wiring

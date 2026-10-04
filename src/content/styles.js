@@ -1346,6 +1346,17 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .day-head { display: flex; align-items: center; gap: 6px; margin: 0 0 6px 2px; font-size: 14px; color: var(--fg); }
 .day-head .dname { color: var(--fg-2); }
 .day-head .dnum { font-weight: 500; }
+/* The scratchpad in the week's eighth space: its colour from the notes,
+   and a smaller editor that scrolls inside the tile. */
+.scratch-tile { background: var(--scratch); border-color: var(--scratch-edge); }
+.scratch-tile .day-head .icon { flex: none; color: var(--scratch-ink); }
+.scratch-tile .day-head .dname { color: var(--fg); font-weight: 500; }
+.scratch-tile .day-head .ne-status { margin-left: auto; }
+.scratch-tile-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.scratch-tile .ne-body { padding: 2px 4px 8px; font-size: 13.5px; line-height: 1.5; }
+.scratch-tile .ne-body[data-empty="1"]::before { top: 2px; left: 4px; }
+.scratch-tile .ne-linkbar, .scratch-tile .ne-tablebar { margin: 0 0 6px; }
+.scratch-tile .ne-linkbar .text-input { min-width: 0; }
 .sunday .day-head, .sunday .day-head .dname, .mcell.sunday:not(.today) .mday, .aday.sunday .aday-date { color: var(--c-red); }
 .badge { padding: 1px 7px; border-radius: 9px; background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 500; }
 .day.past .item { opacity: .78; }

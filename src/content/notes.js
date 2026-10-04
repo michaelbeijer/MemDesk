@@ -15,7 +15,9 @@
 // The scratchpad is the note that is open whenever no other one is: one
 // note with a fixed id, shared by every computer and phone, there to type
 // into the moment the notes appear. It is pinned at the top of the list,
-// and cannot be renamed, moved or deleted.
+// and cannot be renamed, moved or deleted. The calendar's week, in two
+// rows, shows it too, in a tile of its own (scratchTile): a second editor
+// on the same state, saved and merged by this file.
 //
 // The phone app (addon/app) runs this same view full-screen on a phone,
 // with a different way to Gmail behind notesStore. A phone shows one
@@ -55,6 +57,7 @@
     loadedAt: 0,
     loading: null,
     current: null,      // the note being edited - see newCurrent(); the scratchpad when no other is
+    scratch: null,      // the scratchpad being edited, here or in the calendar's tile, open here or not
     scratchNote: null,  // the scratchpad's message, once listed (null: never saved yet)
     scratchKnown: false, // whether the listing has said if there is one
     browsing: false,    // a phone: the list is showing, rather than the scratchpad
@@ -71,10 +74,12 @@
     findIndex: 0,       // which match in the open note is the current one
   };
 
-  let saveTimer = 0;
   let searchTimer = 0;
   let findTimer = 0;
   const els = {};
+  // The calendar's scratchpad tile: its element, editor and status line,
+  // the state it shows, and whether the notes' editor changed that since.
+  const T = { el: null, body: null, status: null, ed: null, for: null, stale: false };
 
   // ── Setup ────────────────────────────────────────────────────────────
 
@@ -84,16 +89,26 @@
     // Closing the tab mid-sentence would lose the last few seconds of
     // typing; the browser's own "Leave site?" prompt is the only defence.
     window.addEventListener('beforeunload', e => {
-      const c = N.current;
-      if (c && (c.dirty || c.saving)) {
+      if ([N.current, N.scratch].some(c => c && (c.dirty || c.saving))) {
         e.preventDefault();
         e.returnValue = '';
       }
     });
   }
 
+  // Account trouble goes to the board, which shows its panel in place of
+  // the notes - but only while the notes are showing. The calendar works
+  // without Gmail, and its scratchpad tile says what went wrong itself.
+  function stateError(err) {
+    if (els.wrap && els.wrap.isConnected) N.ctx.onStateError(err);
+  }
+
   function element() {
-    if (els.wrap) return els.wrap;
+    if (els.wrap) {
+      // The scratchpad was typed into in the calendar's tile meanwhile.
+      if (els.edStale) drawEditor();
+      return els.wrap;
+    }
 
     els.search = h('input', {
       type: 'search', placeholder: 'Search notes', 'aria-label': 'Search notes',
@@ -143,14 +158,21 @@
 
     els.editor = h('section', { class: 'note-editor', 'aria-label': 'Note' });
     els.wrap = h('div', { class: 'notes', dataset: { folders: 'closed' } }, els.foldersPane, els.list, els.editor);
-    if (!N.current) N.current = fromCopy() || pendingScratch();
+    if (!N.current) N.current = scratchState();
     drawFolders();
     drawList();
     drawEditor();
     // Text typed last time and not saved before the page went.
     const c = N.current;
-    if (c && c.dirty) saveTimer = setTimeout(() => save(c), AUTOSAVE_MS);
+    if (c && c.dirty) laterSave(c);
     return els.wrap;
+  }
+
+  // The scratchpad's state, made the first time anything wants it: from
+  // the phone app's copy if there is one, or waiting for the list.
+  function scratchState() {
+    if (!N.scratch && !fromCopy()) pendingScratch();
+    return N.scratch;
   }
 
   // The phone app's own copy (notesStore.cached): the list and the
@@ -233,24 +255,25 @@
         N.error = '';
         N.loadedAt = Date.now();
         catchUpCurrent();
-        // The scratchpad was waiting for the list to say whether it exists.
-        if (N.current && N.current.scratch && N.current.bodyState !== 'ready' && N.scratchKnown) showScratch();
+        readyScratch();
         N.ctx.onLoaded();
       } catch (err) {
+        const s = N.scratch;
+        // The scratchpad was waiting for this list to say whether it exists.
+        if (s && s.bodyState === 'loading' && !N.scratchKnown) {
+          s.bodyState = 'error';
+          s.error = err.message;
+          if (s === N.current) drawEditor();
+          drawTile();
+        }
         if (api.STATE_CODES.has(err.code)) {
           N.status = 'idle';
-          N.ctx.onStateError(err);
+          stateError(err);
           return;
         }
         N.status = N.notes.length ? 'ready' : 'error';
         N.error = err.message;
-        const c = N.current;
-        if (c && c.scratch && c.bodyState === 'loading' && !N.scratchKnown) {
-          c.bodyState = 'error';
-          c.error = err.message;
-          drawEditor();
-        }
-        if (N.notes.length) toast(N.ctx.root, `Couldn’t load notes: ${err.message}`, { kind: 'error' });
+        if (N.notes.length && els.wrap && els.wrap.isConnected) toast(N.ctx.root, `Couldn’t load notes: ${err.message}`, { kind: 'error' });
       } finally {
         N.loading = null;
         drawFolders();
@@ -274,17 +297,37 @@
 
   // The open note was saved on another computer or phone since it was
   // opened here (or, for the scratchpad, started there): the newer text,
-  // merged with whatever was typed here meanwhile.
+  // merged with whatever was typed here meanwhile. The scratchpad catches
+  // up as well when another note is open, for the calendar's tile.
   function catchUpCurrent() {
-    const c = N.current;
-    if (!c) return;
-    const fresh = c.scratch ? N.scratchNote : c.note ? N.notes.find(n => n.key === c.key) : null;
-    if (!isNewer(fresh, c.note)) return;
-    if (c.bodyState !== 'ready') {
-      if (!c.dirty && !c.saving) openNote(fresh, { force: true });
+    for (const c of new Set([N.current, N.scratch])) {
+      if (!c) continue;
+      const fresh = c.scratch ? N.scratchNote : c.note ? N.notes.find(n => n.key === c.key) : null;
+      if (!isNewer(fresh, c.note)) continue;
+      if (c.bodyState === 'ready') adoptNewer(c, fresh);
+      else if (!c.dirty && !c.saving) {
+        if (c === N.current) openNote(fresh, { force: true });
+        else loadBody(scratchCurrent(fresh));
+      }
+    }
+  }
+
+  // Once the list has said whether there is a scratchpad: the one waiting
+  // for that is shown, here or in the tile - its text read, or empty if
+  // there is none yet.
+  function readyScratch() {
+    const s = N.scratch;
+    if (!s || !N.scratchKnown) return;
+    if (s === N.current) {
+      if (s.bodyState !== 'ready') showScratch();
       return;
     }
-    adoptNewer(c, fresh);
+    if (s.bodyState === 'ready' || (s.bodyState === 'loading' && s.note)) return; // ready, or being read
+    if (N.scratchNote) loadBody(scratchCurrent(N.scratchNote));
+    else {
+      scratchCurrent(null);
+      drawTile();
+    }
   }
 
   // A newer version of a note being edited, taken in place: the edits
@@ -323,13 +366,12 @@
         if (input && input.value !== c.title && N.ctx.root.activeElement !== input) input.value = c.title;
         applyHighlights();
       }
+      if (T.ed && T.for === c) T.ed.replaceDoc(merged.doc, merged.map);
       if (typed) toast(N.ctx.root, 'Also changed on another device in the meantime: both changes are kept.');
       keepDraft(c);
-      if (c.dirty) {
-        clearTimeout(saveTimer);
-        saveTimer = setTimeout(() => save(c), AUTOSAVE_MS);
-      }
+      if (c.dirty) laterSave(c);
       if (N.current === c) drawBar();
+      drawStatus();
       drawList();
     });
     return N.chain;
@@ -936,10 +978,12 @@
 
   // The scratchpad, as the note being edited: its saved message, or null
   // when there is none yet. It keeps its name and stays out of folders.
+  // There is one at a time: the newest made is N.scratch.
   function scratchCurrent(note) {
-    return Object.assign(newCurrent(note), {
+    N.scratch = Object.assign(newCurrent(note), {
       scratch: true, key: SCRATCH_KEY, title: notesLogic.SCRATCHPAD_TITLE, folderId: '',
     });
+    return N.scratch;
   }
 
   // Before the list is in, nobody knows yet whether there is one.
@@ -947,10 +991,24 @@
     return Object.assign(scratchCurrent(null), { doc: null, bodyState: 'loading' });
   }
 
-  // Whenever no other note is open: the scratchpad.
+  // Whenever no other note is open: the scratchpad - as it is, if it has
+  // been read already (the calendar's tile may have edits in it), caught
+  // up if there is a newer version.
   function showScratch() {
     const c = N.current;
     if (c && c.scratch && c.bodyState === 'ready') return;
+    const s = N.scratch;
+    if (s && s.bodyState === 'ready') {
+      flush();
+      N.current = s;
+      N.findIndex = 0;
+      drawList();
+      drawEditor();
+      applyHighlights();
+      scratchReady();
+      catchUpCurrent();
+      return;
+    }
     if (N.scratchNote) { openNote(N.scratchNote, { force: true }); return; }
     flush();
     N.current = N.scratchKnown ? scratchCurrent(null) : pendingScratch();
@@ -978,26 +1036,41 @@
 
   function openNote(note, { force = false } = {}) {
     if (!force && N.current && N.current.key === note.key) return;
+    if (note.key === SCRATCH_KEY && N.scratch && N.scratch.bodyState === 'ready' && N.current !== N.scratch) {
+      showScratch();
+      return;
+    }
     flush();
     const c = note.key === SCRATCH_KEY ? scratchCurrent(note) : newCurrent(note);
     N.current = c;
     N.findIndex = 0;
     drawList();
     drawEditor();
-    notesStore.body(note).then(doc => {
-      if (N.current !== c) return;
+    loadBody(c);
+  }
+
+  // A note's text, read from Gmail. The scratchpad's goes to the
+  // calendar's tile as well, whether or not it is open here.
+  function loadBody(c) {
+    const wanted = () => N.current === c || N.scratch === c;
+    notesStore.body(c.note).then(doc => {
+      if (!wanted()) return;
       c.doc = doc;
       c.base = doc;
       c.bodyState = 'ready';
-      drawEditor();
-      applyHighlights();
-      scratchReady();
+      if (N.current === c) {
+        drawEditor();
+        applyHighlights();
+        scratchReady();
+      }
+      if (N.scratch === c) drawTile();
     }, err => {
-      if (N.current !== c) return;
+      if (!wanted()) return;
       c.bodyState = 'error';
       c.error = err.message;
-      if (api.STATE_CODES.has(err.code)) N.ctx.onStateError(err);
-      else drawEditor();
+      if (api.STATE_CODES.has(err.code)) stateError(err);
+      if (N.current === c) drawEditor();
+      if (N.scratch === c) drawTile();
     });
   }
 
@@ -1073,8 +1146,15 @@
     });
     // A fresh editor per note: its undo history belongs to that note.
     if (els.ed) els.ed.destroy();
-    const ed = ns.noteEditor.create({ root: N.ctx.root, onChange: () => edited(c, { doc: ed.getDoc() }) });
+    const ed = ns.noteEditor.create({
+      root: N.ctx.root,
+      onChange: () => {
+        edited(c, { doc: ed.getDoc() });
+        if (c === N.scratch) T.stale = true;
+      },
+    });
     els.ed = ed;
+    els.edStale = false;
     ed.setDoc(c.doc || fmt.emptyDoc());
     ed.setEditable(c.bodyState === 'ready',
       c.bodyState === 'loading' ? 'Loading…' : c.bodyState === 'error' ? 'Couldn’t load this note.'
@@ -1138,9 +1218,14 @@
     drawStatus();
   }
 
+  // The status line above the open note, and the one in the calendar's
+  // scratchpad tile.
   function drawStatus() {
-    const c = N.current;
-    if (!els.status || !c) return;
+    if (els.status && N.current) statusInto(els.status, N.current);
+    if (T.status && N.scratch) statusInto(T.status, N.scratch);
+  }
+
+  function statusInto(el, c) {
     let text;
     if (c.saving) text = 'Saving…';
     else if (c.error && c.bodyState === 'ready') text = `Couldn’t save: ${c.error}`;
@@ -1148,9 +1233,9 @@
     else if (c.savedAt) text = `Saved ${util.agoText(Date.now() - c.savedAt)}`;
     else if (c.note) text = `Last saved ${util.relativeDate(c.note.updated)}`;
     else text = c.scratch ? '' : 'New note';
-    els.status.textContent = text;
-    els.status.classList.toggle('error', !!(c.error && !c.saving && c.bodyState === 'ready'));
-    els.status.title = c.note ? util.fullDate(c.note.updated) : '';
+    el.textContent = text;
+    el.classList.toggle('error', !!(c.error && !c.saving && c.bodyState === 'ready'));
+    el.title = c.note ? util.fullDate(c.note.updated) : '';
   }
 
   // ── Saving ───────────────────────────────────────────────────────────
@@ -1164,12 +1249,19 @@
       clearTimeout(findTimer);
       findTimer = setTimeout(applyHighlights, 300);
     }
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => save(c), AUTOSAVE_MS);
+    laterSave(c);
     if (c.scratch && notesStore.keepDraft) {
       clearTimeout(draftTimer);
       draftTimer = setTimeout(() => keepDraft(c), 300);
     }
+  }
+
+  // A save a moment after the typing stops. Each note keeps its own timer:
+  // the scratchpad, typed into in the calendar's tile, must not put off
+  // the save of the note open here, or the other way round.
+  function laterSave(c) {
+    clearTimeout(c.timer);
+    c.timer = setTimeout(() => save(c), AUTOSAVE_MS);
   }
 
   // Saves are chained: each one retires the version the previous one
@@ -1212,10 +1304,10 @@
         // it keeps happening, which needs a person to look.
         if (err.code === 'conflict' && err.newer && (c.conflicts = (c.conflicts || 0) + 1) <= 3) newer = err.newer;
         else c.error = err.code === 'conflict' ? 'It keeps changing on another device. Try again in a moment.' : err.message;
-        if (api.STATE_CODES.has(err.code)) N.ctx.onStateError(err);
+        if (api.STATE_CODES.has(err.code)) stateError(err);
       } finally {
         c.saving = false;
-        if (N.current === c) drawStatus();
+        if (N.current === c || N.scratch === c) drawStatus();
         drawList();
       }
       if (newer) adoptNewer(c, newer);
@@ -1223,12 +1315,75 @@
     return N.chain;
   }
 
-  // Whatever is pending, now. Called on Ctrl+S, on switching notes or
-  // tabs, and when the board closes.
+  // Whatever is pending, now - in the open note and in the scratchpad,
+  // which the calendar's tile may have changed. Called on Ctrl+S, on
+  // switching notes or tabs, and when the board closes.
   function flush() {
-    clearTimeout(saveTimer);
-    const c = N.current;
-    return c && c.dirty ? save(c) : N.chain;
+    for (const c of new Set([N.current, N.scratch])) {
+      if (!c) continue;
+      clearTimeout(c.timer);
+      if (c.dirty) save(c);
+    }
+    return N.chain;
+  }
+
+  // ── The calendar's scratchpad tile ───────────────────────────────────
+  //
+  // The eighth space in the calendar's week of two rows. The scratchpad
+  // in an editor with no toolbar - its keys and typed lists still work -
+  // editing N.scratch, so the saving, merging and drafts are the ones
+  // above. The tile and the notes are never on screen together, so each
+  // takes up what the other changed when it is shown (T.stale,
+  // els.edStale). Built once and kept, like the notes' element: the
+  // calendar moves it into each week it draws without rebuilding it, so
+  // a redraw never takes the text box from under someone typing.
+
+  function scratchTile() {
+    if (!T.el) {
+      T.status = h('span', { class: 'ne-status' });
+      T.body = h('div', { class: 'scratch-tile-body' });
+      T.el = h('section', {
+        class: 'day scratch-tile', role: 'listitem', 'aria-label': notesLogic.SCRATCHPAD_TITLE,
+        // Ctrl+S saves here too, rather than Chrome's "Save page as".
+        onkeydown: e => {
+          if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') {
+            e.preventDefault();
+            flush();
+          }
+        },
+      },
+      h('header', { class: 'day-head' },
+        icon('edit', 16), h('span', { class: 'dname', text: notesLogic.SCRATCHPAD_TITLE }), T.status),
+      T.body);
+    }
+    scratchState();
+    load(); // only if the list is more than a minute old: newer versions from elsewhere
+    readyScratch();
+    if (T.for !== N.scratch || T.stale || !T.ed) drawTile();
+    drawStatus();
+    return T.el;
+  }
+
+  function drawTile() {
+    const s = N.scratch;
+    if (!T.el || !s) return;
+    if (T.ed) T.ed.destroy();
+    const ed = ns.noteEditor.create({
+      root: N.ctx.root,
+      onChange: () => {
+        edited(s, { doc: ed.getDoc() });
+        if (s === N.current) els.edStale = true;
+      },
+    });
+    T.ed = ed;
+    T.for = s;
+    T.stale = false;
+    ed.setDoc(s.doc || fmt.emptyDoc());
+    ed.setEditable(s.bodyState === 'ready',
+      s.bodyState === 'loading' ? 'Loading…' : s.bodyState === 'error' ? `Couldn’t load the scratchpad: ${s.error}`
+        : 'Jot anything down. It saves as you type.');
+    T.body.replaceChildren(ed.linkbar, ed.tablebar, ed.element);
+    drawStatus();
   }
 
   // ── Other actions ────────────────────────────────────────────────────
@@ -1243,7 +1398,7 @@
   async function deleteCurrent() {
     const c = N.current;
     if (!c || c.scratch) return;
-    clearTimeout(saveTimer);
+    clearTimeout(c.timer);
     await N.chain;
     N.current = null;
     showScratch();
@@ -1311,7 +1466,7 @@
   }
 
   ns.notes = {
-    init, element, load, isStale, flush, handleKey, tick, focusDefault, closeNote, back, depth, scratchFound,
+    init, element, load, isStale, flush, handleKey, tick, focusDefault, closeNote, back, depth, scratchFound, scratchTile,
     // A note other than the scratchpad.
     isOpen: () => !!(N.current && !N.current.scratch),
     loadedAt: () => N.loadedAt,
