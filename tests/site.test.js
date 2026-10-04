@@ -70,6 +70,7 @@ test('every picture opens full size, without a script: a lightbox each, with a w
     assert.ok(box.includes(`href="img/${v}.jpg"`), `${v}: and on its own, to zoom in`);
     const [, back] = /class="lightbox-close" href="#([a-z-]+)"/.exec(box);
     assert.ok(html.includes(`id="${back}"`), `${v}: Close goes back to a place on the page`);
+    assert.ok(box.includes(`<a class="lightbox-back" href="#${back}" title="Back to the page"><img src="img/${v}.jpg"`), `${v}: so does a click on the picture`);
     const steps = [...box.matchAll(/href="#view-([a-z]+)">(?:‹ Previous|Next ›)</g)].map(m => m[1]);
     assert.equal(steps.length, 2, `${v}: Previous and Next`);
     for (const to of steps) assert.ok(views.includes(to), `${v} → ${to}`);

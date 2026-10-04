@@ -81,8 +81,8 @@
   .shot img { width: 100%; border-radius: 16px; box-shadow: 0 24px 60px rgba(20, 6, 50, .45), 0 0 0 1px rgba(255, 255, 255, .12); }
 
   /* Every picture opens full size, without a script: it is a link to its
-     lightbox, which :target shows. A click outside the picture, Close or
-     Back closes it; Previous and Next step through them all. */
+     lightbox, which :target shows. A click on the picture or outside it,
+     Close or Back closes it; Previous and Next step through them all. */
   .zoomable { display: block; position: relative; cursor: zoom-in; border-radius: 14px; }
   .zoomable:focus-visible { outline: 3px solid var(--violet-light); outline-offset: 4px; }
   .zoom-hint {
@@ -99,7 +99,7 @@
   body:has(.lightbox:target) { overflow: hidden; }
   .lightbox-close { position: absolute; inset: 0; cursor: zoom-out; }
   .lightbox figure { position: relative; margin: 0; display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 100%; max-height: 100%; }
-  .lightbox figure > a { display: block; cursor: zoom-in; }
+  .lightbox-back { display: block; cursor: zoom-out; }
   .lightbox img { max-width: 100%; max-height: calc(100vh - 120px); width: auto; height: auto; border-radius: 10px; box-shadow: 0 30px 80px rgba(0, 0, 0, .55); }
   .lightbox figcaption { color: #e9e5f7; font-size: 15px; text-align: center; max-width: 60em; }
   .lightbox nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 20px; margin-top: 6px; font-size: 14px; }
@@ -307,7 +307,7 @@
 <div class="lightbox" id="view-hero" role="dialog" aria-label="MemDesk in Gmail, full size">
   <a class="lightbox-close" href="#shot-hero" aria-label="Close"></a>
   <figure>
-    <a href="img/hero.jpg" title="The picture on its own, to zoom in"><img src="img/hero.jpg" width="2400" height="1460" loading="lazy" alt="MemDesk in three Chrome windows - the board, the notes and the calendar - with the phone app's week in front of them"></a>
+    <a class="lightbox-back" href="#shot-hero" title="Back to the page"><img src="img/hero.jpg" width="2400" height="1460" loading="lazy" alt="MemDesk in three Chrome windows - the board, the notes and the calendar - with the phone app's week in front of them"></a>
     <figcaption>MemDesk in three Chrome windows - the board, the notes and the calendar - with the phone app's week in front of them
       <nav><a href="#view-phone">‹ Previous</a><a href="img/hero.jpg">The picture on its own</a><a href="#shot-hero">Close</a><a href="#view-board">Next ›</a></nav>
     </figcaption>
@@ -316,7 +316,7 @@
 <div class="lightbox" id="view-board" role="dialog" aria-label="The board, full size">
   <a class="lightbox-close" href="#shot-board" aria-label="Close"></a>
   <figure>
-    <a href="img/board.jpg" title="The picture on its own, to zoom in"><img src="img/board.jpg" width="2400" height="1744" loading="lazy" alt="The board in Gmail: To do, Doing, Waiting and Done, half in light mode and half in dark"></a>
+    <a class="lightbox-back" href="#shot-board" title="Back to the page"><img src="img/board.jpg" width="2400" height="1744" loading="lazy" alt="The board in Gmail: To do, Doing, Waiting and Done, half in light mode and half in dark"></a>
     <figcaption>The board in Gmail: To do, Doing, Waiting and Done, half in light mode and half in dark
       <nav><a href="#view-hero">‹ Previous</a><a href="img/board.jpg">The picture on its own</a><a href="#shot-board">Close</a><a href="#view-gmail">Next ›</a></nav>
     </figcaption>
@@ -325,7 +325,7 @@
 <div class="lightbox" id="view-gmail" role="dialog" aria-label="Filing an email, full size">
   <a class="lightbox-close" href="#screens" aria-label="Close"></a>
   <figure>
-    <a href="img/gmail.jpg" title="The picture on its own, to zoom in"><img src="img/gmail.jpg" width="2400" height="1650" loading="lazy" alt="An email open in Gmail, with the On board: Doing menu open below it"></a>
+    <a class="lightbox-back" href="#screens" title="Back to the page"><img src="img/gmail.jpg" width="2400" height="1650" loading="lazy" alt="An email open in Gmail, with the On board: Doing menu open below it"></a>
     <figcaption>An email open in Gmail, with the On board: Doing menu open below it
       <nav><a href="#view-board">‹ Previous</a><a href="img/gmail.jpg">The picture on its own</a><a href="#screens">Close</a><a href="#view-notes">Next ›</a></nav>
     </figcaption>
@@ -334,7 +334,7 @@
 <div class="lightbox" id="view-notes" role="dialog" aria-label="The notes, full size">
   <a class="lightbox-close" href="#shot-notes" aria-label="Close"></a>
   <figure>
-    <a href="img/notes.jpg" title="The picture on its own, to zoom in"><img src="img/notes.jpg" width="2400" height="1744" loading="lazy" alt="The notes: nested folders on the left, the list in the middle, a checklist note open on the right"></a>
+    <a class="lightbox-back" href="#shot-notes" title="Back to the page"><img src="img/notes.jpg" width="2400" height="1744" loading="lazy" alt="The notes: nested folders on the left, the list in the middle, a checklist note open on the right"></a>
     <figcaption>The notes: nested folders on the left, the list in the middle, a checklist note open on the right
       <nav><a href="#view-gmail">‹ Previous</a><a href="img/notes.jpg">The picture on its own</a><a href="#shot-notes">Close</a><a href="#view-scratchpad">Next ›</a></nav>
     </figcaption>
@@ -343,7 +343,7 @@
 <div class="lightbox" id="view-scratchpad" role="dialog" aria-label="The Scratchpad, full size">
   <a class="lightbox-close" href="#screens" aria-label="Close"></a>
   <figure>
-    <a href="img/scratchpad.jpg" title="The picture on its own, to zoom in"><img src="img/scratchpad.jpg" width="2400" height="1520" loading="lazy" alt="The Scratchpad open in Chrome beside the notes list, and on a phone, where the app opens on it"></a>
+    <a class="lightbox-back" href="#screens" title="Back to the page"><img src="img/scratchpad.jpg" width="2400" height="1520" loading="lazy" alt="The Scratchpad open in Chrome beside the notes list, and on a phone, where the app opens on it"></a>
     <figcaption>The Scratchpad open in Chrome beside the notes list, and on a phone, where the app opens on it
       <nav><a href="#view-notes">‹ Previous</a><a href="img/scratchpad.jpg">The picture on its own</a><a href="#screens">Close</a><a href="#view-search">Next ›</a></nav>
     </figcaption>
@@ -352,7 +352,7 @@
 <div class="lightbox" id="view-search" role="dialog" aria-label="Search, full size">
   <a class="lightbox-close" href="#screens" aria-label="Close"></a>
   <figure>
-    <a href="img/search.jpg" title="The picture on its own, to zoom in"><img src="img/search.jpg" width="2400" height="1744" loading="lazy" alt="A search for termbase, marked in the results and in the open note"></a>
+    <a class="lightbox-back" href="#screens" title="Back to the page"><img src="img/search.jpg" width="2400" height="1744" loading="lazy" alt="A search for termbase, marked in the results and in the open note"></a>
     <figcaption>A search for termbase, marked in the results and in the open note
       <nav><a href="#view-scratchpad">‹ Previous</a><a href="img/search.jpg">The picture on its own</a><a href="#screens">Close</a><a href="#view-calendar">Next ›</a></nav>
     </figcaption>
@@ -361,7 +361,7 @@
 <div class="lightbox" id="view-calendar" role="dialog" aria-label="The calendar, full size">
   <a class="lightbox-close" href="#shot-calendar" aria-label="Close"></a>
   <figure>
-    <a href="img/calendar.jpg" title="The picture on its own, to zoom in"><img src="img/calendar.jpg" width="2400" height="1520" loading="lazy" alt="The calendar in Gmail: a week of events and tasks beside a small month, and on a phone the same week as two columns of days"></a>
+    <a class="lightbox-back" href="#shot-calendar" title="Back to the page"><img src="img/calendar.jpg" width="2400" height="1520" loading="lazy" alt="The calendar in Gmail: a week of events and tasks beside a small month, and on a phone the same week as two columns of days"></a>
     <figcaption>The calendar in Gmail: a week of events and tasks beside a small month, and on a phone the same week as two columns of days
       <nav><a href="#view-search">‹ Previous</a><a href="img/calendar.jpg">The picture on its own</a><a href="#shot-calendar">Close</a><a href="#view-phone">Next ›</a></nav>
     </figcaption>
@@ -370,7 +370,7 @@
 <div class="lightbox" id="view-phone" role="dialog" aria-label="On a phone, full size">
   <a class="lightbox-close" href="#shot-phone" aria-label="Close"></a>
   <figure>
-    <a href="img/phone.jpg" title="The picture on its own, to zoom in"><img src="img/phone.jpg" width="2400" height="1520" loading="lazy" alt="Three phones: the board, the Scratchpad, and the week as two columns of days"></a>
+    <a class="lightbox-back" href="#shot-phone" title="Back to the page"><img src="img/phone.jpg" width="2400" height="1520" loading="lazy" alt="Three phones: the board, the Scratchpad, and the week as two columns of days"></a>
     <figcaption>Three phones: the board, the Scratchpad, and the week as two columns of days
       <nav><a href="#view-calendar">‹ Previous</a><a href="img/phone.jpg">The picture on its own</a><a href="#shot-phone">Close</a><a href="#view-hero">Next ›</a></nav>
     </figcaption>
