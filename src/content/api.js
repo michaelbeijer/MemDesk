@@ -55,11 +55,17 @@
     return send({ type: 'connect', account: ns.hooks.getAccount() });
   }
 
-  // The calendar: Google Calendar and Google Tasks, read-only, with a
-  // sign-in of its own. Same shapes as gmail() and gmailMany(), each
-  // request being [service, path, query].
+  // The calendar: Google Calendar and Google Tasks, with a sign-in of its
+  // own. Same shapes as gmail() and gmailMany(), each request being
+  // [service, path, query].
   function google(service, path, query) {
     return send({ type: 'google', account: ns.hooks.getAccount(), service, path, query });
+  }
+
+  // One change: an event or a task added (POST), changed (PATCH) or
+  // deleted (DELETE). `etag`: the version of the event it was made to.
+  function googleWrite(service, method, path, body, etag) {
+    return send({ type: 'google', account: ns.hooks.getAccount(), service, method, path, body, etag });
   }
 
   function googleMany(list) {
@@ -78,5 +84,5 @@
     return send({ type: 'hello' }).catch(() => {});
   }
 
-  ns.api = { ApiError, STATE_CODES, gmail, gmailMany, connect, google, googleMany, connectCalendar, openOptions, hello };
+  ns.api = { ApiError, STATE_CODES, gmail, gmailMany, connect, google, googleMany, googleWrite, connectCalendar, openOptions, hello };
 })();

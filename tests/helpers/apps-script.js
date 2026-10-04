@@ -93,13 +93,19 @@ function urlFetch(fake, log) {
       query[key] = all.length > 1 ? all : all[0];
     }
     const method = String(opts.method || 'get').toUpperCase();
-    log.push({ service, method, path: apiPath, query, round });
-    const scope = `https://www.googleapis.com/auth/${service === 'tasks' ? 'tasks' : 'calendar'}.readonly`;
-    if (method !== 'GET' || (fake.denied && fake.denied.has(scope))) {
+    const body = opts.payload === undefined ? undefined : JSON.parse(opts.payload);
+    log.push({ service, method, path: apiPath, query, body, round });
+    // What each needs of the manifest's scopes: reading the calendar list
+    // and events, calendar.readonly; changing an event, calendar.events;
+    // anything of Tasks, tasks.
+    const scope = `https://www.googleapis.com/auth/${service === 'tasks' ? 'tasks' : method === 'GET' ? 'calendar.readonly' : 'calendar.events'}`;
+    if (fake.denied && fake.denied.has(scope)) {
       return response(403, JSON.stringify({ error: { code: 403, message: 'Request had insufficient authentication scopes.' } }));
     }
     try {
-      return response(200, JSON.stringify(fake.googleRoute(service, apiPath, query)));
+      const etag = (opts.headers && opts.headers['If-Match']) || '';
+      const data = fake.googleRoute(service, apiPath, query, method, body, etag);
+      return data === null ? response(204, '') : response(200, JSON.stringify(data));
     } catch (err) {
       if (err.code === 'calendar_scope') return response(403, JSON.stringify({ error: { code: 403, message: 'Request had insufficient authentication scopes.' } }));
       const m = /^http_(\d+)$/.exec(err.code || '');

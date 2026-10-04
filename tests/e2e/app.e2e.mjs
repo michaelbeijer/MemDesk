@@ -658,7 +658,7 @@ await r.step('not allowed yet: one line, an Allow button to Google’s page, and
   const d = await openApp();
   await scratchReady(d.page);
   d.phone.fake.denied.add('https://www.googleapis.com/auth/calendar.readonly');
-  d.phone.fake.denied.add('https://www.googleapis.com/auth/tasks.readonly');
+  d.phone.fake.denied.add('https://www.googleapis.com/auth/tasks');
   await d.page.context().route('https://script.google.com/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<p>Allowed</p>' }));
   await q(d.page, '[data-key="view:calendar"]').tap();
   const note = q(d.page, '.cal-note');
@@ -673,6 +673,28 @@ await r.step('not allowed yet: one line, an Allow button to Google’s page, and
   await d.page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await q(d.page, '.cal .ev').first().waitFor();
   assert.equal(await q(d.page, '.cal-note').isVisible(), false);
+  await d.page.context().close();
+});
+
+await r.step('on the phone, too: a task’s box ticks it off and an event is changed, through the script', async () => {
+  const d = await openApp();
+  await scratchReady(d.page);
+  await q(d.page, '[data-key="view:calendar"]').tap();
+  await q(d.page, '.cal .ev').first().waitFor();
+  const fake = d.phone.fake.calendar;
+  await q(d.page, '.cal-week .task').filter({ hasText: 'Send invoice 2026-131' }).locator('button.box').tap();
+  await until(async () => fake.tasks.find(t => t.title === 'Send invoice 2026-131').status === 'completed', 'ticked off in Google Tasks');
+  const before = fake.events.find(e => e.summary === 'Lumenra glossary delivery').etag;
+  await q(d.page, '.cal-week a.ev').filter({ hasText: 'Lumenra glossary delivery' }).tap();
+  await q(d.page, '[data-key="cal-edit-title"]').fill('Lumenra glossary, final');
+  await d.page.screenshot({ path: join(SCREENS, 'app-calendar-edit.png'), animations: 'disabled' });
+  await q(d.page, '[data-key="cal-edit-save"]').tap();
+  await until(async () => fake.events.some(e => e.summary === 'Lumenra glossary, final'), 'changed in Google Calendar');
+  await until(async () => (await weekText(d.page)).includes('Lumenra glossary, final'), 'on screen');
+  const changes = d.phone.log.filter(l => l.service && l.method !== 'GET');
+  assert.deepEqual(changes.map(l => l.method), ['PATCH', 'PATCH']);
+  assert.ok(changes.every(l => /^(lists|calendars)\//.test(l.path)), 'only a task and an event');
+  assert.ok(fake.events.find(e => e.summary === 'Lumenra glossary, final').etag !== before);
   await d.page.context().close();
 });
 

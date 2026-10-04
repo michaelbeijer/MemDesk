@@ -18,7 +18,7 @@ Google Cloud project? That is [SETUP.md](SETUP.md).)
    Click **Advanced**, then **Go to MemDesk**.
 4. Google lists what MemDesk may do with your Gmail and asks you to
    allow it. The list is broader than what MemDesk does: it never sends
-   mail and never deletes anything for good. Click **Continue**.
+   mail and never deletes mail for good. Click **Continue**.
 5. The page says **Connected as** your address. Open
    [Gmail](https://mail.google.com/): the **Board**, **Notes** and
    **Calendar** buttons are at the bottom left.
@@ -27,8 +27,9 @@ The first time you open the board, it makes its columns (To do, Doing,
 Waiting, Done) as Gmail labels starting with `_Board`; the notes keep
 themselves under `_Notes`. The first time you open the calendar, it asks to
 connect: click **Connect Google Calendar** and allow it, as in steps 3 and 4.
-It only reads your calendars and tasks. The [README](README.md#usage) explains
-everything they do.
+It shows your calendars and tasks, and changes them when you do: an event
+or a task you edit, tick, drag or add, and one you delete (after asking, and
+with an Undo). The [README](README.md#usage) explains everything they do.
 
 ## On your phone
 

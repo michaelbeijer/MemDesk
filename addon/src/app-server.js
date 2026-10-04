@@ -326,9 +326,9 @@
 
   // ── The calendar ─────────────────────────────────────────────────────
   //
-  // Google Calendar and Google Tasks, read-only: the same short list of
-  // reads the extension's worker allows (calendarLogic.isAllowedRequest),
-  // side by side in one round trip.
+  // Google Calendar and Google Tasks: the same short list of reads the
+  // extension's worker allows (calendarLogic.isAllowedRequest), side by
+  // side in one round trip, and one change at a time.
 
   function googleMany(list) {
     const cal = ns.calendarLogic;
@@ -356,7 +356,8 @@
 
   const CALENDAR_SCOPES = [
     'https://www.googleapis.com/auth/calendar.readonly',
-    'https://www.googleapis.com/auth/tasks.readonly',
+    'https://www.googleapis.com/auth/calendar.events',
+    'https://www.googleapis.com/auth/tasks',
   ];
 
   // Google's page that asks for what the script has not been allowed:
@@ -371,6 +372,30 @@
       } catch (err) { /* an older Apps Script: try the next */ }
     }
     return '';
+  }
+
+  // One change: an event or a task added, changed or deleted - only what
+  // the extension's worker lets through (calendarLogic.isAllowedRequest),
+  // with an event's version (If-Match), so one changed in Google
+  // meanwhile is refused rather than overwritten. { data }, or { error }
+  // with a code the page knows: "changed", or "calendar_scope" and the
+  // page that allows it.
+  function googleWrite(service, method, path, body, etag) {
+    const cal = ns.calendarLogic;
+    const m = String(method || '').toUpperCase();
+    const b = body === null ? undefined : body;
+    if (m === 'GET' || !cal.isAllowedRequest(service, m, path, b)) {
+      throw new Error(`not_allowed: ${m} ${service} ${path} is not something the calendar does.`);
+    }
+    const r = gmail.sendGoogle(cal.buildUrl(service, path, null), m, b, service === 'calendar' ? String(etag || '') : '');
+    // A deletion answers with nothing at all.
+    if (!r || !r.error) return { data: m === 'DELETE' ? null : r };
+    const e = r.error;
+    if (e.status === 403 && /insufficient.*scope/i.test(e.detail || e.message)) {
+      return { error: { code: 'calendar_scope', status: 403, url: allowUrl(), message: 'Changing it is not allowed for this app yet.' } };
+    }
+    if (e.status === 412) return { error: { code: 'changed', status: 412, message: 'It was changed in Google meanwhile.' } };
+    return { error: { message: e.detail || e.message, status: e.status || 0 } };
   }
 
   // Run once from the script editor, if the app's Allow button is not
@@ -422,6 +447,6 @@
 
   ns.app = {
     page, start, list, body, save, retire, restore, move, createFolder, renameFolder, deleteFolder,
-    account, boardGmail, boardGmailMany, boardColumns, googleMany, allowCalendar, prefsGet, prefsSet, prefsRemove,
+    account, boardGmail, boardGmailMany, boardColumns, googleMany, googleWrite, allowCalendar, prefsGet, prefsSet, prefsRemove,
   };
 })();

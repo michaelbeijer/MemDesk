@@ -1,6 +1,6 @@
 # MemDesk – Claude Code reference
 
-A Kanban board, notes and a read-only calendar inside Gmail, for one person,
+A Kanban board, notes and a two-way calendar inside Gmail, for one person,
 backed entirely by Gmail: cards are threads, columns are labels, notes are
 messages under `_Notes`. No server, no database. Formerly called Supermail
 (until 0.17.1). The README is the full manual; this is the short version for
@@ -40,9 +40,16 @@ when it changes) into their Apps Script project.
 
 ## Rules that tests enforce (and that must not be broken)
 
-- Never send mail, never delete anything for good, never touch Spam; only a
+- Never send mail, never delete mail for good, never touch Spam; only a
   note of ours goes to Trash; only an empty notes folder is deleted; the board
-  never adds Trash, Spam or Inbox. The calendar is read-only.
+  never adds Trash, Spam or Inbox.
+- The calendar writes only one event or one task at a time, with only the
+  fields the editor edits (`calendarLogic.isAllowedRequest`, the same rules in
+  the worker and the app's script): never guests, a calendar, a task list or
+  sharing. An event's change carries its version (If-Match) and is refused
+  ("changed") if Google has a newer one. A delete is sent only after the
+  editor's confirmation and an 8-second Undo; a tab closed before then
+  deletes nothing. Tests cover each of these: keep them.
 - No HTML-string sinks in `src/` or `dev/` (`innerHTML`, `insertAdjacentHTML`,
   `DOMParser`, …): Gmail's Trusted Types would block them. Build DOM with `h()`.
   HTML is read with note-format's own tokenizer.
@@ -102,5 +109,5 @@ person using it.
 ## Open ideas
 
 - Markdown: "Copy as Markdown" for a note; `**bold**` typed shortcuts.
-- Calendar step 2: ticking tasks off, due dates on cards, adding events.
+- Due dates on cards: a card's ⋯ menu makes a Google Task linked to the email.
 - Chrome Web Store listing (`store/`, `PUBLISHING.md`).

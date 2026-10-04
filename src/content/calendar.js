@@ -59,6 +59,11 @@
     loadedAt: 0,
     seq: 0,
     recheck: false,     // Allow was pressed: read everything again on return
+    writes: Promise.resolve(), // changes go to Google one after another
+    pending: 0,         // changes on their way: a read started before one lands is not shown
+    deleting: new Map(), // item id → its timer: deleted on screen, sent to Google once Undo has passed
+    drag: null,         // { item, from }: what is being dragged, and from which day ('' for no day)
+    edit: null,         // the editor, while it is open
   };
 
   const els = {};
@@ -110,7 +115,8 @@
     els.note = h('div', { class: 'cal-note', role: 'status' });
     els.mini = h('div', { class: 'cal-mini' });
     els.sources = h('div', { class: 'cal-sources', role: 'group', 'aria-label': 'Calendars and task lists' });
-    els.tray = h('section', { class: 'cal-tray', 'aria-label': 'Tasks without a day' });
+    // A task dragged here loses its day.
+    els.tray = h('section', { class: 'cal-tray', 'aria-label': 'Tasks without a day', dataset: { drop: '' } });
     els.main = h('section', { class: 'cal-main' });
     els.main.addEventListener('touchstart', onTouchStart, { passive: true });
     els.main.addEventListener('touchend', onTouchEnd, { passive: true });
@@ -121,6 +127,11 @@
       h('div', { class: 'cal-body' },
         h('aside', { class: 'cal-side' }, els.mini, els.sources, els.tray),
         els.main));
+
+    // Dragging an event or a task to another day (or a task to No date).
+    els.wrap.addEventListener('dragover', onDragOver);
+    els.wrap.addEventListener('drop', onDrop);
+    els.wrap.addEventListener('dragend', endDrag);
 
     // Narrow or wide is about the space the view has, not the screen.
     // Going narrow can change the view (to the week), and so the days.
@@ -216,6 +227,8 @@
         const wanted = onSources();
         const result = await store.loadRange(r, wanted);
         if (seq !== C.seq) return;
+        // Read before a change landed: the read that follows it is the one to show.
+        if (C.pending) return;
         const entry = {
           key, range: r, items: result.items, at: Date.now(),
           fetched: new Set(wanted.map(s => s.id)),
@@ -385,11 +398,12 @@
     }
   }
 
-  // What is on, from the sources that are on, by day.
+  // What is on, from the sources that are on, by day - less anything
+  // deleted here that is still waiting out its Undo.
   function visibleItems() {
     if (!C.shown) return [];
     const on = new Set(onSources().map(s => s.id));
-    return C.shown.items.filter(x => on.has(x.source));
+    return C.shown.items.filter(x => on.has(x.source) && !C.deleting.has(x.id));
   }
 
   function statusPanel() {
@@ -526,7 +540,19 @@
     return h('header', { class: 'day-head' },
       h('span', { class: 'dname', text: cal.dayName(k) }),
       h('span', { class: 'dnum', text: String(Number(k.slice(8))) }),
-      k === C.today ? h('span', { class: 'badge', text: 'today' }) : null);
+      k === C.today ? h('span', { class: 'badge', text: 'today' }) : null,
+      addButton(k));
+  }
+
+  // The + on a day: a new event or task on it, if there is anywhere to
+  // put one.
+  function addButton(k) {
+    if (!canChange() || !writable().length) return null;
+    const label = `Add to ${longDate(k)}`;
+    return h('button', {
+      class: 'icon-btn day-add', type: 'button', title: label, 'aria-label': label,
+      dataset: { key: `cal-add:${k}` }, onclick: () => openEditor(null, k),
+    }, icon('add', 18));
   }
 
   function dayClasses(k, base) {
@@ -547,7 +573,7 @@
     const week = els.week || (els.week = h('div', { role: 'list' }));
     week.className = loading ? 'cal-week loading' : 'cal-week';
     for (const kid of [...week.children]) if (kid !== tile) kid.remove();
-    const days = keys.map(k => h('section', { class: dayClasses(k, 'day'), role: 'listitem', 'aria-label': longDate(k), dataset: { day: k } },
+    const days = keys.map(k => h('section', { class: dayClasses(k, 'day'), role: 'listitem', 'aria-label': longDate(k), dataset: { day: k, drop: k } },
       dayHead(k),
       h('div', { class: 'cal-items' }, byDay.get(k).map(e => itemEl(e)))));
     // The eighth tile, in the two columns of a narrow screen.
@@ -568,11 +594,13 @@
         keys.map(k => {
           const all = byDay.get(k);
           const more = all.length - MONTH_ROWS;
-          return h('section', { class: [...dayClasses(k, 'mcell'), k.slice(0, 7) !== month && 'other'], 'aria-label': longDate(k) },
-            h('button', {
-              class: 'mday', type: 'button', text: String(Number(k.slice(8))), title: `Week of ${longDate(k)}`,
-              dataset: { key: `cal-day:${k}` }, onclick: () => openWeek(k),
-            }),
+          return h('section', { class: [...dayClasses(k, 'mcell'), k.slice(0, 7) !== month && 'other'], 'aria-label': longDate(k), dataset: { drop: k } },
+            h('div', { class: 'mhead' },
+              h('button', {
+                class: 'mday', type: 'button', text: String(Number(k.slice(8))), title: `Week of ${longDate(k)}`,
+                dataset: { key: `cal-day:${k}` }, onclick: () => openWeek(k),
+              }),
+              addButton(k)),
             h('div', { class: 'cal-items' }, all.slice(0, more > 0 ? MONTH_ROWS - 1 : MONTH_ROWS).map(e => itemEl(e, { compact: true })),
               more > 0 ? h('button', { class: 'more', type: 'button', text: `+${more + 1} more`, onclick: () => openWeek(k) }) : null));
         })), '--rows', String(keys.length / 7)));
@@ -619,26 +647,459 @@
     return `${Number(k.slice(8))} ${cal.monthName(k).short}`;
   }
 
-  // An event or a task, as a link to where it lives in Google.
+  // An event or a task, as a link to where it lives in Google. One that
+  // can be changed here opens the editor on a plain click instead (Ctrl,
+  // Shift or the middle button still open it in Google), can be dragged
+  // to another day, and a task's box ticks it.
   function itemEl({ item, cont }, { compact = false, agenda = false, due = false } = {}) {
-    const tag = item.link ? 'a' : 'div';
-    const link = item.link ? { href: item.link, target: '_blank', rel: 'noopener noreferrer' } : {};
+    const editable = !!item.editable && canChange();
+    const tag = item.link || editable ? 'a' : 'div';
+    const link = item.link ? { href: item.link, target: '_blank', rel: 'noopener noreferrer' } : editable ? { href: '#', role: 'button' } : {};
+    const edit = editable ? {
+      dataset: { key: `cal-item:${item.id}` },
+      onclick: e => {
+        if (e.button || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        openEditor(item);
+      },
+    } : {};
+    const drag = editable ? { draggable: 'true', ondragstart: e => startDrag(e, item) } : {};
     if (item.kind === 'event') {
       const time = item.allDay ? (agenda ? 'All day' : '') : cont ? (agenda ? 'until ' + timeText(item.end) : '…') : timeText(item.start);
       const tip = [item.title, whenText(item, cont), item.where].filter(Boolean).join('\n');
       return tint(h(tag, Object.assign({
         class: ['item', 'ev', item.allDay && 'all-day', compact && 'compact'], title: tip,
-      }, link),
+      }, link, edit, drag),
       time ? h('span', { class: 'time', text: time }) : null,
       h('span', { class: 't', text: item.title })), '--c', item.colour);
     }
     const tip = [item.title, item.list && `Google Tasks · ${item.list}`, due && item.due && `Due ${shortDate(item.due)}`,
       item.email && 'Opens the email'].filter(Boolean).join('\n');
-    return h(tag, Object.assign({ class: ['item', 'task', item.done && 'done', compact && 'compact'], title: tip }, link),
-      h('span', { class: 'box', 'aria-label': item.done ? 'Done' : 'To do', role: 'img' }, item.done ? icon('check', 12) : null),
+    const words = [
       h('span', { class: 't', text: item.title }),
       due && item.due ? h('span', { class: 'due', text: shortDate(item.due) }) : null,
-      item.email ? h('span', { class: 'mail', title: 'From an email' }, icon('mail', 14)) : null);
+      item.email ? h('span', { class: 'mail', title: 'From an email' }, icon('mail', 14)) : null,
+    ];
+    if (!editable) {
+      return h(tag, Object.assign({ class: ['item', 'task', item.done && 'done', compact && 'compact'], title: tip }, link),
+        h('span', { class: 'box', 'aria-label': item.done ? 'Done' : 'To do', role: 'img' }, item.done ? icon('check', 12) : null),
+        ...words);
+    }
+    // The box ticks it; the rest opens it.
+    return h('div', Object.assign({ class: ['item', 'task', item.done && 'done', compact && 'compact'] }, drag),
+      h('button', {
+        class: 'box', type: 'button', role: 'checkbox', 'aria-checked': String(!!item.done), 'aria-label': `Done: ${item.title}`,
+        title: item.done ? 'Done. Click to undo.' : 'Click when done', dataset: { key: `cal-tick:${item.id}` },
+        onclick: () => tickTask(item),
+      }, item.done ? icon('check', 12) : null),
+      h(tag, Object.assign({ class: 'task-link', title: tip }, link, edit), ...words));
+  }
+
+  // ── Changing things ──────────────────────────────────────────────────
+  //
+  // Both ways: an event or a task is edited here, a task's box ticks it,
+  // anything dragged to another day moves there, the + on a day adds one,
+  // and the editor deletes. Each change goes to Google after the one
+  // before it (C.writes), shows at once, and the days are read again once
+  // the last has landed, so that what stays on screen is Google's own.
+
+  const canChange = () => !!(ns.api && ns.api.googleWrite && C.ctx && C.ctx.dialog);
+
+  // Calendars and lists that can take a new event or task: the ones
+  // showing, or if none of those can, any.
+  function writable(kind) {
+    const all = C.sources.filter(s => s.writable && (!kind || s.kind === kind));
+    const on = all.filter(isOn);
+    return on.length ? on : all;
+  }
+
+  const sourceName = id => (C.sources.find(s => s.id === id) || {}).name || '';
+
+  function timeZone() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; }
+  }
+
+  // A change names the version of the event it was made to. One made
+  // here a moment ago - dragged twice, say, before Google's answer was
+  // read back - names the version that change made, and nobody else's.
+  const ours = new Map(); // a version we changed → the version it became
+  function fresh(item) {
+    let etag = item.etag;
+    for (let hops = 0; etag && ours.has(etag) && hops < 50; hops++) etag = ours.get(etag);
+    return etag === item.etag ? item : Object.assign({}, item, { etag });
+  }
+  const versioned = (item, send) => async () => {
+    const it = fresh(item);
+    const res = await send(it);
+    if (it.kind === 'event' && it.etag && res && res.etag) ours.set(it.etag, res.etag);
+    return res;
+  };
+
+  // A change Google never answers would hold every read back (C.pending),
+  // and the calendar would stop moving: after this long it counts as
+  // failed, and the days are read again to show whether it happened.
+  const CHANGE_MS = 30000;
+  function inTime(run) {
+    let timer = 0;
+    const late = new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(Object.assign(
+        new Error('Google took too long to answer. It may have been done all the same: the calendar is read again'), { code: 'timeout' })), CHANGE_MS);
+    });
+    return Promise.race([Promise.resolve().then(run), late]).finally(() => clearTimeout(timer));
+  }
+
+  // One change to Google, after any before it; the days are read again
+  // once the last has landed. A failure is a toast, unless `quiet` (the
+  // editor shows its own). Resolves to the error, or null.
+  function change(run, what, { quiet = false } = {}) {
+    C.pending++;
+    const done = C.writes.then(() => inTime(run)).then(() => null, err => err || new Error('It did not work.'));
+    C.writes = done.then(err => {
+      C.pending--;
+      if (err && !quiet) failed(err, what);
+      if (C.pending) return undefined;
+      ours.clear();
+      C.cache.clear();
+      return load({ force: true });
+    }).catch(() => {});
+    return done;
+  }
+
+  function failed(err, what) {
+    if (err.code === 'calendar_scope') {
+      const allow = C.ctx.connect ? { label: 'Connect again', onClick: () => connect() }
+        : err.allowUrl ? { label: 'Allow', onClick: () => { C.recheck = true; window.open(err.allowUrl, '_blank', 'noopener'); } }
+          : null;
+      toast(C.ctx.root, `${what}: changing your calendar needs your permission first.`, { kind: 'error', action: allow, timeout: 15000 });
+      return;
+    }
+    const why = err.code === 'changed' ? 'it was changed in Google meanwhile, so here is the latest' : err.message;
+    toast(C.ctx.root, `${what}: ${why}.`, { kind: 'error' });
+  }
+
+  // The change on screen at once, in every range read, until Google's own
+  // version replaces it; `next` null takes the item off.
+  function showChanged(id, next) {
+    for (const entry of new Set([...C.cache.values(), C.shown].filter(Boolean))) {
+      entry.items = entry.items.flatMap(x => (x.id !== id ? [x] : next ? [next] : []));
+    }
+    draw();
+  }
+
+  function tickTask(item) {
+    const done = !item.done;
+    showChanged(item.id, Object.assign({}, item, { done }));
+    change(() => store.tick(item, done), `Couldn’t ${done ? 'tick off' : 'untick'} “${item.title}”`);
+  }
+
+  function focusKey(key) {
+    const el = key && [...els.wrap.querySelectorAll('[data-key]')].find(x => x.dataset.key === key && x.getClientRects().length);
+    if (el) el.focus({ preventScroll: true });
+  }
+
+  // ── Dragging to another day ──
+
+  function startDrag(e, item) {
+    const from = e.currentTarget.closest('[data-drop]');
+    if (!from) { e.preventDefault(); return; }
+    C.drag = { item, from: from.dataset.drop };
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', item.title);
+    e.currentTarget.classList.add('dragging');
+  }
+
+  // A day it is not already on; or No date, for a task.
+  function dropTarget(e) {
+    if (!C.drag) return null;
+    const t = e.target && e.target.closest ? e.target.closest('[data-drop]') : null;
+    if (!t || !els.wrap.contains(t) || t.dataset.drop === C.drag.from) return null;
+    if (!t.dataset.drop && C.drag.item.kind !== 'task') return null;
+    return t;
+  }
+
+  function markDrop(t) {
+    for (const x of els.wrap.querySelectorAll('.drop-here')) if (x !== t) x.classList.remove('drop-here');
+    if (t) t.classList.add('drop-here');
+  }
+
+  function onDragOver(e) {
+    const t = dropTarget(e);
+    markDrop(t);
+    if (!t) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }
+
+  function onDrop(e) {
+    const t = dropTarget(e);
+    const d = C.drag;
+    endDrag();
+    if (!t || !d) return;
+    e.preventDefault();
+    moveItem(d.item, d.from, t.dataset.drop);
+  }
+
+  function endDrag() {
+    C.drag = null;
+    markDrop(null);
+    for (const x of els.wrap.querySelectorAll('.dragging')) x.classList.remove('dragging');
+  }
+
+  function moveItem(item, from, to) {
+    showChanged(item.id, cal.movedItem(item, from, to));
+    change(versioned(item, it => store.move(it, from, to, timeZone())),
+      `Couldn’t move “${item.title}” to ${to ? longDate(to) : 'No date'}`);
+  }
+
+  // ── Deleting ──
+  //
+  // Only ever after the editor's "Delete?" is confirmed, only the one
+  // event (or the one occurrence of a repeating one) or task, and never
+  // over a newer version. It goes from the screen at once, but Google is
+  // only asked once the Undo has had its time: a tab closed before then
+  // deletes nothing at all.
+
+  const UNDO_MS = 8000;
+
+  function deleteLater(item) {
+    const timer = setTimeout(() => {
+      if (!C.deleting.has(item.id)) return;
+      showChanged(item.id, null);
+      C.deleting.delete(item.id);
+      change(versioned(item, it => store.remove(it)), `Couldn’t delete “${item.title}”`);
+    }, UNDO_MS + 500); // after the Undo is gone, never while it shows
+    C.deleting.set(item.id, timer);
+    draw();
+    toast(C.ctx.root, `Deleted “${item.title}”.`, {
+      timeout: UNDO_MS,
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          clearTimeout(C.deleting.get(item.id));
+          C.deleting.delete(item.id);
+          draw();
+        },
+      },
+    });
+  }
+
+  // ── The editor ──
+  //
+  // One dialog for an event or a task, new or not, in the board's dialog
+  // layer. New, it starts on the day whose + was pressed; typing
+  // "Dentist 14:30" makes it an event at that time, "Pay the invoice" a
+  // task, until Event or Task is chosen by hand.
+
+  function openEditor(item, day) {
+    if (!canChange() || (item && !item.editable)) return;
+    const cals = writable('calendar');
+    const lists = writable('tasks');
+    if (!item && !cals.length && !lists.length) return;
+    const start = item ? cal.draftOf(item) : null;
+    const defaultCal = (cals.find(c => c.primary) || cals[0] || {}).id || '';
+    const ed = {
+      item, isNew: !item, kindChosen: false, timesTouched: false, saving: false, confirming: false, error: '',
+      kind: item ? item.kind : cals.length ? 'event' : 'task',
+      title: start ? start.title : '',
+      event: start && start.kind === 'event' ? start : cal.newDraft('event', day || C.today, defaultCal),
+      task: start && start.kind === 'task' ? start : cal.newDraft('task', day || '', (lists[0] || {}).id || ''),
+      back: item ? `cal-item:${item.id}` : `cal-add:${day}`,
+    };
+    C.edit = ed;
+    C.ctx.dialog.show(editorEl(ed, cals, lists), {
+      onClose: () => {
+        if (C.edit === ed) C.edit = null;
+        focusKey(ed.back);
+      },
+    });
+    const title = C.ctx.root.querySelector('[data-key="cal-edit-title"]');
+    if (title) { title.focus(); title.select(); }
+  }
+
+  function editorEl(ed, cals, lists) {
+    const ev = ed.event;
+    const tk = ed.task;
+    const id = name => `gkb-cal-${name}`;
+    const onEnter = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); saveEdit(ed); } };
+    const input = (name, props) => h('input', Object.assign({ class: 'text-input', type: 'text', id: id(name), onkeydown: onEnter }, props));
+    const field = (name, label, ...controls) => h('div', { class: 'field' },
+      h('label', { class: 'field-label', for: id(name), text: label }), ...controls);
+    const pick = (name, list, value, set) => (list.length > 1 && ed.isNew
+      ? h('select', { class: 'text-input', id: id(name), onchange: e => set(e.target.value) },
+        list.map(s => h('option', { value: s.id, selected: s.id === value, text: s.name })))
+      : h('div', { class: 'cal-edit-where', id: id(name), text: sourceName(value) }));
+
+    const els2 = {};
+    const sync = () => {
+      for (const b of els2.kinds ? els2.kinds.children : []) b.setAttribute('aria-pressed', String(b.dataset.kind === ed.kind));
+      els2.event.hidden = ed.kind !== 'event';
+      els2.task.hidden = ed.kind !== 'task';
+      for (const t of [els2.startTime, els2.endTime]) t.hidden = ev.allDay;
+      els2.error.textContent = ed.error;
+      // Busy, not disabled: a disabled button drops the focus out of the
+      // dialog, and Esc would then close the whole board.
+      els2.save.setAttribute('aria-disabled', String(ed.saving));
+      els2.save.textContent = ed.saving ? 'Saving…' : ed.isNew ? 'Add' : 'Save';
+      els2.confirm.hidden = !ed.confirming;
+      els2.foot.hidden = ed.confirming;
+    };
+    ed.sync = sync;
+
+    // New, and both kinds possible: Event or Task, chosen by what is typed
+    // until chosen by hand.
+    els2.kinds = ed.isNew && cals.length && lists.length ? h('div', { class: 'cal-edit-kinds', role: 'group', 'aria-label': 'Add an event or a task' },
+      ['event', 'task'].map(k => h('button', {
+        class: 'seg', type: 'button', dataset: { kind: k, key: `cal-edit-kind:${k}` }, text: k === 'event' ? 'Event' : 'Task',
+        onclick: () => { ed.kind = k; ed.kindChosen = true; sync(); },
+      }))) : null;
+
+    const titleInput = input('title', {
+      value: ed.title, maxlength: '1000', dataset: { key: 'cal-edit-title' },
+      placeholder: ed.isNew ? 'Dentist 14:30, or Pay the invoice' : '',
+      oninput: e => {
+        ed.title = e.target.value;
+        if (!ed.isNew) return;
+        const q = cal.parseQuick(ed.title);
+        if (!ed.kindChosen && els2.kinds) ed.kind = q.start ? 'event' : 'task';
+        if (q.start && !ed.timesTouched) {
+          ev.start = q.start;
+          ev.end = q.end;
+          ev.allDay = false;
+          els2.startTime.value = q.start;
+          els2.endTime.value = q.end;
+          els2.allDay.checked = false;
+        }
+        sync();
+      },
+    });
+
+    // An event: where it goes, all day or when, and where.
+    const timeInput = (name, key) => input(name, {
+      class: 'text-input cal-time', value: ev[key], maxlength: '5', inputmode: 'numeric', placeholder: key === 'start' ? '09:30' : '10:30',
+      'aria-label': key === 'start' ? 'Start time' : 'End time', dataset: { key: `cal-edit-${name}` },
+      oninput: e => { ev[key] = e.target.value; ed.timesTouched = true; },
+    });
+    const dateInput = (name, get, set, label) => h('input', {
+      class: 'text-input cal-date', type: 'date', id: id(name), value: get(), 'aria-label': label, dataset: { key: `cal-edit-${name}` },
+      onchange: e => set(e.target.value), onkeydown: onEnter,
+    });
+    els2.startTime = timeInput('start-time', 'start');
+    els2.endTime = timeInput('end-time', 'end');
+    els2.allDay = h('input', {
+      type: 'checkbox', id: id('all-day'), checked: !!ev.allDay, dataset: { key: 'cal-edit-all-day' },
+      onchange: e => { ev.allDay = e.target.checked; sync(); },
+    });
+    els2.event = h('div', { class: 'cal-edit-part' },
+      field('calendar', 'Calendar', pick('calendar', cals, ev.source, v => { ev.source = v; })),
+      h('label', { class: 'cal-edit-check' }, els2.allDay, 'All day'),
+      field('start-day', 'Starts', h('div', { class: 'cal-edit-row' },
+        dateInput('start-day', () => ev.day, v => { ev.day = v; if (!ev.endDay || ev.endDay < v) { ev.endDay = v; els2.endDay.value = v; } }, 'Start day'),
+        els2.startTime)),
+      field('end-day', 'Ends', h('div', { class: 'cal-edit-row' },
+        els2.endDay = dateInput('end-day', () => ev.endDay, v => { ev.endDay = v; }, 'End day'),
+        els2.endTime)),
+      field('where', 'Where', input('where', { value: ev.where || '', maxlength: '500', dataset: { key: 'cal-edit-where' }, oninput: e => { ev.where = e.target.value; } })),
+      ed.item && ed.item.recurring ? h('p', { class: 'note', text: 'It repeats: a change here is to this one only.' }) : null);
+
+    // A task: its list, its day (or none), and done.
+    els2.task = h('div', { class: 'cal-edit-part' },
+      field('list', 'List', pick('list', lists, tk.source, v => { tk.source = v; })),
+      field('task-day', 'Day', h('div', { class: 'cal-edit-row' },
+        els2.taskDay = dateInput('task-day', () => tk.day, v => { tk.day = v; }, 'Day'),
+        h('button', {
+          class: 'link-btn', type: 'button', text: 'No date', dataset: { key: 'cal-edit-no-date' },
+          onclick: () => { tk.day = ''; els2.taskDay.value = ''; },
+        }))),
+      ed.isNew ? null : h('label', { class: 'cal-edit-check' }, h('input', {
+        type: 'checkbox', checked: !!tk.done, dataset: { key: 'cal-edit-done' }, onchange: e => { tk.done = e.target.checked; },
+      }), 'Done'));
+
+    els2.error = h('div', { class: 'form-error', role: 'alert' });
+    els2.save = h('button', { class: 'btn btn-primary', type: 'button', dataset: { key: 'cal-edit-save' }, onclick: () => saveEdit(ed) });
+    const where = ed.item ? sourceName(ed.item.source) : '';
+    const google = ed.item && ed.item.kind === 'task' ? 'Google Tasks' : 'Google Calendar';
+    els2.foot = h('div', { class: 'dialog-foot' },
+      ed.item ? h('button', {
+        class: 'btn btn-text danger', type: 'button', text: 'Delete', dataset: { key: 'cal-edit-delete' },
+        onclick: () => { ed.confirming = true; ed.error = ''; sync(); focusIn('cal-edit-delete-yes'); },
+      }) : null,
+      ed.item && ed.item.link ? h('a', {
+        class: 'btn btn-text', href: ed.item.link, target: '_blank', rel: 'noopener noreferrer', text: `Open in ${google}`,
+      }) : null,
+      h('span', { class: 'spacer' }),
+      h('button', { class: 'btn btn-text', type: 'button', text: 'Cancel', onclick: () => C.ctx.dialog.close() }),
+      els2.save);
+    // Deleting asks first, naming what and where.
+    els2.confirm = h('div', { class: 'dialog-foot cal-edit-confirm', role: 'alert' },
+      h('span', {
+        class: 'note',
+        text: ed.item ? `Delete “${ed.item.title}”${where ? ` from ${where}` : ''}? It goes from ${google} too, once Undo has passed.` : '',
+      }),
+      h('button', {
+        class: 'btn btn-text', type: 'button', text: 'Keep it', dataset: { key: 'cal-edit-delete-no' },
+        onclick: () => { ed.confirming = false; sync(); focusIn('cal-edit-delete'); },
+      }),
+      h('button', {
+        class: 'btn btn-danger', type: 'button', text: 'Delete', dataset: { key: 'cal-edit-delete-yes' },
+        onclick: () => { const it = ed.item; C.ctx.dialog.close(); deleteLater(it); },
+      }));
+
+    const heading = ed.isNew ? 'Add' : ed.item.kind === 'task' ? 'Task' : 'Event';
+    const dialog = h('div', { class: 'dialog cal-edit', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': id('heading') },
+      h('div', { class: 'dialog-head' },
+        h('h2', { id: id('heading'), text: heading }),
+        h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close without saving', onclick: () => C.ctx.dialog.close() }, icon('close'))),
+      h('div', { class: 'dialog-body' },
+        els2.kinds,
+        field('title', 'Title', titleInput),
+        els2.event,
+        els2.task),
+      els2.error,
+      els2.foot,
+      els2.confirm);
+    sync();
+    return dialog;
+  }
+
+  function focusIn(key) {
+    const el = C.ctx.root.querySelector(`[data-key="${key}"]`);
+    if (el) el.focus();
+  }
+
+  async function saveEdit(ed) {
+    if (ed.saving || ed.confirming) return;
+    const draft = Object.assign({}, ed.kind === 'event' ? ed.event : ed.task);
+    let title = ed.title;
+    // "Dentist 14:30": the time went into the times, not the title.
+    if (ed.isNew && ed.kind === 'event') {
+      const q = cal.parseQuick(title);
+      if (q.start) title = q.title;
+    }
+    draft.title = title;
+    // Checked here first: what will not do never leaves the page.
+    const made = draft.kind === 'task' ? cal.taskBody(draft, { patch: !ed.isNew }) : cal.eventBody(draft, timeZone(), { patch: !ed.isNew });
+    if (made.error) {
+      ed.error = made.error;
+      ed.sync();
+      return;
+    }
+    ed.saving = true;
+    ed.error = '';
+    ed.sync();
+    const what = ed.isNew ? `Couldn’t add “${title.trim()}”` : `Couldn’t save “${ed.item.title}”`;
+    const run = ed.isNew ? () => store.save(null, draft, timeZone()) : versioned(ed.item, it => store.save(it, draft, timeZone()));
+    const err = await change(run, what, { quiet: true });
+    if (C.edit !== ed) return; // closed meanwhile; the change stands
+    ed.saving = false;
+    if (!err) {
+      C.ctx.dialog.close();
+      return;
+    }
+    if (err.code === 'calendar_scope') failed(err, what);
+    ed.error = err.code === 'changed' ? 'This was changed in Google meanwhile, so nothing was saved. Close this and open it again to see the latest.'
+      : err.code === 'calendar_scope' ? 'Changing your calendar needs your permission first: see the message at the bottom.'
+        : `${what}: ${err.message}`;
+    ed.sync();
   }
 
   // ── Keys ─────────────────────────────────────────────────────────────

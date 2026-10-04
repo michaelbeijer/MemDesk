@@ -323,23 +323,34 @@ async function callGmail(account, req) {
 
 // ── Calendar and Tasks proxy ─────────────────────────────────────────
 //
-// Read-only, with the calendar's own token: the calendar list, a
-// calendar's events, the task lists and a list's tasks - nothing else
-// (calendarLogic.isAllowedRequest), and the token could not change
-// anything if it tried.
+// With the calendar's own token: reading the calendar list, a calendar's
+// events, the task lists and a list's tasks; adding, changing and
+// deleting one event or one task, with only the fields the calendar edits -
+// nothing else (calendarLogic.isAllowedRequest), and the token cannot
+// touch a calendar itself or its sharing. A change to an event names the
+// version it was made to (If-Match), so one changed in Google meanwhile
+// is refused (code "changed") rather than overwritten.
 
 async function handleGoogle(msg) {
   const service = String(msg.service || '');
   const path = String(msg.path || '');
+  const method = String(msg.method || 'GET').toUpperCase();
+  const body = msg.body === undefined ? undefined : msg.body;
   const account = normEmail(msg.account);
-  if (!calendarLogic.isAllowedRequest(service, 'GET', path)) {
-    throw new ProxyError('not_allowed', `GET ${service} ${path} is not something this extension does.`);
+  if (!calendarLogic.isAllowedRequest(service, method, path, body)) {
+    throw new ProxyError('not_allowed', `${method} ${service} ${path} is not something this extension does.`);
   }
   if (!account) {
     throw new ProxyError('calendar_auth_required', 'Could not tell which Google account this tab belongs to.');
   }
   const url = calendarLogic.buildUrl(service, path, msg.query);
-  const send = token => fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const etag = service === 'calendar' && method !== 'GET' && typeof msg.etag === 'string' && msg.etag ? msg.etag : '';
+  const send = token => {
+    const headers = { Authorization: `Bearer ${token}` };
+    if (body !== undefined && body !== null) headers['Content-Type'] = 'application/json; charset=utf-8';
+    if (etag) headers['If-Match'] = etag;
+    return fetch(url, { method, headers, body: body === undefined || body === null ? undefined : JSON.stringify(body) });
+  };
 
   let { accessToken } = await getToken(account, { kind: 'calendar' });
   let res = await send(accessToken);
@@ -354,13 +365,17 @@ async function handleGoogle(msg) {
   }
   if (!res.ok) {
     const err = await httpError(res);
-    // Google's consent screen lets people untick Calendar or Tasks.
+    // Google's consent screen lets people untick Calendar or Tasks; and a
+    // sign-in from before the calendar could change them only allowed reading.
     if (res.status === 403 && /insufficient.*scope/i.test(err.message)) {
-      throw new ProxyError('calendar_scope', 'It was not allowed when you connected. Connect again, and tick it on Google’s page.');
+      throw new ProxyError('calendar_scope', method === 'GET'
+        ? 'It was not allowed when you connected. Connect again, and tick it on Google’s page.'
+        : 'Changing it was not allowed when you connected. Connect again, and allow it on Google’s page.');
     }
+    if (res.status === 412) throw new ProxyError('changed', 'It was changed in Google meanwhile.');
     throw err;
   }
-  return res.json();
+  return res.status === 204 ? null : res.json();
 }
 
 async function handleConnect(msg) {

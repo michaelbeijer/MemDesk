@@ -100,8 +100,9 @@ Reload Gmail. **Board**, **Notes** and **Calendar** buttons appear at the
 bottom left. The first time you open the board, it creates its labels
 (`_Board/To do`, `_Board/Doing`, `_Board/Waiting`, `_Board/Done`); the notes
 create `_Notes`. The first time you open the calendar, it asks to connect:
-click **Connect Google Calendar** and allow it (read-only access to your
-calendars and tasks; the "hasn't verified this app" page may come up again).
+click **Connect Google Calendar** and allow it (to see your list of
+calendars and change their events and your tasks; the "hasn't verified this
+app" page may come up again).
 The [README](README.md#usage) explains everything they do.
 
 ---
@@ -189,6 +190,13 @@ with just this account.
   Tasks need your permission: click **Allow**, allow both on Google's page,
   and go back to the app. (Or, in the script editor, choose `allowCalendar`
   next to **Run**, and run it once.)
+- **Updating to 0.24.0 (changing the calendar)**: in Chrome, the first time
+  you change something in the calendar it says it needs your permission:
+  click **Connect again** and allow it on Google's page (it now asks to
+  change events and tasks, not only read them). For the phone app, paste the
+  new `appsscript.json` as well as `Code.gs`, then, the first time you change
+  something there, click **Allow** (or run `allowCalendar` once in the script
+  editor).
 - **Updating to 0.21.0 (the panel puts the email on the board, and nothing
   more)**: paste the new `appsscript.json` as well as `Code.gs`. The old one
   names the panel's **All notes** and **New note** menu items, which are gone,

@@ -94,5 +94,44 @@
     S.at = 0;
   }
 
-  ns.calendarStore = { loadSources, loadRange, forget, SIGN_IN };
+  // ── Changes ──────────────────────────────────────────────────────────
+  //
+  // One event or task at a time, through the worker (or the app's script),
+  // which lets through only these. An event goes with the version it was
+  // read at, so one changed in Google meanwhile is refused ("changed")
+  // rather than overwritten - or deleted unseen.
+
+  const write = (service, method, path, body, etag) => ns.api.googleWrite(service, method, path, body, etag);
+
+  function tick(item, done) {
+    return write('tasks', 'PATCH', cal.taskPath(item), cal.tickBody(done));
+  }
+
+  function move(item, fromDay, toDay, timeZone) {
+    const body = cal.moveBody(item, fromDay, toDay, timeZone);
+    return item.kind === 'task'
+      ? write('tasks', 'PATCH', cal.taskPath(item), body)
+      : write('calendar', 'PATCH', cal.eventPath(item), body, item.etag);
+  }
+
+  // What the editor holds: a change to `item`, or a new one when there is
+  // none. A draft that will not do is refused here, before Google is asked.
+  function save(item, draft, timeZone) {
+    const made = draft.kind === 'task' ? cal.taskBody(draft, { patch: !!item }) : cal.eventBody(draft, timeZone, { patch: !!item });
+    if (made.error) return Promise.reject(Object.assign(new Error(made.error), { code: 'invalid' }));
+    if (draft.kind === 'task') {
+      return item ? write('tasks', 'PATCH', cal.taskPath(item), made.body) : write('tasks', 'POST', cal.tasksPath(draft.source), made.body);
+    }
+    return item ? write('calendar', 'PATCH', cal.eventPath(item), made.body, item.etag)
+      : write('calendar', 'POST', cal.eventsPath(draft.source), made.body);
+  }
+
+  // One event (one occurrence of a repeating one) or one task - never more.
+  function remove(item) {
+    return item.kind === 'task'
+      ? write('tasks', 'DELETE', cal.taskPath(item))
+      : write('calendar', 'DELETE', cal.eventPath(item), undefined, item.etag);
+  }
+
+  ns.calendarStore = { loadSources, loadRange, forget, tick, move, save, remove, SIGN_IN };
 })();

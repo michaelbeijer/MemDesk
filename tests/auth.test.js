@@ -31,7 +31,7 @@ test('auth URL carries the implicit-grant parameters', () => {
 test('the calendar signs in on its own, for exactly its own scopes', () => {
   const cal = require('../src/lib/calendar-logic.js');
   const p = params(auth.buildAuthUrl({ ...BASE, loginHint: 'anna@example.com', scope: cal.SCOPES }));
-  assert.equal(p.get('scope'), 'email https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/tasks.readonly');
+  assert.equal(p.get('scope'), 'email https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks');
   assert.ok(!p.get('scope').includes('gmail'), 'the calendar token cannot touch Gmail');
   assert.equal(p.get('include_granted_scopes'), 'false', 'and Gmail’s token never picks up the calendar');
 });

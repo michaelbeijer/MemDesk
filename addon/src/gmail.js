@@ -88,6 +88,19 @@
     });
   }
 
+  // One change to Google's other APIs (the calendar's): a whole URL that
+  // the caller has checked, with an event's version (If-Match). The
+  // response ({} for none), or { error }.
+  function sendGoogle(url, method, body, etag) {
+    const opts = options(method, body);
+    if (etag) opts.headers['If-Match'] = etag;
+    try {
+      return parse(UrlFetchApp.fetch(url, opts), method, url.split('?')[0], 'Google');
+    } catch (err) {
+      return { error: err };
+    }
+  }
+
   // ── The writes, with their limits ────────────────────────────────────
 
   function insertNote(body) {
@@ -124,5 +137,5 @@
     return call('POST', `messages/${encodeURIComponent(messageId)}/untrash`);
   }
 
-  ns.addonGmail = { call, callAll, getAll, insertNote, modifyLabels, modifyThread, trashNote, untrashNote, queryString };
+  ns.addonGmail = { call, callAll, getAll, sendGoogle, insertNote, modifyLabels, modifyThread, trashNote, untrashNote, queryString };
 })();

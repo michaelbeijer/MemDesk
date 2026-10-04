@@ -25,22 +25,31 @@ To work, MemDesk asks Google for permission to read and change your Gmail
 - **To tell accounts apart:** reads your email address.
 
 For the Calendar tab, and only once you allow it there, MemDesk asks
-Google for read-only access to Google Calendar and Google Tasks
-(`calendar.readonly` and `tasks.readonly`), and for your email address. With
-them, it:
+Google to see your list of calendars, to change their events and your tasks
+(`calendar.readonly`, `calendar.events` and `tasks`), and for your email
+address. With them, it:
 
 - **Reads** the list of your calendars and task lists, the events in the days
   on screen, and your tasks (title, due date, whether it is done, and the
   link to the email a task was made from), to show them.
+- **Changes what you change**, and nothing else: an event's title, times
+  and place, a task's title, day and whether it is done; and adds an event
+  or a task when you add one. Never an event's guests (who would be sent
+  invitations), never a calendar itself or who it is shared with.
+- **Deletes an event or a task only when you ask**: you choose Delete,
+  confirm it, and it waits eight seconds with an Undo before Google is asked
+  at all. Only that one event (or one occurrence of a repeating one) or task,
+  and only if it has not been changed in Google since you saw it.
 - **Reads your email address**, to check that the calendar is the one of the
   account open in the tab.
 
-It cannot change, add or delete anything in your calendars or tasks: the
-permissions are read-only. Nothing from them is stored; they are read again
-when the calendar is shown.
+Events and calendars that MemDesk may not change - shared with you read-only,
+birthdays, meetings someone else organises - it only shows. Nothing from
+your calendars or tasks is stored; they are read again when the calendar is
+shown.
 
 The Gmail permission Google grants is broader than what MemDesk does. MemDesk **never sends
-mail, never deletes anything for good**, never touches Spam, and moves
+mail, never deletes mail for good**, never touches Spam, and moves
 nothing to Trash but its own notes. In the Chrome extension, a gatekeeper in
 its background worker refuses any other kind of request before it reaches
 Google.
@@ -57,7 +66,7 @@ Google.
   and Tasks, are kept in memory for the browser session only, and are gone
   when Chrome closes.
 - **The phone panel and the phone app** run in Google Apps Script, on
-  Google's servers, as you, under the same rules (the calendar read-only).
+  Google's servers, as you, under the same rules.
   The panel reads only your list of labels and the labels of the email you
   have open, and changes the board's labels on that email when you move it;
   the app reads and writes your Gmail on your behalf as the extension does.

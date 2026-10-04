@@ -1394,8 +1394,9 @@ try {
     const kickOff = p.locator('.cal-week .ev').filter({ hasText: 'Kestrel Medical: kick-off call' });
     assert.equal(await kickOff.locator('.time').innerText(), '09:30', 'the 24-hour clock, whatever the browser’s language');
 
-    // Each opens where it lives in Google, in a tab of its own.
-    const quote = p.locator('.cal-week a.task').filter({ hasText: 'Quote for Ingrid' });
+    // Each links to where it lives in Google, in a tab of its own (Ctrl-click;
+    // a plain click opens the editor). A task's box is a button of its own.
+    const quote = p.locator('.cal-week .task').filter({ hasText: 'Quote for Ingrid' }).locator('a.task-link');
     assert.equal(await quote.getAttribute('href'), 'https://mail.google.com/mail/#all/quote-request');
     assert.equal(await quote.getAttribute('target'), '_blank');
     assert.equal(await quote.locator('.mail').count(), 1, 'made from an email');
@@ -1525,6 +1526,317 @@ try {
     assert.ok(tue.y > mon.y && Math.abs(tue.x - mon.x) < 2, 'Tuesday under Monday');
     assert.ok(Math.abs(fri.y - mon.y) < 2 && fri.x > mon.x, 'Friday beside Monday');
     await p.screenshot({ path: join(SCREENS, 'preview-calendar-narrow.png'), animations: 'disabled' });
+    await p.context().close();
+  });
+
+  // ── The calendar, both ways ──
+
+  const fakeEvent = (p, title) => p.evaluate(t => {
+    const e = window.__fakeCalendar.events.find(x => x.summary === t);
+    return e ? JSON.parse(JSON.stringify(e)) : null;
+  }, title);
+  const fakeTask = (p, title) => p.evaluate(t => {
+    const x = window.__fakeCalendar.tasks.find(y => y.title === t);
+    return x ? JSON.parse(JSON.stringify(x)) : null;
+  }, title);
+  // Every change the calendar sent, in order.
+  const sentChanges = p => p.evaluate(() => window.__mockChrome.log
+    .filter(l => l.type === 'google' && l.method && l.method !== 'GET')
+    .map(l => ({ method: l.method, path: l.path, body: l.body || null, etag: l.etag || '' })));
+  const weekDay = (p, i) => p.locator('.cal-week > .day[data-day]').nth(i);
+  const dayKey = (p, offset) => p.evaluate(o => window.__fakeCalendar.day(o), offset);
+  const editor = p => p.locator('.cal-edit');
+  // Google's own pages, opened from the calendar, answered here.
+  const noGoogle = p => p.context().route(/^https:\/\/(www\.google\.com|tasks\.google\.com|mail\.google\.com)\//, r => r.fulfill({ status: 200, contentType: 'text/html', body: 'ok' }));
+
+  await r.step('calendar: an event opened here is changed here, in Google, with the version it was read at', async () => {
+    const p = await openPage();
+    await openCalendar(p);
+    const before = await fakeEvent(p, 'Lumenra glossary delivery');
+    await p.locator('.cal-week a.ev', { hasText: 'Lumenra glossary delivery' }).click();
+    await editor(p).waitFor();
+    assert.equal(await editor(p).locator('h2').innerText(), 'Event');
+    assert.equal(await editor(p).locator('#gkb-cal-calendar').innerText(), 'Jobs', 'which calendar, not changeable here');
+    assert.equal(await p.locator('[data-key="cal-edit-start-time"]').inputValue(), '14:00', 'the 24-hour clock');
+    await p.locator('[data-key="cal-edit-title"]').fill('Lumenra glossary: final delivery');
+    await p.locator('[data-key="cal-edit-start-time"]').fill('15:30');
+    await p.locator('[data-key="cal-edit-end-time"]').fill('16.15');
+    await p.locator('[data-key="cal-edit-where"]').fill('By email');
+    await p.screenshot({ path: join(SCREENS, 'preview-calendar-edit.png'), animations: 'disabled' });
+    await p.locator('[data-key="cal-edit-save"]').click();
+    await editor(p).waitFor({ state: 'detached' });
+
+    const after = await fakeEvent(p, 'Lumenra glossary: final delivery');
+    const thursday = await dayKey(p, 3);
+    assert.ok(after.start.dateTime.startsWith(`${thursday}T15:30:00`), after.start.dateTime);
+    assert.ok(after.end.dateTime.startsWith(`${thursday}T16:15:00`), after.end.dateTime);
+    assert.equal(after.location, 'By email');
+    const [sent] = (await sentChanges(p)).slice(-1);
+    assert.equal(sent.method, 'PATCH');
+    assert.equal(sent.etag, before.etag, 'the version it was read at');
+    assert.deepEqual(Object.keys(sent.body).sort(), ['end', 'location', 'start', 'summary'], 'nothing but what the editor edits');
+    await until(async () => /15:30\s+Lumenra glossary: final delivery/.test(await weekDay(p, 3).innerText()), 'on screen as Google has it');
+    await p.context().close();
+  });
+
+  await r.step('calendar: someone else’s meeting and a read-only calendar are not changed here: they open in Google', async () => {
+    const p = await openPage();
+    await noGoogle(p);
+    await openCalendar(p);
+    const quiz = p.locator('.cal-week a.ev', { hasText: 'Pub quiz' });
+    assert.equal(await quiz.getAttribute('draggable'), null, 'not draggable');
+    const [tab] = await Promise.all([p.context().waitForEvent('page'), quiz.click()]);
+    assert.match(tab.url(), /^https:\/\/www\.google\.com\/calendar\/event/);
+    await tab.close();
+    assert.equal(await editor(p).count(), 0, 'no editor');
+    // Holidays, shared read-only.
+    await p.locator('.src').filter({ hasText: 'Holidays' }).click();
+    await p.keyboard.press('j');
+    await p.keyboard.press('j');
+    const holiday = p.locator('.cal-week .ev', { hasText: 'Bank holiday' });
+    await holiday.waitFor();
+    assert.equal(await holiday.getAttribute('draggable'), null);
+    // Ctrl-click on one that can be changed still opens it in Google.
+    await p.keyboard.press('t');
+    const call = p.locator('.cal-week a.ev', { hasText: 'Call Bram about the office action' });
+    await call.waitFor();
+    const [tab2] = await Promise.all([p.context().waitForEvent('page'), call.click({ modifiers: ['Control'] })]);
+    await tab2.close();
+    assert.equal(await editor(p).count(), 0);
+    assert.deepEqual(await sentChanges(p), [], 'nothing was changed');
+    await p.context().close();
+  });
+
+  await r.step('calendar: a task’s box ticks it off in Google Tasks, and back', async () => {
+    const p = await openPage();
+    await openCalendar(p);
+    const box = () => p.locator('.cal-week .task', { hasText: 'Send invoice 2026-131' }).locator('button.box');
+    assert.equal(await box().getAttribute('aria-checked'), 'false');
+    await box().click();
+    assert.equal(await box().getAttribute('aria-checked'), 'true', 'at once');
+    await until(async () => (await fakeTask(p, 'Send invoice 2026-131')).status === 'completed', 'ticked off in Google Tasks');
+    await until(async () => !(await p.evaluate(() => window.gkb.calendar.isLoading())), 'read back');
+    await box().click();
+    await until(async () => {
+      const t = await fakeTask(p, 'Send invoice 2026-131');
+      return t.status === 'needsAction' && !t.completed;
+    }, 'not done again');
+    assert.deepEqual((await sentChanges(p)).map(c => [c.method, Object.keys(c.body).sort().join()]),
+      [['PATCH', 'status'], ['PATCH', 'completed,status']]);
+    await p.context().close();
+  });
+
+  await r.step('calendar: dragged to another day - an event keeps its time, a task gets the day, or none in the tray', async () => {
+    const p = await openPage();
+    await openCalendar(p);
+    const [monday, tuesday, wednesday, friday] = await Promise.all([0, 1, 2, 4].map(o => dayKey(p, o)));
+    await p.locator('.cal-week a.ev', { hasText: 'Kestrel Medical: kick-off call' }).dragTo(weekDay(p, 4));
+    await until(async () => (await fakeEvent(p, 'Kestrel Medical: kick-off call')).start.dateTime.startsWith(`${friday}T09:30`), 'Friday, still 09:30');
+    assert.ok((await fakeEvent(p, 'Kestrel Medical: kick-off call')).end.dateTime.startsWith(`${friday}T10:15`));
+    await until(async () => (await weekDay(p, 4).innerText()).includes('Kestrel Medical'), 'on Friday');
+    assert.ok(!(await weekDay(p, 1).innerText()).includes('Kestrel Medical'), 'not Tuesday');
+
+    const tray = p.locator('.cal-tray');
+    await tray.locator('.task', { hasText: 'Order printer toner' }).dragTo(weekDay(p, 2));
+    await until(async () => (await fakeTask(p, 'Order printer toner')).due === `${wednesday}T00:00:00.000Z`, 'a day of its own');
+    await until(async () => (await weekDay(p, 2).innerText()).includes('Order printer toner'), 'on Wednesday');
+    await weekDay(p, 2).locator('.task', { hasText: 'Order printer toner' }).dragTo(tray);
+    await until(async () => !(await fakeTask(p, 'Order printer toner')).due, 'no day again');
+    await until(async () => (await tray.innerText()).includes('Order printer toner'), 'back in the tray');
+
+    // An event has a day, always: it does not go to No date.
+    const before = (await sentChanges(p)).length;
+    await weekDay(p, 2).locator('a.ev', { hasText: 'Call Bram' }).dragTo(tray);
+    assert.equal((await sentChanges(p)).length, before, 'nothing sent');
+
+    // Twice, before Google's answer to the first is read back: the second
+    // names the version the first made, so no false "changed meanwhile".
+    await weekDay(p, 2).locator('a.ev', { hasText: 'Call Bram' }).dragTo(weekDay(p, 0));
+    await weekDay(p, 0).locator('a.ev', { hasText: 'Call Bram' }).dragTo(weekDay(p, 1));
+    await until(async () => (await fakeEvent(p, 'Call Bram about the office action')).start.dateTime.startsWith(`${tuesday}T11:00`), 'Tuesday');
+    await until(async () => !(await p.evaluate(() => window.gkb.calendar.isLoading())), 'read back');
+    assert.equal(await p.locator('.toast-error').count(), 0, 'no error');
+    assert.ok((await weekDay(p, 1).innerText()).includes('Call Bram'));
+    assert.ok(!(await weekDay(p, 0).innerText()).includes('Call Bram'), `not ${monday}`);
+    await p.context().close();
+  });
+
+  await r.step('calendar: the + on a day adds there - a time makes an event, no time a task', async () => {
+    const p = await openPage();
+    await openCalendar(p);
+    const [monday, wednesday, saturday, sunday] = await Promise.all([0, 2, 5, 6].map(o => dayKey(p, o)));
+    const me = await p.evaluate(() => window.__mockChrome.account);
+
+    await weekDay(p, 2).locator('.day-add').click();
+    await editor(p).waitFor();
+    await p.keyboard.type('Hygienist 14:30');
+    assert.equal(await p.locator('[data-key="cal-edit-kind:event"]').getAttribute('aria-pressed'), 'true');
+    assert.equal(await p.locator('[data-key="cal-edit-start-time"]').inputValue(), '14:30');
+    assert.equal(await p.locator('[data-key="cal-edit-end-time"]').inputValue(), '15:30');
+    await p.screenshot({ path: join(SCREENS, 'preview-calendar-add.png'), animations: 'disabled' });
+    await p.keyboard.press('Enter');
+    await until(async () => !!(await fakeEvent(p, 'Hygienist')), 'added, the time out of the title');
+    const dentist = await fakeEvent(p, 'Hygienist');
+    assert.equal(dentist.calendarId, me, 'in the main calendar');
+    assert.ok(dentist.start.dateTime.startsWith(`${wednesday}T14:30`));
+    await until(async () => /14:30\s+Hygienist/.test(await weekDay(p, 2).innerText()), 'on Wednesday');
+
+    await weekDay(p, 5).locator('.day-add').click();
+    await p.keyboard.type('Pay the invoice');
+    assert.equal(await p.locator('[data-key="cal-edit-kind:task"]').getAttribute('aria-pressed'), 'true');
+    await p.keyboard.press('Enter');
+    await until(async () => (await fakeTask(p, 'Pay the invoice') || {}).due === `${saturday}T00:00:00.000Z`, 'a task on Saturday');
+    assert.equal((await fakeTask(p, 'Pay the invoice')).list, await p.evaluate(() => window.__fakeCalendar.lists[0].id));
+
+    // Chosen by hand: an all-day event.
+    await weekDay(p, 6).locator('.day-add').click();
+    await p.keyboard.type('Pack for the trip');
+    await p.locator('[data-key="cal-edit-kind:event"]').click();
+    await p.locator('[data-key="cal-edit-all-day"]').check();
+    assert.equal(await p.locator('[data-key="cal-edit-start-time"]').isVisible(), false, 'no times');
+    await p.locator('[data-key="cal-edit-save"]').click();
+    await until(async () => !!(await fakeEvent(p, 'Pack for the trip')), 'added');
+    const pack = await fakeEvent(p, 'Pack for the trip');
+    assert.deepEqual([pack.start.date, pack.end.date], [sunday, await dayKey(p, 7)]);
+
+    // What will not do never leaves the page.
+    const before = (await sentChanges(p)).length;
+    await weekDay(p, 0).locator('.day-add').click();
+    await p.keyboard.type('Call 10:00');
+    await p.locator('[data-key="cal-edit-end-time"]').fill('09:00');
+    await p.keyboard.press('Enter');
+    assert.equal(await editor(p).locator('.form-error').innerText(), 'It has to end after it starts.');
+    await p.locator('[data-key="cal-edit-title"]').fill('');
+    await p.keyboard.press('Enter');
+    assert.equal(await editor(p).locator('.form-error').innerText(), 'Give it a title.');
+    await p.keyboard.press('Escape');
+    await editor(p).waitFor({ state: 'detached' });
+    assert.equal((await sentChanges(p)).length, before, 'nothing sent');
+    assert.ok(!(await weekDay(p, 0).innerText()).includes('Call'), `nothing on ${monday}`);
+    await p.context().close();
+  });
+
+  await r.step('calendar: deleting asks first, waits out its Undo, and names the version it saw', async () => {
+    const p = await openPage();
+    await openCalendar(p);
+    const title = 'Call Bram about the office action';
+    const before = await fakeEvent(p, title);
+    const call = () => p.locator('.cal-week a.ev', { hasText: title });
+
+    // Asked, and kept.
+    await call().click();
+    await p.locator('[data-key="cal-edit-delete"]').click();
+    const confirm = editor(p).locator('.cal-edit-confirm');
+    assert.match(await confirm.innerText(), /Delete “Call Bram about the office action” from Jobs\?/);
+    assert.equal(await p.locator('[data-key="cal-edit-save"]').isVisible(), false, 'nothing else to press meanwhile');
+    await p.screenshot({ path: join(SCREENS, 'preview-calendar-delete.png'), animations: 'disabled' });
+    await p.locator('[data-key="cal-edit-delete-no"]').click();
+    assert.equal(await confirm.isVisible(), false);
+    await p.keyboard.press('Escape');
+    assert.equal(await call().count(), 1);
+
+    // Deleted, then undone: Google never hears of it.
+    await call().click();
+    await p.locator('[data-key="cal-edit-delete"]').click();
+    await p.locator('[data-key="cal-edit-delete-yes"]').click();
+    assert.equal(await call().count(), 0, 'gone from the screen at once');
+    const toastEl = p.locator('.toast', { hasText: 'Deleted “Call Bram about the office action”.' });
+    await toastEl.locator('.toast-action').click();
+    assert.equal(await call().count(), 1, 'back');
+    await p.waitForTimeout(9500);
+    assert.deepEqual(await sentChanges(p), [], 'nothing sent');
+    assert.equal((await fakeEvent(p, title)).status, 'confirmed');
+
+    // Deleted, and left: once the Undo has passed, Google is asked - for
+    // that one event, at the version it was seen at.
+    await call().click();
+    await p.locator('[data-key="cal-edit-delete"]').click();
+    await p.locator('[data-key="cal-edit-delete-yes"]').click();
+    await p.waitForTimeout(4000);
+    assert.deepEqual(await sentChanges(p), [], 'not yet: the Undo is still showing');
+    await until(async () => (await fakeEvent(p, title)).status === 'cancelled', 'deleted in Google', 12000);
+    assert.deepEqual(await sentChanges(p), [{
+      method: 'DELETE', path: `calendars/${encodeURIComponent(before.calendarId)}/events/${before.id}`, body: null, etag: before.etag,
+    }]);
+    await until(async () => !(await p.evaluate(() => window.gkb.calendar.isLoading())), 'read back');
+    assert.equal(await call().count(), 0, 'and stays gone');
+    assert.ok((await fakeEvent(p, 'Lumenra glossary delivery')).status !== 'cancelled', 'nothing else');
+    await p.context().close();
+  });
+
+  await r.step('calendar: something changed in Google meanwhile is neither deleted nor overwritten', async () => {
+    const p = await openPage();
+    await openCalendar(p);
+    // Changed by someone else while it was open here.
+    const changeInGoogle = (t, summary) => p.evaluate(([title, s]) => {
+      const fc = window.__fakeCalendar;
+      const e = fc.events.find(x => x.summary === title);
+      fc.route('calendar', `calendars/${encodeURIComponent(e.calendarId)}/events/${e.id}`, {}, 'PATCH', { summary: s }, e.etag);
+    }, [t, summary]);
+
+    await p.locator('.cal-week a.ev', { hasText: 'Lumenra glossary delivery' }).click();
+    await p.locator('[data-key="cal-edit-title"]').fill('Mine');
+    await changeInGoogle('Lumenra glossary delivery', 'Lumenra, moved by Bram');
+    await p.locator('[data-key="cal-edit-save"]').click();
+    await until(async () => /changed in Google meanwhile, so nothing was saved/.test(await editor(p).locator('.form-error').innerText()), 'it says so');
+    assert.equal((await fakeEvent(p, 'Lumenra, moved by Bram')).summary, 'Lumenra, moved by Bram', 'theirs stands');
+    assert.equal(await fakeEvent(p, 'Mine'), null);
+    await p.keyboard.press('Escape');
+    await editor(p).waitFor({ state: 'detached' });
+    assert.equal(await overlayVisible(p), true, 'Esc closed the editor, not the board');
+
+    await until(async () => (await weekText(p)).includes('Lumenra, moved by Bram'), 'the latest on screen');
+    await p.locator('.cal-week a.ev', { hasText: 'Kestrel Medical: kick-off call' }).click();
+    await p.locator('[data-key="cal-edit-delete"]').click();
+    await p.locator('[data-key="cal-edit-delete-yes"]').click();
+    await changeInGoogle('Kestrel Medical: kick-off call', 'Kestrel Medical: kick-off call, new link');
+    await until(async () => /Couldn’t delete “Kestrel Medical: kick-off call”: it was changed in Google meanwhile/.test(
+      await p.locator('.toast-error').innerText().catch(() => '')), 'not deleted, and it says so', 12000);
+    assert.equal((await fakeEvent(p, 'Kestrel Medical: kick-off call, new link')).status, 'confirmed');
+    await until(async () => (await weekText(p)).includes('Kestrel Medical: kick-off call, new link'), 'back on screen');
+    await p.context().close();
+  });
+
+  await r.step('calendar: a change that fails, or is not allowed yet, says so, and Google’s own version comes back', async () => {
+    const p = await openPage('calendar=failwrite');
+    await openCalendar(p);
+    const box = () => p.locator('.cal-week .task', { hasText: 'Send invoice 2026-131' }).locator('button.box');
+    await box().click();
+    await until(async () => /Couldn’t tick off “Send invoice 2026-131”: Backend Error/.test(await p.locator('.toast-error').innerText().catch(() => '')), 'it says so');
+    await until(async () => (await box().getAttribute('aria-checked')) === 'false', 'not ticked after all');
+    assert.equal((await fakeTask(p, 'Send invoice 2026-131')).status, 'needsAction');
+    await p.context().close();
+
+    const q = await openPage('calendar=readonly');
+    await openCalendar(q);
+    await q.locator('.cal-week .task', { hasText: 'Send invoice 2026-131' }).locator('button.box').click();
+    const err = q.locator('.toast-error', { hasText: 'changing your calendar needs your permission first' });
+    await err.waitFor();
+    assert.equal(await err.locator('.toast-action').innerText(), 'Connect again');
+    await q.context().close();
+  });
+
+  await r.step('calendar: a change Google never answers gives up after half a minute, says so, and the calendar carries on', async () => {
+    const p = await openPage('calendar=hangwrite');
+    await openCalendar(p);
+    const box = () => p.locator('.cal-week .task', { hasText: 'Send invoice 2026-131' }).locator('button.box');
+    const reads = () => p.evaluate(() => window.__mockChrome.log.filter(l => l.type === 'google' && !l.method).length);
+    await box().click();
+    const before = await reads();
+    await until(async () => /Google took too long to answer/.test(await p.locator('.toast-error').innerText().catch(() => '')), 'it gives up and says so', 40000);
+    await until(async () => (await box().getAttribute('aria-checked')) === 'false', 'read again, and not ticked', 10000);
+    assert.ok((await reads()) > before, 'the calendar reads Google again');
+    await p.context().close();
+  });
+
+  await r.step('calendar: one occurrence of a repeating event says a change is to it alone', async () => {
+    const p = await openPage();
+    await openCalendar(p);
+    await p.locator('.cal-week a.ev', { hasText: 'Stand-up' }).click();
+    assert.match(await editor(p).innerText(), /It repeats: a change here is to this one only\./);
+    await p.keyboard.press('Escape');
+    await p.locator('.cal-week a.ev', { hasText: 'Lumenra glossary delivery' }).click();
+    assert.doesNotMatch(await editor(p).innerText(), /It repeats/);
     await p.context().close();
   });
 

@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.23.0" src="https://img.shields.io/badge/version-0.23.0-6D28D9">
+  <img alt="Version 0.24.0" src="https://img.shields.io/badge/version-0.24.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -84,8 +84,9 @@ a date sits in its day, ready to tick; the ones without a date, and any that
 are overdue, wait at the side; a task made from an email opens the email.
 Every calendar and task list shows or hides with one click. On the phone it is
 the week as two columns of days, with the month as the eighth, swiped to the
-next week. It only reads, for now: ticking tasks off, due dates on cards and
-adding events are next.
+next week. And it works both ways: open an event and change it, tick a task
+off, drag either to another day, or press **+** on a day and type "Dentist
+14:30" - it all goes straight to Google Calendar and Google Tasks.
 
 <img src="images/calendar.jpg" width="100%" alt="The calendar in Gmail: a week of events and tasks beside a small month, the calendars and the tasks with no date; on a phone, the same week as two columns of days">
 
@@ -106,8 +107,8 @@ the open email on the board, one tap for its column.
 There is no MemDesk server and no account to make. The board and the notes
 are views of your own mailbox, and the calendar of your own Google Calendar
 and Tasks, through Google's API, from your own browser. MemDesk never sends
-mail, never deletes anything for good, and only reads your calendar. See
-[Privacy](#privacy).
+mail and never deletes mail; in the calendar it deletes an event or a task
+only when you ask, confirm, and let its Undo pass. See [Privacy](#privacy).
 
 ## How it works
 
@@ -128,11 +129,11 @@ open email in a column from inside the Gmail app, and the **phone app** puts
 the board, the notes, with the full editor, and the calendar on your home
 screen.
 
-The **Calendar** tab reads Google Calendar and Google Tasks with a sign-in of
-its own (read-only), asked for the first time you open it, so the board and
+The **Calendar** tab reads and changes Google Calendar and Google Tasks with
+a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.23.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.24.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -338,10 +339,13 @@ in Gmail and the notes follow.
 - **Open it** with the **Calendar** tab next to **Notes**, or the **Calendar**
   button at the bottom left of Gmail.
 - **The first time**, it asks to connect: **Connect Google Calendar**, then
-  allow it on Google's page. It asks for read-only access to Google Calendar
-  and Google Tasks, and for your address, to check that the calendar is the
-  one of the account open in the tab. This is a sign-in of its own: the board
-  and the notes never needed it, and keep working whatever you answer.
+  allow it on Google's page. It asks to see your list of calendars, to change
+  their events and your tasks, and for your address, to check that the
+  calendar is the one of the account open in the tab. It cannot change a
+  calendar itself, or who it is shared with. This is a sign-in of its own:
+  the board and the notes never needed it, and keep working whatever you
+  answer. (Connected before 0.24.0, when it only read? Then it asks once
+  more, the first time you change something.)
 - **Week, Month, Agenda** at the top right. The week is seven columns, without
   an hour grid: the times are on the items, on the 24-hour clock (09:30,
   19:30). The button just left of **Week**
@@ -359,9 +363,32 @@ in Gmail and the notes follow.
   **m** and **a** for the views. The small month on the left goes to the day you
   click.
 - **What is on a day**: all-day events first, then the rest by time, then the
-  tasks due that day, open ones before ticked ones. An event opens in Google
-  Calendar, a task in Google Tasks; a task made from an email in Gmail (with
-  an envelope) opens that email.
+  tasks due that day, open ones before ticked ones.
+- **Change an event**: click it. A small editor opens: the title, all day or
+  from when until when (on the 24-hour clock), and where; **Save** sends it to
+  Google Calendar. One occurrence of a repeating event changes on its own.
+  Events MemDesk may not change open in Google Calendar instead, as before:
+  ones on a calendar shared with you read-only (holidays, say), birthdays,
+  and meetings someone else organises without letting guests change them.
+  Ctrl-click (or the middle button) always opens an event in Google Calendar.
+- **Tick a task off** with its box, and again to undo; click its title for the
+  editor (title, day or none, done). A task made from an email (with an
+  envelope) opens that email on a Ctrl-click.
+- **Drag** an event or a task to another day: an event keeps its times, a
+  task gets the new day. Drag a task onto the tasks with no date to take its
+  day away.
+- **The +** on a day adds to it. Type "Dentist 14:30" and it is an event at
+  that time (an hour long; "9:15-10:00" gives both); "Pay the invoice", with no
+  time, a task due that day. Or choose **Event** or **Task** yourself. A new
+  event goes in your main calendar, unless you pick another.
+- **Delete** is in the editor, and asks first, naming what and from which
+  calendar. Then it goes from the screen, with an **Undo** for eight
+  seconds, and only after that is Google asked to delete it: close the tab
+  in those seconds and nothing is deleted at all.
+- **Nothing is overwritten.** Every change names the version it was made to.
+  If the event was changed in Google Calendar meanwhile - on your phone, or by
+  a colleague - the change is refused, MemDesk says so, and the latest
+  version is shown instead. That goes for deleting too.
 - **The calendars and task lists** on the left show or hide with a click.
   Until you click, they are as Google Calendar has them (a calendar unticked
   there starts hidden here); after that, this computer remembers.
@@ -372,9 +399,8 @@ in Gmail and the notes follow.
   eighth; the calendars are a row of chips above, and the tasks with no date
   below. Swipe sideways for the next or previous week. The button beside
   **›** turns the order round: Monday beside Tuesday, then Wednesday beside
-  Thursday, and so on; the phone remembers which you chose.
-- It only reads, for now. Ticking tasks off, due dates on cards and adding
-  events are the next steps.
+  Thursday, and so on; the phone remembers which you chose. Dragging is for
+  a computer; on a phone, change the day in the editor.
 
 ### Storage
 
@@ -427,8 +453,9 @@ line of `Code.gs` says which version it is.
 with one set of permissions): read and change your mail's labels and insert
 messages (`gmail.modify`, the same as the extension), run as a Gmail add-on and
 see which message is open (`gmail.addons.execute`,
-`gmail.addons.current.message.metadata`), read your calendars and tasks for
-the phone app's calendar (`calendar.readonly`, `tasks.readonly`), and call
+`gmail.addons.current.message.metadata`), read your list of calendars and
+read and change their events and your tasks for the phone app's calendar
+(`calendar.readonly`, `calendar.events`, `tasks`), and call
 Google's APIs (`script.external_request`, only to `gmail.googleapis.com` and
 the Calendar and Tasks APIs). It keeps the
 extension's rules in its own code: it inserts only notes, moves to Trash only
@@ -483,9 +510,11 @@ notes as in Gmail, in a tab of their own.)
 - **The calendar**, the week as two columns of days with the month as the
   eighth: swipe sideways for the next week, tap a chip to show or hide a
   calendar or task list, and the button beside **›** to have the days run
-  across rather than down (the phone remembers both). It reads Calendar and
-  Tasks with the script's own access, so there is nothing to connect; the
-  first time, it may ask you to **Allow** it.
+  across rather than down (the phone remembers both). Tap an event or a
+  task to change it, its box to tick a task off, and the **+** on a day to
+  add one, as on a computer. It reads and changes Calendar and Tasks with
+  the script's own access, so there is nothing to connect; the first time,
+  it may ask you to **Allow** it.
 
 **Setting it up** is one more step in the phone panel's project: **Deploy →
 Test deployments → Web app**, open its address in Chrome on the phone, and
@@ -514,13 +543,16 @@ for the board it reads labels and threads, makes and renames labels, and
 changes the labels on a conversation - never Trash, Spam or the Inbox, never
 anything sent or deleted; for the calendar it makes the same four reads as
 the extension (the calendar list, a calendar's events, the task lists, a
-list's tasks) and nothing else. The app's column layout and card edits are
-kept in the script's user properties. It runs as you, under the phone panel's
-permissions, which since 0.17.0 include read-only access to Calendar and
-Tasks. Google does not ask for new permissions by itself once a script has
-been allowed some, so if the calendar has not been allowed yet, it says so
-with an **Allow** button, which opens Google's page for the script (the
-function `allowCalendar`, run once in the script editor, does the same).
+list's tasks), and the same changes - one event or one task added, changed
+or deleted, with only the fields the editor edits, and an event's version
+named so that one changed in Google meanwhile is refused - and nothing else.
+The app's column layout and card edits are kept in the script's user
+properties. It runs as you, under the phone panel's permissions, which since
+0.17.0 include the calendar, and since 0.24.0 changing it. Google does not
+ask for new permissions by itself once a script has been allowed some, so if
+the calendar (or changing it) has not been allowed yet, it says so with an
+**Allow** button, which opens Google's page for the script (the function
+`allowCalendar`, run once in the script editor, does the same).
 
 ## Privacy
 
@@ -569,14 +601,21 @@ The privacy policy is [PRIVACY.md](PRIVACY.md). In detail:
   signs in a different account from the one in the Gmail tab, the token is
   discarded and the board says so, rather than acting on the wrong mailbox.
 - **The calendar has a token of its own**, asked for separately and only when
-  the Calendar tab is opened: `calendar.readonly`, `tasks.readonly` and
-  `email` (to check, through Google's userinfo endpoint, that it is the account
-  in the tab - the calendar's token cannot read Gmail's profile). Read-only
-  scopes, so it could not change a calendar or a task if it tried, and the
-  worker lets through only four kinds of `GET`: the calendar list, a calendar's
-  events, the task lists, and a list's tasks. It lives in session storage like
-  Gmail's, and the two never mix (`include_granted_scopes=false` on both).
-  Events and tasks are shown, never stored.
+  the Calendar tab is opened: `calendar.readonly` (the list of calendars),
+  `calendar.events` (their events), `tasks` and `email` (to check, through
+  Google's userinfo endpoint, that it is the account in the tab - the
+  calendar's token cannot read Gmail's profile). None of them reaches a
+  calendar itself or its sharing. The worker lets through only four kinds of
+  `GET` - the calendar list, a calendar's events, the task lists and a list's
+  tasks - and one event or one task added (`POST`), changed (`PATCH`) or
+  deleted (`DELETE`), with only the fields the editor edits: never guests
+  (who would be sent invitations), never a calendar or a task list. A change
+  to an event carries its version (`If-Match`), so one changed in Google
+  meanwhile is refused rather than overwritten or deleted unseen. A delete is
+  sent only after it is confirmed and its Undo has passed. The token lives in
+  session storage like Gmail's, and the two never mix
+  (`include_granted_scopes=false` on both). Events and tasks are shown, never
+  stored.
 
 ## Known fragile points
 
@@ -675,7 +714,9 @@ npm run test:app              # (c) the phone app at a phone's size
   creation. It checks the fake mailbox's labels after each step. And the
   calendar, against a fake Calendar and Tasks: the week, month and agenda,
   the keys, showing and hiding sources, connecting it, Tasks not allowed, and
-  the narrow week.
+  the narrow week; and changing it: the editor, ticking, dragging, adding,
+  deleting with its Undo, and every change refused that should be (changed
+  in Google meanwhile, not allowed yet, failing).
 - (b) starts Chromium with `--load-extension`. It tries new headless first and
   falls back to `xvfb-run` if the service worker does not appear. It checks the
   worker, the extension ID, the setup page, the allow-lists, and that the content
@@ -731,7 +772,7 @@ src/lib/                   pure logic, shared by content scripts, worker and tes
                            Markdown and pasted HTML in
   search-logic.js          the words in a query, where they occur, excerpts
 src/background/sw.js       OAuth (launchWebAuthFlow), the Gmail API proxy, and the
-                           calendar's own sign-in and read-only proxy
+                           calendar's own sign-in and proxy
 src/content/               classic scripts, in manifest order
   gmail-hooks.js           every assumption about Gmail's page
   api.js, store.js         messaging and the shared data layer
@@ -777,11 +818,9 @@ LICENSE                    MIT
 
 ## Roadmap
 
-- **The calendar, step 2.** Tick tasks off from the calendar; give a card a due
-  date from its ⋯ menu, which makes a Google Task linked to the email, so it
-  shows on its day here and in Google's own apps.
-- **The calendar, step 3.** The **+** on a day: "Dentist 14:30" becomes an
-  event, "Pay the invoice" a task.
+- **Due dates on cards.** Give a card a due date from its ⋯ menu, which makes
+  a Google Task linked to the email, so it shows on its day in the calendar
+  and in Google's own apps.
 - **A to-do view.** One flat list across all columns, oldest first, for days when
   a board is too much.
 - **A "Needs reply" column**, computed rather than labelled: threads whose
