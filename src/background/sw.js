@@ -12,12 +12,13 @@
 // and not readable by content scripts at the default access level.
 // ─────────────────────────────────────────────────────────────────────
 
-importScripts('/src/shared/ns.js', '/src/lib/util.js', '/src/lib/notes-logic.js', '/src/lib/auth.js', '/src/lib/calendar-logic.js');
+importScripts('/src/shared/ns.js', '/src/lib/util.js', '/src/lib/notes-logic.js', '/src/lib/auth.js', '/src/lib/calendar-logic.js', '/src/lib/licence-logic.js');
 
-const { KEYS } = self.gkb;
+const { KEYS, LICENCE_STORE_ID } = self.gkb;
 const notesLogic = self.gkb.notesLogic;
 const auth = self.gkb.auth;
 const calendarLogic = self.gkb.calendarLogic;
+const licenceLogic = self.gkb.licenceLogic;
 
 // After a silent renewal fails, further silent attempts for the same
 // account are skipped for a minute. Without this, every thread opened
@@ -433,6 +434,51 @@ async function toggleBoard(tab) {
   await chrome.tabs.create({ url: GMAIL_HOME });
 }
 
+// ── The licence ──────────────────────────────────────────────────────
+//
+// The trial and the licence key, kept in Chrome's synced storage: one
+// licence for this Chrome profile, on every computer it is used on. Asked
+// of Lemon Squeezy's licence API only - the key, and a name for the
+// activation, never a token or anything of the mailbox - through
+// licenceLogic, whose flows say what to do. One at a time: two tabs may
+// ask together, and an answer must not land on a record another changed.
+
+let licenceTurn = Promise.resolve();
+const LICENCE_TIMEOUT_MS = 10000;
+
+async function askLemon([action, fields]) {
+  if (!licenceLogic.isAllowedRequest(action, fields)) {
+    throw new ProxyError('not_allowed', 'That is not something the licence check asks.');
+  }
+  const stop = new AbortController();
+  const timer = setTimeout(() => stop.abort(), LICENCE_TIMEOUT_MS);
+  try {
+    const res = await fetch(licenceLogic.urlOf(action), {
+      method: 'POST', credentials: 'omit', cache: 'no-store', signal: stop.signal,
+      headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: licenceLogic.formBody(fields),
+    });
+    return licenceLogic.parseReply(await res.text());
+  } catch {
+    return { understood: false, unreachable: true, error: '' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function handleLicence(msg) {
+  const env = { storeId: LICENCE_STORE_ID, where: 'in Chrome', now: Date.now };
+  const flow = licenceLogic.flow(String(msg.action || 'status'), env, typeof msg.key === 'string' ? msg.key : '');
+  if (!flow) throw new ProxyError('not_allowed', 'That is not something the licence check does.');
+  const run = licenceTurn.then(() => licenceLogic.runAsync(flow, {
+    load: async () => (await chrome.storage.sync.get(KEYS.licence))[KEYS.licence],
+    save: rec => chrome.storage.sync.set({ [KEYS.licence]: rec }),
+    ask: askLemon,
+  }));
+  licenceTurn = run.catch(() => {});
+  return run;
+}
+
 // ── Wiring ───────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -451,6 +497,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   switch (msg.type) {
     case 'gmail': return reply(handleGmail(msg));
     case 'google': return reply(handleGoogle(msg));
+    case 'licence': return reply(Promise.resolve().then(() => handleLicence(msg)));
     case 'connect': return reply(handleConnect(msg));
     case 'open-options': return reply(chrome.runtime.openOptionsPage());
     case 'hello': return reply(rememberGmailTab(sender.tab));

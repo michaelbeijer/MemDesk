@@ -139,6 +139,13 @@
       closeMenu(root);
       return;
     }
+    // Once the trial or the licence is over, the board's licence screen
+    // instead of the menu.
+    const licence = ns.board.licence ? await ns.board.licence() : null;
+    if (licence && licence.state === 'expired') {
+      ns.board.open();
+      return;
+    }
     let cols;
     try {
       cols = await columns();

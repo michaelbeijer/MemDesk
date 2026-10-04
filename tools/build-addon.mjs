@@ -30,6 +30,7 @@ export const FILES = [
   'src/lib/note-format.js',
   'src/lib/board-logic.js',
   'src/lib/calendar-logic.js',
+  'src/lib/licence-logic.js',
   'addon/src/panel-logic.js',
   'addon/src/gmail.js',
   'addon/src/store.js',

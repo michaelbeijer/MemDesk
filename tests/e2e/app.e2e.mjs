@@ -787,6 +787,40 @@ await r.step('dark mode', async () => {
   await dark.page.context().close();
 });
 
+await r.step('the licence: free in preview; on sale, the trial in the logo’s menu; once it is over, the licence screen, until a key', async () => {
+  const d = await openApp();
+  await scratchReady(d.page);
+  const menuText = async () => {
+    await q(d.page, '[data-key="about"]').tap();
+    const text = await q(d.page, '.menu').innerText();
+    await d.page.keyboard.press('Escape');
+    return text;
+  };
+  await until(async () => /Licence: free while in preview/.test(await menuText()), 'free in preview');
+
+  d.phone.addon.gkb.LICENCE_STORE_ID = d.phone.fake.lemon.STORE;
+  await d.page.reload();
+  await scratchReady(d.page);
+  await until(async () => /Licence: trial, 14 days left/.test(await menuText()), 'the trial, in the menu');
+  assert.equal(await visible(d.page, '.licence-chip'), false, 'no room in the phone’s bar: the menu says it');
+
+  const kept = JSON.parse(d.phone.fake.userProperties.get('licence'));
+  d.phone.fake.userProperties.set('licence', JSON.stringify(Object.assign(kept, { trialStart: Date.now() - 15 * 86400000 })));
+  await d.page.reload();
+  await q(d.page, '.licence-panel').waitFor();
+  assert.match(await q(d.page, '.licence-panel').innerText(), /Your free trial has ended/);
+  assert.equal(await visible(d.page, '.note-editor.scratch'), false, 'not the Scratchpad');
+  await d.page.screenshot({ path: join(SCREENS, 'app-licence-ended.png'), animations: 'disabled' });
+  await q(d.page, '[data-key="licence-key"]').fill('MD-GOOD-0001');
+  await q(d.page, '[data-key="licence-enter"]').tap();
+  await scratchReady(d.page);
+  const asked = d.phone.log.filter(l => l.service === 'lemon');
+  assert.deepEqual(asked.map(l => l.path), ['validate', 'activate']);
+  assert.match(asked[1].body.instance_name, /phone app/);
+  await until(async () => /Licence: licensed/.test(await menuText()), 'licensed');
+  await d.page.close();
+});
+
 await r.step('no console errors', async () => {
   assert.deepEqual(errors, []);
 });

@@ -48,6 +48,8 @@ test('the manifest names functions the bundle has, and asks for no more than it 
   ]);
   assert.deepEqual(manifest.urlFetchWhitelist, [
     'https://gmail.googleapis.com/', 'https://www.googleapis.com/calendar/', 'https://tasks.googleapis.com/',
+    // The licence, and only Lemon Squeezy's licence API.
+    'https://api.lemonsqueezy.com/v1/licenses/',
   ]);
   // The advanced services are what switch the APIs on in the script's own
   // Cloud project; the calls themselves go through UrlFetchApp.
@@ -563,4 +565,73 @@ test('a failed save in the app says so, and leaves the note as it was', () => {
   const id = idOf(p, 'launchchecklist0004');
   assert.throws(() => p.server('appSave', id, { title: 'Launch checklist', doc: [{ type: 'p', runs: [{ text: 'kept' }] }] }), /Gmail answered 500/);
   assert.deepEqual(live(p, 'launchchecklist0004').map(n => n.id), [id]);
+});
+
+// ── The licence, kept by the script ──────────────────────────────────
+
+// A phone whose script sells licences in the fake Lemon Squeezy's store.
+function onSale() {
+  const p = new Phone();
+  p.addon.gkb.LICENCE_STORE_ID = p.fake.lemon.STORE;
+  return p;
+}
+const lemonAsked = p => p.log.filter(l => l.service === 'lemon').map(l => [l.path, l.body]);
+const keptLicence = p => JSON.parse(p.fake.userProperties.get('licence') || 'null');
+
+test('the licence in preview: free, no trial kept, nothing asked of Lemon Squeezy', () => {
+  const p = new Phone();
+  assert.deepEqual(p.server('appLicence', 'status', ''), { view: { state: 'preview' } });
+  assert.match(p.server('appLicence', 'enter', 'MD-GOOD-0001').error, /free while it is in preview/);
+  assert.deepEqual(lemonAsked(p), []);
+  assert.equal(keptLicence(p), null);
+});
+
+test('the licence on sale: a trial kept per account; a key activated without the Google token; a Supervertaler key checked only', () => {
+  const p = onSale();
+  assert.deepEqual(p.server('appLicence', 'status', ''), { view: { state: 'trial', daysLeft: 14 } });
+  assert.ok(keptLicence(p).trialStart > 0, 'in the script’s properties');
+
+  const out = p.server('appLicence', 'enter', 'MD-GOOD-0001');
+  assert.equal(out.view.state, 'licensed');
+  assert.equal(out.view.keyEnd, '0001');
+  // The stand-in fails any request to Lemon Squeezy that carries the token.
+  const asked = lemonAsked(p);
+  assert.deepEqual(asked.map(a => a[0]), ['validate', 'activate']);
+  assert.match(asked[1][1].instance_name, /^\S+ phone app, \d+ \w{3} \d{4}$/);
+  assert.deepEqual(Object.keys(asked[1][1]).sort(), ['instance_name', 'license_key'], 'the key and a name, nothing else');
+  assert.ok(!p.server('appPrefsGet', null).licence, 'not among the settings the page is given');
+
+  // A Supervertaler licence in its place: the old activation given back,
+  // and the new key only checked.
+  const sv = p.server('appLicence', 'enter', 'SV-ACTIVE-0004');
+  assert.equal(sv.view.kind, 'supervertaler');
+  assert.deepEqual(lemonAsked(p).slice(2).map(a => a[0]), ['validate', 'deactivate']);
+  assert.deepEqual(plain(p.fake.lemon.keys['SV-ACTIVE-0004'].instances), ['trados'], 'none of the buyer’s activations used');
+  assert.deepEqual(plain(p.fake.lemon.keys['MD-GOOD-0001'].instances), [], 'the old one free again');
+
+  assert.match(p.server('appLicence', 'enter', 'OTHER-STORE-0006').error, /not a licence key/);
+  assert.match(p.server('appLicence', 'enter', 'MD-FULL-0002').error, /as many devices as it allows/);
+  assert.equal(p.server('appLicence', 'status', '').view.kind, 'supervertaler', 'a key that will not do changes nothing');
+  assert.throws(() => p.server('appLicence', 'wipe', ''), /not_allowed/);
+});
+
+test('the phone panel once the trial is over: a card that says where to enter a key, and nothing read or moved', () => {
+  const p = onSale();
+  const { threadId, messageId } = mailAbout(p, 'Quote request');
+  p.server('appLicence', 'status', '');
+  p.fake.userProperties.set('licence', JSON.stringify(Object.assign(keptLicence(p), { trialStart: Date.now() - 15 * 86400000 })));
+  const before = p.log.length;
+  p.openMessage(messageId);
+  assert.equal(p.card.header.subtitle, 'A licence is needed');
+  assert.match(p.lines()[0], /free trial has ended.*enter a licence key/);
+  assert.deepEqual(p.log.slice(before), [], 'nothing read, not even Lemon Squeezy');
+  const labels = threadLabels(p, threadId);
+  // Pressed from a card drawn before the trial ended: refused.
+  p.run({ functionName: 'onMoveThread', parameters: { threadId, columnId: 'x' } });
+  assert.equal(p.toast, 'Not done: a licence is needed.');
+  assert.deepEqual(threadLabels(p, threadId), labels);
+  // With a licence, the board again.
+  p.server('appLicence', 'enter', 'MD-GOOD-0001');
+  p.openMessage(messageId);
+  assert.equal(p.card.header.title, 'On the board: To do');
 });

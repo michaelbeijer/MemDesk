@@ -445,8 +445,49 @@
     return true;
   }
 
+  // ── The licence ──────────────────────────────────────────────────────
+  //
+  // As the extension's worker keeps it (licenceLogic), in the script's
+  // user properties: one for the phone app and the phone panel, on every
+  // phone. Lemon Squeezy is asked through UrlFetchApp with the key and a
+  // name for the activation - and, unlike every other request this script
+  // makes, without the script's Google token, which must never go there.
+
+  const LICENCE = 'licence';
+
+  function askLemon([action, fields]) {
+    const lic = ns.licenceLogic;
+    if (!lic.isAllowedRequest(action, fields)) throw new Error('not_allowed: that is not something the licence check asks.');
+    try {
+      const res = UrlFetchApp.fetch(lic.urlOf(action), {
+        method: 'post', contentType: 'application/x-www-form-urlencoded', payload: lic.formBody(fields),
+        headers: { Accept: 'application/json' }, muteHttpExceptions: true,
+      });
+      return lic.parseReply(res.getContentText());
+    } catch (err) {
+      return { understood: false, unreachable: true, error: '' };
+    }
+  }
+
+  // `action`: 'status', 'peek' (no asking, for the panel), 'check',
+  // 'enter' with a key, or 'remove'. { view, error? }.
+  function licence(action, key) {
+    const lic = ns.licenceLogic;
+    const env = { storeId: Number(ns.LICENCE_STORE_ID) || 0, where: 'phone app', now: () => Date.now() };
+    const flow = lic.flow(String(action || 'status'), env, typeof key === 'string' ? key : '');
+    if (!flow) throw new Error('not_allowed: that is not something the licence check does.');
+    return lic.runSync(flow, {
+      load: () => {
+        try { return JSON.parse(props().getProperty(LICENCE) || 'null'); } catch (err) { return null; }
+      },
+      save: rec => { props().setProperty(LICENCE, JSON.stringify(rec)); },
+      ask: askLemon,
+    });
+  }
+
   ns.app = {
     page, start, list, body, save, retire, restore, move, createFolder, renameFolder, deleteFolder,
     account, boardGmail, boardGmailMany, boardColumns, googleMany, googleWrite, allowCalendar, prefsGet, prefsSet, prefsRemove,
+    licence,
   };
 })();

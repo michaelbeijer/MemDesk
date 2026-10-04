@@ -67,6 +67,11 @@ try {
     assert.equal(await p.locator('.account').first().innerText().catch(() => ''), 'sam@example.com');
     assert.ok((await p.locator('.card').count()) >= 8, 'a board full of made-up mail');
     await p.screenshot({ path: join(SCREENS, 'demo-computer.png'), animations: 'disabled' });
+    // Free, whatever the store: no trial's chip, and the menu says so.
+    assert.equal(await p.locator('.licence-chip').isVisible(), false);
+    await p.locator('[data-key="about"]').click();
+    await until(async () => (await p.locator('[data-key="about:licence"]').innerText()) === 'Licence: free while in preview', 'free');
+    await p.keyboard.press('Escape');
 
     // The notes and the week, all there.
     await p.locator('.tab', { hasText: 'Notes' }).click();

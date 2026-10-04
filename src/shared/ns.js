@@ -21,7 +21,7 @@
   const APP_NAME = 'MemDesk';
   // Shown in the logo's menu. The same as manifest.json's (a test says so),
   // for the phone app too, which has no manifest to read it from.
-  const APP_VERSION = '0.27.0';
+  const APP_VERSION = '0.28.0';
 
   // ── Storage keys ─────────────────────────────────────────────────────
   //
@@ -45,6 +45,7 @@
     token: email => `token:${String(email).toLowerCase()}`,     // storage.session
     calendarToken: email => `ctoken:${String(email).toLowerCase()}`, // storage.session: the calendar's own sign-in
     gmailTabs: 'gmailTabs',                      // storage.session
+    licence: 'licence',                          // storage.sync: the trial and the licence key (licenceLogic)
   };
 
   // Element ids for the two shadow hosts. Short and namespaced rather than
@@ -63,13 +64,22 @@
   // users. A client ID saved on the setup page always wins.
   const BUILT_IN_CLIENT_ID = '';
 
+  // The Lemon Squeezy store that sells licences, and where to buy one.
+  // 0 while the app is in preview: free for everyone, no trial, and
+  // nothing asked of Lemon Squeezy. Set it when licences go on sale (and
+  // publish the notice that ends the preview licence - see LICENSE).
+  const LICENCE_STORE_ID = 0;
+  const LICENCE_BUY_URL = 'https://memdesk.app/#get';
+
   ns.APP_NAME = APP_NAME;
+  ns.LICENCE_STORE_ID = LICENCE_STORE_ID;
+  ns.LICENCE_BUY_URL = LICENCE_BUY_URL;
   ns.APP_VERSION = APP_VERSION;
   ns.BUILT_IN_CLIENT_ID = BUILT_IN_CLIENT_ID;
   ns.KEYS = KEYS;
   ns.HOST_IDS = HOST_IDS;
 
   if (typeof module === 'object' && module.exports) {
-    module.exports = { APP_NAME, APP_VERSION, KEYS, HOST_IDS };
+    module.exports = { APP_NAME, APP_VERSION, KEYS, HOST_IDS, LICENCE_STORE_ID, LICENCE_BUY_URL };
   }
 })();

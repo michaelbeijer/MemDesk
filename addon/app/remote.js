@@ -299,7 +299,12 @@
     return r ? r.data : null;
   }
 
-  ns.api = { STATE_CODES: new Set(), gmail, gmailMany, googleMany, googleWrite };
+  // The licence, kept by the script (licenceLogic): { view, error? }.
+  function licence(action, key) {
+    return call('appLicence', action, key || '');
+  }
+
+  ns.api = { STATE_CODES: new Set(), gmail, gmailMany, googleMany, googleWrite, licence };
   ns.appRemote = { call, start, hasCopy, firstColumns };
 
   // ── chrome.storage, as the board uses it ─────────────────────────────

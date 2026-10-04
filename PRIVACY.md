@@ -80,10 +80,28 @@ Google.
   and is replaced each time the app hears from Gmail. The board's layout and
   card edits are kept in the script's settings for your account.
 
+## Your licence
+
+MemDesk is free while it is in preview, and then asks for nothing and sends
+nothing anywhere about a licence.
+
+Once licences are on sale, MemDesk has a free trial, then needs a licence
+key, which it checks with **Lemon Squeezy**, the shop that sells the
+licences. It sends Lemon Squeezy only the key and, the first time, a name
+for this activation (for example "MemDesk in Chrome, 4 Oct 2026"), so that
+you can recognise it in your Lemon Squeezy account. It never sends your
+mail, your notes, your calendar, your Google account or any Google sign-in.
+It asks about the key now and then, about twice a day while MemDesk is in
+use. The key, when the trial started and what Lemon Squeezy last said
+about the key are kept in Chrome's sync storage (for the extension) or in
+the script's settings for your account (for the phone app and panel). What
+Lemon Squeezy does with what it is sent is in its own privacy policy.
+
 ## Who your data is shared with
 
 **Nobody.** MemDesk talks only to Google: Gmail, and for the calendar,
-Google Calendar and Google Tasks. It has no
+Google Calendar and Google Tasks - and, once licences are on sale, to Lemon
+Squeezy about your licence key, as above. It has no
 analytics, no advertising, no tracking, and sends nothing to the publisher or
 anyone else. Nothing is sold.
 

@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.27.0" src="https://img.shields.io/badge/version-0.27.0-6D28D9">
+  <img alt="Version 0.28.0" src="https://img.shields.io/badge/version-0.28.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -110,7 +110,9 @@ the open email on the board, one tap for its column.
 
 There is no MemDesk server and no account to make. The board and the notes
 are views of your own mailbox, and the calendar of your own Google Calendar
-and Tasks, through Google's API, from your own browser. MemDesk never sends
+and Tasks, through Google's API, from your own browser. (A licence key, once
+licences are on sale, is checked with Lemon Squeezy, the shop that sells
+them: the key, and nothing of your mail.) MemDesk never sends
 mail and never deletes mail; in the calendar it deletes an event or a task
 only when you ask, confirm, and let its Undo pass. See [Privacy](#privacy).
 
@@ -137,7 +139,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.27.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.28.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -445,6 +447,33 @@ in Gmail and the notes follow.
   used. To make room, the week's title is its number, short ("W41"), and
   its days.
 
+### The licence
+
+MemDesk is free while it is in preview: the logo's menu says **Licence: free
+while in preview**, and nothing is checked or kept.
+
+Once licences are on sale:
+
+- **A free trial of 14 days** starts the first time MemDesk is opened. On a
+  computer a chip in the bar says how long is left; on a phone, the logo's
+  menu does.
+- **Enter a licence key** from the chip, or **Licence** in the logo's menu:
+  paste it and press **Activate**. A **Supervertaler licence** works too,
+  while it is in force (it is only checked, so it uses none of its
+  activations).
+- **Once the trial is over**, without a key, the board, the notes and the
+  calendar wait behind a screen to enter one; so does the board menu under
+  an open email, and the phone panel says where to enter it. Everything stays
+  in Gmail, untouched.
+- **One key, one activation per place:** Chrome (one for your Chrome
+  profile, on every computer it syncs to) and the phone app and panel (one
+  for your Google account) are activated separately. **Licence → Take the
+  licence off this computer** gives an activation back.
+- **Checked about twice a day.** Offline, MemDesk carries on for 30 days
+  since the last check that got through; after that it asks to be checked
+  again (**Check again**). A licence that has been refunded or has run out
+  stops at the next check.
+
 ### Storage
 
 Chrome's sync storage is small: 100 KB in all, and at most 512 entries. Each
@@ -607,6 +636,12 @@ The privacy policy is [PRIVACY.md](PRIVACY.md). In detail:
   userinfo endpoint - from your browser. The phone panel runs in Google's Apps
   Script, under your own account, and talks only to the same APIs (see
   [The phone panel](#the-phone-panel) for what it may do).
+- **The licence**, once licences are on sale, is checked with Lemon
+  Squeezy's licence API (`api.lemonsqueezy.com/v1/licenses/`): the key, and
+  the first time a name for the activation - nothing of the mailbox, and
+  never a Google token (a test fails if the phone app's script would send
+  one there). While MemDesk is in preview, it is not asked anything. See
+  [The licence](#the-licence).
 - **The access token lives only in this browser's session storage**
   (`chrome.storage.session`). It is held in memory, is not readable by the Gmail
   page or by the content scripts, and is gone when Chrome closes. The implicit

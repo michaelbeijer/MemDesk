@@ -59,6 +59,14 @@ when it changes) into their Apps Script project.
   first, for its rule and version); deleting it, or stopping it repeating,
   waits out the same Undo. Rule lines MemDesk cannot show are kept as they
   are. Tests cover each of these: keep them.
+- The licence (`src/lib/licence-logic.js`): Lemon Squeezy's licence API
+  only (activate, validate, deactivate), with only the key and an
+  activation's name, never a Google token (the stand-in fails if the
+  script sends one). A reply that cannot be read changes nothing; only one
+  that says active renews the 30 days offline. A Supervertaler key (store
+  307062) is validated, never activated. `LICENCE_STORE_ID` in
+  `src/shared/ns.js` is 0 while MemDesk is in preview: then nothing is
+  asked or kept, and the demo must stay that way.
 - No HTML-string sinks in `src/` or `dev/` (`innerHTML`, `insertAdjacentHTML`,
   `DOMParser`, …): Gmail's Trusted Types would block them. Build DOM with `h()`.
   HTML is read with note-format's own tokenizer.

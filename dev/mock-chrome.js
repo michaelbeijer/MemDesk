@@ -1038,6 +1038,76 @@
   const log = [];
   const listeners = [];
 
+  // ── A fake Lemon Squeezy ─────────────────────────────────────────────
+  //
+  // Its licence API (activate, validate, deactivate), with these keys, in
+  // a store of its own (STORE) - which a test makes the app's by setting
+  // gkb.LICENCE_STORE_ID to it - and Supervertaler's. `offline` makes it
+  // unreachable. Its replies are shaped as Lemon Squeezy's own.
+  const fakeLemon = (() => {
+    const STORE = 424242;
+    const SV = 307062;
+    const keys = {
+      'MD-GOOD-0001': { store: STORE, status: 'inactive', limit: 3, instances: [], variant: 'Yearly' },
+      'MD-FULL-0002': { store: STORE, status: 'active', limit: 1, instances: ['elsewhere'], variant: 'Yearly' },
+      'MD-REFUNDED-0003': { store: STORE, status: 'disabled', limit: 3, instances: [], variant: 'Yearly' },
+      'SV-ACTIVE-0004': { store: SV, status: 'active', limit: 2, instances: ['trados'], variant: 'Supervertaler for Trados' },
+      'SV-EXPIRED-0005': { store: SV, status: 'expired', limit: 2, instances: [], variant: 'Supervertaler for Trados' },
+      'OTHER-STORE-0006': { store: 1234, status: 'active', limit: 1, instances: [], variant: 'Something else' },
+    };
+    let n = 0;
+    const lemon = { STORE, keys, offline: false, log: [] };
+    lemon.route = (action, fields) => {
+      lemon.log.push({ action, fields: Object.assign({}, fields) });
+      if (lemon.offline) throw Object.assign(new Error('Lemon Squeezy cannot be reached'), { code: 'offline' });
+      const k = Object.prototype.hasOwnProperty.call(keys, fields.license_key) ? keys[fields.license_key] : null;
+      if (!k) return { status: 404, body: { valid: false, error: 'license_key not found.', license_key: null, meta: null } };
+      const lk = () => ({ id: 1, status: k.status, key: fields.license_key, activation_limit: k.limit, activation_usage: k.instances.length, expires_at: null });
+      const meta = { store_id: k.store, variant_name: k.variant, product_name: k.variant };
+      if (action === 'activate') {
+        if (k.status === 'disabled' || k.status === 'expired') return { status: 400, body: { activated: false, error: `This license key is ${k.status}.`, license_key: lk(), meta } };
+        if (k.instances.length >= k.limit) return { status: 400, body: { activated: false, error: 'This license key has reached the activation limit.', license_key: lk(), meta } };
+        const id = `inst-${++n}`;
+        k.instances.push(id);
+        k.status = 'active';
+        return { status: 200, body: { activated: true, error: null, license_key: lk(), instance: { id, name: fields.instance_name }, meta } };
+      }
+      if (action === 'validate') {
+        const known = !fields.instance_id || k.instances.includes(fields.instance_id);
+        const valid = known && (k.status === 'active' || k.status === 'inactive');
+        return { status: known ? 200 : 404, body: { valid, error: valid ? null : known ? `This license key is ${k.status}.` : 'license_key instance not found.', license_key: lk(), instance: fields.instance_id && known ? { id: fields.instance_id } : null, meta } };
+      }
+      if (action === 'deactivate') {
+        k.instances = k.instances.filter(i => i !== fields.instance_id);
+        if (!k.instances.length && k.status === 'active') k.status = 'inactive';
+        return { status: 200, body: { deactivated: true, error: null, license_key: lk(), meta } };
+      }
+      return { status: 404, body: { error: 'Not found.' } };
+    };
+    return lemon;
+  })();
+
+  // What the worker does with the licence (src/background/sw.js), with the
+  // fake: the same flows, the same storage.
+  let licenceTurn = Promise.resolve();
+  function handleLicence(msg) {
+    const lic = window.gkb.licenceLogic;
+    const env = { storeId: Number(window.gkb.LICENCE_STORE_ID) || 0, where: 'in Chrome', now: Date.now };
+    const flow = lic.flow(String(msg.action || 'status'), env, typeof msg.key === 'string' ? msg.key : '');
+    if (!flow) return Promise.resolve(fail('not_allowed', 'That is not something the licence check does.'));
+    const ask = async ([action, fields]) => {
+      if (!lic.isAllowedRequest(action, fields)) throw new Error(`The licence check asked for ${action}, which it must not.`);
+      try { return lic.parseReply(JSON.stringify(fakeLemon.route(action, fields).body)); } catch { return { understood: false, unreachable: true, error: '' }; }
+    };
+    const run = licenceTurn.then(() => lic.runAsync(flow, {
+      load: async () => (await window.chrome.storage.sync.get('licence')).licence,
+      save: rec => window.chrome.storage.sync.set({ licence: rec }),
+      ask,
+    })).then(data => ({ ok: true, data }), err => fail('internal', err.message));
+    licenceTurn = run;
+    return run;
+  }
+
   function fail(code, message) {
     return { ok: false, error: { code, message } };
   }
@@ -1080,6 +1150,8 @@
           return fail(err.code || 'internal', err.message);
         }
       }
+      case 'licence':
+        return handleLicence(msg);
       case 'connect':
         if (STATE === 'not_configured') return fail('not_configured', 'Add your OAuth client ID on the setup page first.');
         if (msg.kind === 'calendar') calendarConnected = true;
@@ -1172,5 +1244,6 @@
   // route: the Gmail API itself, for the phone panel's tests in Node.
   // googleRoute: Calendar and Tasks, likewise, for the phone app's.
   window.__fakeCalendar = fakeCalendar;
-  window.__mockChrome = { log, dispatchToTab, account: ACCOUNT, route, googleRoute: fakeCalendar.route };
+  window.__fakeLemon = fakeLemon;
+  window.__mockChrome = { log, dispatchToTab, account: ACCOUNT, route, googleRoute: fakeCalendar.route, lemonRoute: fakeLemon.route };
 })();

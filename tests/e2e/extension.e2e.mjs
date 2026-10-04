@@ -180,6 +180,21 @@ try {
     assert.equal(change.error.code, 'not_configured', 'and so does an allowed change');
   });
 
+  await r.step('the licence: free in preview - nothing kept, nothing asked; the worker sends Lemon Squeezy nothing but its three requests', async () => {
+    const ask = msg => options.evaluate(m => chrome.runtime.sendMessage(m), msg);
+    assert.deepEqual(await ask({ type: 'licence', action: 'status' }), { ok: true, data: { view: { state: 'preview' } } });
+    const enter = await ask({ type: 'licence', action: 'enter', key: 'MD-GOOD-0001' });
+    assert.match(enter.data.error, /free while it is in preview/);
+    for (const action of ['wipe', 'activate', 'validate', '__proto__']) {
+      const res = await ask({ type: 'licence', action });
+      assert.equal(res.error.code, 'not_allowed', action);
+    }
+    assert.deepEqual(await sw.evaluate(() => chrome.storage.sync.get('licence')), {}, 'no trial kept until licences are on sale');
+    for (const req of [['orders', { license_key: 'K' }], ['validate', { license_key: 'K', email: 'me@example.com' }], ['activate', { license_key: 'K' }]]) {
+      assert.equal(await sw.evaluate(rq => askLemon(rq).then(() => 'sent', e => e.code), req), 'not_allowed', JSON.stringify(req));
+    }
+  });
+
   let gmail;
   await r.step('content scripts inject into Gmail and reach the worker', async () => {
     await ctx.route('https://mail.google.com/**', route => route.fulfill({

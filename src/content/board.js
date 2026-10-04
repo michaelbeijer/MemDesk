@@ -57,6 +57,7 @@
     renderDeferred: false,
     returnFocus: null,
     ticker: 0,
+    licence: null,    // the licence, as licenceLogic.view tells it; null until asked
   };
 
   let root = null;
@@ -71,6 +72,10 @@
     ({ root } = frame ? { root: frame.root } : mountShadow(HOST_IDS.board, ns.styles.board));
 
     els.account = h('span', { class: 'account' });
+    // In the trial, how long is left; a click for the licence.
+    els.licence = h('button', {
+      class: 'licence-chip', type: 'button', hidden: true, dataset: { key: 'licence-chip' }, onclick: () => openLicence(),
+    });
     els.updated = h('span', { class: 'updated' });
     els.refresh = h('button', {
       class: 'icon-btn', type: 'button', 'aria-label': 'Refresh', title: 'Refresh',
@@ -103,6 +108,7 @@
       h('h1', { class: 'brand' }, brand),
       els.tabs,
       els.account,
+      els.licence,
       h('div', { class: 'spacer' }),
       els.updated, els.refresh, els.settings, els.close);
 
@@ -219,12 +225,18 @@
       render();
       return;
     }
+    checkLicence();
+    showView();
+  }
+
+  function showView() {
     if (S.view === 'notes') showNotes();
     else if (S.view === 'calendar') showCalendar();
     else showBoard();
   }
 
   function showBoard() {
+    if (blocked()) { render(); return; }
     const stale = S.status !== 'ready' || Date.now() - S.loadedAt > STALE_MS;
     // Skeleton columns while a first (or retried) load runs, rather than
     // leaving an old "Connect Gmail" panel up after the user has connected.
@@ -236,6 +248,7 @@
   // An account panel left over from earlier is retried rather than shown
   // again; if the trouble is still there, the notes' own load says so.
   function showNotes() {
+    if (blocked()) { render(); return; }
     if (PANEL_STATES.has(S.status)) S.status = 'idle';
     render();
     ns.notes.load();
@@ -245,6 +258,7 @@
   // The calendar needs nothing of Gmail's, so a Gmail panel is no reason
   // to keep it hidden; only a missing client ID or account stands in its way.
   function showCalendar() {
+    if (blocked()) { render(); return; }
     if (PANEL_STATES.has(S.status) && S.status !== 'not_configured' && S.status !== 'no_account') S.status = 'idle';
     render();
     ns.calendar.load();
@@ -259,6 +273,8 @@
       { separator: true },
       link('memdesk.app', SITE),
       link('Privacy', `${SITE}privacy/`),
+      { separator: true },
+      { label: licenceMenuLabel(), icon: 'key', key: 'about:licence', onSelect: () => openLicence() },
     ];
     // For finding out what is slow, not for every day: out of the way.
     if (frame && frame.timings) {
@@ -278,9 +294,7 @@
     S.search = null;
     S.view = view;
     chrome.storage.local.set({ [KEYS.view]: view }).catch(() => {});
-    if (view === 'notes') showNotes();
-    else if (view === 'calendar') showCalendar();
-    else showBoard();
+    showView();
   }
 
   // The dock's buttons: open on that tab, switch to it, or - when it
@@ -547,6 +561,7 @@
   }
 
   function renderBody() {
+    if (blocked()) return licencePanel();
     if (S.view === 'notes' && !PANEL_STATES.has(S.status)) return ns.notes.element();
     if (S.view === 'calendar' && !PANEL_STATES.has(S.status)) return ns.calendar.element();
     switch (S.status) {
@@ -1297,6 +1312,193 @@
     if (input) input.select();
   }
 
+  // ── The licence ──────────────────────────────────────────────────────
+  //
+  // What the licence is (licenceLogic.view) comes from the worker, or the
+  // phone app's script, each time the board opens. In preview or licensed
+  // nothing shows; in the trial a chip in the bar (on a computer) and the
+  // logo's menu say how long is left; once it is over, the licence screen
+  // stands in for the board, the notes and the calendar - which are all
+  // still in Gmail, untouched. A licence that could not be asked about is
+  // never a reason to stop.
+
+  const blocked = () => !!(S.licence && S.licence.state === 'expired');
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+  // `action`: 'status', 'check', 'enter' (with `key`) or 'remove'.
+  // Resolves to { view, error? }, or { error } if it could not be asked.
+  async function checkLicence(action = 'status', key = '') {
+    if (!api.licence) return null;
+    let res;
+    try {
+      res = await api.licence(action, key);
+    } catch (err) {
+      return { error: err.message };
+    }
+    if (!res || !res.view) return res;
+    const was = blocked();
+    S.licence = res.view;
+    updateLicence();
+    if (S.open && S.mounted && was !== blocked()) {
+      if (blocked()) render();
+      else showView();
+    }
+    return res;
+  }
+
+  function updateLicence() {
+    if (!els.licence) return;
+    const v = S.licence;
+    const trial = !!(v && v.state === 'trial') && !frame;
+    els.licence.hidden = !trial;
+    if (trial) {
+      els.licence.textContent = `Trial: ${plural(v.daysLeft, 'day')} left`;
+      els.licence.title = `${APP_NAME}’s free trial. Click to enter a licence key.`;
+    }
+  }
+
+  function licenceMenuLabel() {
+    const v = S.licence;
+    if (!v) return 'Licence';
+    if (v.state === 'preview') return 'Licence: free while in preview';
+    if (v.state === 'trial') return `Licence: trial, ${plural(v.daysLeft, 'day')} left`;
+    if (v.state === 'licensed') return v.kind === 'supervertaler' ? 'Licence: with Supervertaler' : 'Licence: licensed';
+    return 'Licence: needed';
+  }
+
+  // What to say about it: a title and a sentence or two.
+  function licenceWords(v) {
+    const keep = 'Your board, your notes and your calendar are all still in Gmail, untouched.';
+    const also = 'A Supervertaler licence works too.';
+    if (!v) return { title: 'Licence', text: 'It could not be looked up just now.' };
+    switch (v.state) {
+      case 'preview':
+        return { title: 'Free while in preview', text: `${APP_NAME} is free to use until licences go on sale. There is nothing to enter.` };
+      case 'trial':
+        return { title: `Free trial: ${plural(v.daysLeft, 'day')} left`, text: `To carry on after the trial, enter a licence key. ${also}` };
+      case 'licensed':
+        return {
+          title: 'Licensed',
+          text: v.kind === 'supervertaler'
+            ? `With your Supervertaler licence, the key ending ${v.keyEnd}. Thank you!`
+            : `A ${APP_NAME} licence${v.variant ? ` (${v.variant})` : ''}, the key ending ${v.keyEnd}. Thank you!`,
+        };
+      default:
+        if (!v.kind) return { title: 'Your free trial has ended', text: `${keep} To carry on, enter a licence key. ${also}` };
+        if (v.why === 'unchecked') return { title: 'Your licence needs checking', text: `It has not been possible to check it for a month. ${keep} Check again when you are online.` };
+        if (v.why === 'expired') return { title: 'Your licence has run out', text: `${keep} Renew it, or enter another key.` };
+        if (v.why === 'disabled') return { title: 'Your licence has been switched off', text: `Lemon Squeezy, which looks after the licences, says so - after a refund, for instance. ${keep} Enter another key to carry on.` };
+        if (v.why === 'not-ours') return { title: 'That key is not a licence', text: `It turned out not to be a licence for ${APP_NAME}. ${keep} Enter another key to carry on.` };
+        return { title: 'Your licence is not active', text: `${keep} Enter another key to carry on.` };
+    }
+  }
+
+  // The controls for the state it is in: a key to enter (in the trial,
+  // or once it is over), and - licensed - a way to take it off here.
+  function licenceControls(v, { dialog = false } = {}) {
+    const error = h('p', { class: 'licence-error', role: 'alert' });
+    const busy = (btn, label) => {
+      btn.setAttribute('aria-disabled', 'true');
+      btn.textContent = label;
+    };
+    const ready = (btn, label) => {
+      btn.removeAttribute('aria-disabled');
+      btn.textContent = label;
+    };
+    const done = (res, message) => {
+      if (dialog && !(res && res.error)) {
+        closeEditor();
+        toast(root, message);
+      }
+    };
+    const out = [];
+    if (v && (v.state === 'trial' || v.state === 'expired')) {
+      const input = h('input', {
+        class: 'text-input licence-key', type: 'text', autocomplete: 'off', spellcheck: 'false', maxlength: '200',
+        placeholder: 'Licence key', 'aria-label': 'Licence key', dataset: { key: 'licence-key' },
+        onkeydown: e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); enter(); } },
+      });
+      const activate = h('button', { class: 'btn btn-primary', type: 'button', text: 'Activate', dataset: { key: 'licence-enter' }, onclick: () => enter() });
+      async function enter() {
+        if (activate.getAttribute('aria-disabled') === 'true') return;
+        busy(activate, 'Checking…');
+        error.textContent = '';
+        const res = await checkLicence('enter', input.value);
+        ready(activate, 'Activate');
+        if (!res || res.error) {
+          error.textContent = (res && res.error) || 'That did not work. Try again in a moment.';
+          if (input.isConnected) input.focus();
+          return;
+        }
+        done(res, 'Licensed. Thank you!');
+      }
+      out.push(h('div', { class: 'licence-form' }, input, activate), error,
+        h('p', { class: 'licence-links' },
+          h('a', { href: ns.LICENCE_BUY_URL, target: '_blank', rel: 'noopener noreferrer', text: 'Buy a licence', dataset: { key: 'licence-buy' } }),
+          v.why === 'unchecked' ? h('button', {
+            class: 'link-btn', type: 'button', text: 'Check again', dataset: { key: 'licence-check' },
+            onclick: async e => {
+              const btn = e.currentTarget;
+              busy(btn, 'Checking…');
+              const res = await checkLicence('check');
+              if (btn.isConnected) ready(btn, 'Check again');
+              if (res && res.error) error.textContent = res.error;
+            },
+          }) : null));
+    }
+    if (v && v.state === 'licensed') {
+      const where = frame ? 'this app' : 'this computer';
+      const confirm = h('div', { class: 'licence-confirm', hidden: true },
+        h('span', { text: `Take the licence off ${where}? You can enter it again at any time.` }),
+        h('button', { class: 'btn btn-text', type: 'button', text: 'Keep it', onclick: () => { confirm.hidden = true; remove.hidden = false; remove.focus(); } }),
+        h('button', {
+          class: 'btn btn-danger', type: 'button', text: 'Take it off', dataset: { key: 'licence-remove-yes' },
+          onclick: async e => {
+            busy(e.currentTarget, 'Taking it off…');
+            const res = await checkLicence('remove');
+            done(res, `The licence is off ${where}.`);
+          },
+        }));
+      const remove = h('button', {
+        class: 'btn btn-text danger', type: 'button', text: `Take the licence off ${where}`, dataset: { key: 'licence-remove' },
+        onclick: () => { remove.hidden = true; confirm.hidden = false; confirm.querySelector('[data-key="licence-remove-yes"]').focus(); },
+      });
+      out.push(remove, confirm, error);
+    }
+    return out;
+  }
+
+  // The screen once the trial or the licence is over.
+  function licencePanel() {
+    const words = licenceWords(S.licence);
+    return h('div', { class: 'panel licence-panel', role: 'region', 'aria-label': words.title },
+      h('span', { class: 'panel-icon' }, icon('key', 28)),
+      h('h2', { text: words.title }),
+      h('p', { text: words.text }),
+      ...licenceControls(S.licence));
+  }
+
+  async function openLicence() {
+    closeMenu(root);
+    if (!S.licence) await checkLicence();
+    const v = S.licence;
+    const words = licenceWords(v);
+    const dialog = h('div', { class: 'dialog licence-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'gkb-licence-heading' },
+      h('div', { class: 'dialog-head' },
+        h('h2', { id: 'gkb-licence-heading', text: 'Licence' }),
+        h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', onclick: closeEditor }, icon('close'))),
+      h('div', { class: 'dialog-body' },
+        h('p', { class: 'licence-title', text: words.title }),
+        h('p', { class: 'licence-text', text: words.text }),
+        ...licenceControls(v, { dialog: true })),
+      h('div', { class: 'dialog-foot' },
+        h('span', { class: 'spacer' }),
+        h('button', { class: 'btn btn-text', type: 'button', text: 'Close', onclick: closeEditor })));
+    showDialog(dialog, { onClose: () => restoreFocus('about', els.overlay) });
+    const first = dialog.querySelector('[data-key="licence-key"]') || dialog.querySelector('button');
+    if (first) first.focus();
+  }
+
   // A dialog of another view's - the calendar's editor - in the card
   // editor's layer, so the scrim, Esc and the focus trap work the same.
   // `onClose` runs however it closes.
@@ -1467,6 +1669,8 @@
   ns.board = {
     open, close, toggle, toggleView, columnsChanged, cardEditsChanged,
     isOpen: () => S.open,
+    // For the dock: the licence as it is now (asked afresh).
+    licence: () => checkLicence().then(() => S.licence),
     // For the phone app: what is showing, and a refresh if it is stale.
     view: () => S.view,
     refreshIfStale() {

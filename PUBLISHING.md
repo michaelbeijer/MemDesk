@@ -119,6 +119,28 @@ Give people the store link and the phone-app link, with
    Tasks, 0.24.0 changing them), Google does not ask people by itself: the
    app's calendar shows an **Allow** button that opens Google's page for it.
 
+## When licences go on sale
+
+MemDesk checks licences with Lemon Squeezy, but only once it knows which
+store sells them. Until then it is in preview: free, with no trial.
+
+1. **In Lemon Squeezy**, make a store of its own for MemDesk (not the
+   Supervertaler one: Supervertaler's own check accepts any key from its
+   store). Add the product with licence keys switched on, and an
+   **activation limit of at least 2**: one for Chrome (a Chrome profile,
+   on every computer it syncs to) and one for the phone app and panel. A
+   Supervertaler licence works in MemDesk without using any of its own.
+2. **In `src/shared/ns.js`**, set `LICENCE_STORE_ID` to the new store's ID
+   (Lemon Squeezy → Settings → Stores) and `LICENCE_BUY_URL` to the
+   product's checkout page. Rebuild `Code.gs`, run the tests, and release a
+   version as usual. Everyone's 14-day trial starts the first time they
+   open that version.
+3. **On memdesk.app**, publish the notice that ends the free preview
+   licence (see LICENSE: it ends 30 days after the notice). Change "Get
+   MemDesk" to say where to buy.
+4. **The demo** stays free: it sets the store to 0 for itself, so check it
+   still says "free while in preview" after the release.
+
 ## Beyond 100 people: Google's verification
 
 To lift the 100-person limit and the warning screen, Google has to verify
