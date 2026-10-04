@@ -92,7 +92,7 @@ event's bottom edge to change when it ends, click an empty hour to add one,
 or press **+** on a day and type "Dentist 14:30" - it all goes straight to
 Google Calendar and Google Tasks.
 
-<img src="images/calendar.jpg" width="100%" alt="The calendar in Gmail: a week of events and tasks beside a small month, the calendars and the tasks with no date; on a phone, the same week as two columns of days">
+<img src="images/calendar.jpg" width="100%" alt="The calendar in Gmail: the week by the hour, with a second time zone, beside a small month, the calendars and the tasks with no date; on a phone, the whole month">
 
 ### 📱 And on your phone
 

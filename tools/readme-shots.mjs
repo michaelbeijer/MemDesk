@@ -42,8 +42,9 @@ const pause = ms => new Promise(r => setTimeout(r, ms));
 
 // ── A computer: Gmail with the board and the notes ───────────────────
 
+// In Amsterdam, so that the calendar's second time zone can be London's.
 async function desktop(colorScheme, viewport = { width: 1440, height: 900 }) {
-  const ctx = await browser.newContext({ viewport, deviceScaleFactor: 2, colorScheme, locale: 'en-GB' });
+  const ctx = await browser.newContext({ viewport, deviceScaleFactor: 2, colorScheme, locale: 'en-GB', timezoneId: 'Europe/Amsterdam' });
   const page = await ctx.newPage();
   await page.goto(PREVIEW);
   // The preview's yellow developer bar is not part of Gmail.
@@ -98,9 +99,12 @@ async function desktop(colorScheme, viewport = { width: 1440, height: 900 }) {
   await page.mouse.move(0, 0);
   await shot(page, 'notes-search');
 
-  // The calendar: this week, from Google Calendar and Google Tasks.
+  // The calendar: this week by the hour, from Google Calendar and Google
+  // Tasks, with London's hours beside Amsterdam's.
+  await page.evaluate(() => chrome.storage.local.set({ 'pref:sam@example.com:calendarZone2': 'Europe/London' }));
   await page.locator('[data-key="view:calendar"]').click();
   await page.locator('.cal .ev').first().waitFor();
+  await page.locator('.grid-zones .other').waitFor();
   await pause(400);
   await page.mouse.move(0, 0);
   await shot(page, 'calendar');
@@ -172,6 +176,12 @@ const q = (page, sel) => page.locator(`#gkb-app-host >> ${sel}`);
   await q(page, '.cal .ev').first().waitFor();
   await pause(400);
   await phoneShot(page, 'phone-calendar');
+  // And the month.
+  await q(page, '[data-key="cal-phone-view"]').tap();
+  await q(page, '.phone-month .line').first().waitFor();
+  await pause(400);
+  await phoneShot(page, 'phone-month');
+  await q(page, '[data-key="cal-phone-view"]').tap();
   await page.context().close();
 }
 
@@ -327,10 +337,10 @@ await compose('scratchpad', 1200, 760, { cls: 'soft dots', html:
   at(browserWindow('notes-scratch', { width: 900 }), 56, 56) +
   at(phoneFrame('phone-home', { width: 262 }), 884, 104) });
 
-// The calendar: the week in Chrome, and on the phone.
+// The calendar: the week by the hour in Chrome, and the month on the phone.
 await compose('calendar', 1200, 760, { cls: 'violet dots', html:
   at(browserWindow('calendar', { width: 900 }), 56, 56) +
-  at(phoneFrame('phone-calendar', { width: 262 }), 884, 74) });
+  at(phoneFrame('phone-month', { width: 262 }), 884, 74) });
 
 // The phone app: the board, the Scratchpad and the week.
 await compose('phone', 1200, 760, { cls: 'violet dots', html:
