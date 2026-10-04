@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.21.0" src="https://img.shields.io/badge/version-0.21.0-6D28D9">
+  <img alt="Version 0.22.0" src="https://img.shields.io/badge/version-0.22.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -77,7 +77,8 @@ a find bar to step from one to the next.
 ### 📅 Your week, tasks and all
 
 A third tab: your Google Calendar with Google Tasks woven into it. The week
-as seven columns, the month, or the next four weeks as one list. A task with
+as seven columns or as two rows, the month, or the next four weeks as one
+list. A task with
 a date sits in its day, ready to tick; the ones without a date, and any that
 are overdue, wait at the side; a task made from an email opens the email.
 Every calendar and task list shows or hides with one click. On the phone it is
@@ -130,7 +131,7 @@ The **Calendar** tab reads Google Calendar and Google Tasks with a sign-in of
 its own (read-only), asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.21.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.22.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -337,7 +338,10 @@ in Gmail and the notes follow.
   one of the account open in the tab. This is a sign-in of its own: the board
   and the notes never needed it, and keep working whatever you answer.
 - **Week, Month, Agenda** at the top right. The week is seven columns, without
-  an hour grid: the times are on the items. The month shows a few things a day
+  an hour grid: the times are on the items. The button just left of **Week**
+  turns it into two rows instead, Monday to Thursday above Friday to Sunday,
+  which gives each day more room across; this computer remembers which you
+  chose. The month shows a few things a day
   and "+2 more"; click a day's number to see its week. The agenda is the next
   four weeks as one list, skipping empty days.
 - **Today**, **‹** and **›** move about; so do the keys Google Calendar uses:

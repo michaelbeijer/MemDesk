@@ -1525,6 +1525,48 @@ try {
     await p.context().close();
   });
 
+  await r.step('calendar: the week as two rows, Monday to Thursday above Friday to Sunday, remembered; wide and in the week only', async () => {
+    const p = await openPage();
+    await openCalendar(p);
+    const btn = p.locator('[data-key="cal-layout"]');
+    assert.match(await btn.getAttribute('title'), /^The week in seven columns/);
+    await btn.click();
+    await until(async () => (await p.locator('.cal').getAttribute('data-layout')) === 'rows', 'two rows');
+    const at = await p.locator('.cal-week > .day:not(.mini-tile)').evaluateAll(els => els.map(e => {
+      const b = e.getBoundingClientRect();
+      return { x: Math.round(b.left), y: Math.round(b.top), h: Math.round(b.height) };
+    }));
+    assert.equal(new Set(at.slice(0, 4).map(b => b.y)).size, 1, 'Monday to Thursday in one row');
+    assert.equal(new Set(at.slice(4).map(b => b.y)).size, 1, 'Friday to Sunday in another');
+    assert.ok(at[4].y > at[0].y + at[0].h - 1, 'below it');
+    assert.deepEqual(at.slice(4).map(b => b.x), at.slice(0, 3).map(b => b.x), 'Friday under Monday, and so on');
+    assert.ok(Math.abs(at[4].h - at[0].h) < 2, 'the two rows equally tall');
+    assert.match(await btn.getAttribute('title'), /^The week in two rows/);
+    assert.ok((await weekText(p)).includes('Lumenra glossary delivery'), 'the same days, the same things on them');
+    await p.screenshot({ path: join(SCREENS, 'preview-calendar-rows.png'), animations: 'disabled' });
+    const saved = await p.evaluate(async () => (await chrome.storage.local.get('pref:test@example.com:calendarWeekLayout'))['pref:test@example.com:calendarWeekLayout']);
+    assert.equal(saved, 'rows', 'remembered');
+
+    await p.locator('[data-key="cal-view:month"]').click();
+    await p.locator('.cal-month').waitFor();
+    assert.equal(await btn.isVisible(), false, 'not in the month');
+    await p.locator('[data-key="cal-view:week"]').click();
+    await p.locator('.cal-week').waitFor();
+    await p.setViewportSize({ width: 560, height: 900 });
+    await until(async () => (await p.locator('.cal').getAttribute('data-narrow')) === 'true', 'narrow');
+    assert.equal(await btn.isVisible(), false, 'narrow, it is the phone’s week');
+    const days = p.locator('.cal-week > .day:not(.mini-tile)');
+    const [mon, tue] = await Promise.all([0, 1].map(i => days.nth(i).boundingBox()));
+    assert.ok(tue.y > mon.y && Math.abs(tue.x - mon.x) < 2, 'Tuesday under Monday, as on a phone');
+    await p.context().close();
+
+    const q = await openPage();
+    await q.evaluate(() => chrome.storage.local.set({ 'pref:test@example.com:calendarWeekLayout': 'rows' }));
+    await openCalendar(q);
+    assert.equal(await q.locator('.cal').getAttribute('data-layout'), 'rows', 'opened again, still two rows');
+    await q.context().close();
+  });
+
   await r.step('no console errors anywhere', async () => {
     assert.deepEqual(errors, []);
   });

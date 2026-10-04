@@ -1214,8 +1214,9 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 
   // ── Calendar ─────────────────────────────────────────────────────────
   //
-  // Wide: the week as seven columns (or the month, or the agenda) beside
-  // a sidebar. Narrow (data-narrow, set from the view's own width): the
+  // Wide: the week as seven columns, or as two rows of four and three
+  // (data-layout), or the month, or the agenda, beside a sidebar. Narrow
+  // (data-narrow, set from the view's own width): the
   // week as two columns of day tiles, read down then across, with the
   // small month as the eighth tile and the sidebar's parts spread above
   // and below.
@@ -1233,6 +1234,8 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .cal-nav { display: flex; align-items: center; gap: 2px; flex: none; }
 .cal-order { display: none; }
 .cal[data-narrow="true"] .cal-order { display: inline-flex; }
+.cal-layout { display: none; }
+.cal[data-narrow="false"][data-view="week"] .cal-layout { display: inline-flex; }
 .btn-outline { height: 34px; padding: 0 16px; border: 1px solid var(--border-strong); color: var(--fg); margin-right: 4px; }
 .btn-outline:hover { background: var(--hover); }
 .cal-title {
@@ -1323,6 +1326,10 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 
 /* Days */
 .cal-week { flex: 1; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; min-height: 0; }
+.cal[data-narrow="false"][data-layout="rows"] .cal-week {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
 .day {
   min-width: 0;
   min-height: 0;

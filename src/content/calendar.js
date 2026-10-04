@@ -6,9 +6,11 @@
 // Google Calendar, a task in Google Tasks (or, made from an email, the
 // email itself).
 //
-// On a computer there are three views - Week (seven columns), Month and
-// Agenda (four weeks as one list) - beside a small month, the calendars
-// and task lists to show or hide, and the tasks with no date. Narrow, as
+// On a computer there are three views - Week (seven columns, or two rows:
+// Monday to Thursday above Friday to Sunday, at the click of a button
+// beside the views), Month and Agenda (four weeks as one list) - beside a
+// small month, the calendars and task lists to show or hide, and the
+// tasks with no date. Narrow, as
 // on a phone, it is always the week: two columns of days with the month
 // as the eighth tile, the sources as a row of chips above, and the tasks
 // with no date below. A swipe goes to the next or previous week, and a
@@ -41,6 +43,7 @@
     ctx: null,          // { root, onStateError, onLoaded, barChanged, prefs, connect }
     view: 'week',       // the view chosen on a wide screen
     order: 'down',      // narrow: the days down then across, or 'across' then down
+    layout: 'columns',  // wide, the week: seven columns, or two 'rows'
     anchor: '',         // the day in focus
     today: '',
     narrow: false,
@@ -98,6 +101,10 @@
           class: 'icon-btn cal-order', type: 'button', dataset: { key: 'cal-order' }, onclick: toggleOrder,
         })),
       els.title,
+      // Wide, in the week: seven columns or two rows.
+      els.layout = h('button', {
+        class: 'icon-btn cal-layout', type: 'button', dataset: { key: 'cal-layout' }, onclick: toggleLayout,
+      }),
       els.views);
 
     els.note = h('div', { class: 'cal-note', role: 'status' });
@@ -143,10 +150,12 @@
     if (C.prefsRead) return;
     C.prefsRead = true;
     try {
-      const [v, o, order] = await Promise.all(['calendarView', 'calendarSources', 'calendarOrder'].map(n => C.ctx.prefs.get(n)));
+      const names = ['calendarView', 'calendarSources', 'calendarOrder', 'calendarWeekLayout'];
+      const [v, o, order, layout] = await Promise.all(names.map(n => C.ctx.prefs.get(n)));
       if (cal.VIEWS.includes(v)) C.view = v;
       if (o && typeof o === 'object') C.overrides = o;
       if (order === 'across' || order === 'down') C.order = order;
+      if (layout === 'rows' || layout === 'columns') C.layout = layout;
     } catch { /* storage gone (extension reloaded); defaults will do */ }
   }
 
@@ -284,6 +293,14 @@
     draw();
   }
 
+  // On a computer, the week as seven columns, or as two rows: Monday to
+  // Thursday above, Friday to Sunday below.
+  function toggleLayout() {
+    C.layout = C.layout === 'rows' ? 'columns' : 'rows';
+    savePref('calendarWeekLayout', C.layout);
+    draw();
+  }
+
   function setView(v) {
     if (!cal.VIEWS.includes(v)) return;
     C.view = v;
@@ -343,6 +360,13 @@
     els.order.replaceChildren(icon(across ? 'rows' : 'columns', 20));
     els.order.title = across ? 'Days run across, then down. Tap for down, then across.' : 'Days run down, then across. Tap for across, then down.';
     els.order.setAttribute('aria-label', els.order.title);
+    els.wrap.dataset.layout = C.layout;
+    const rows = C.layout === 'rows';
+    els.layout.replaceChildren(icon(rows ? 'rows' : 'columns', 20));
+    els.layout.title = rows
+      ? 'The week in two rows, Monday to Thursday above Friday to Sunday. Click for seven columns.'
+      : 'The week in seven columns. Click for two rows, Monday to Thursday above Friday to Sunday.';
+    els.layout.setAttribute('aria-label', els.layout.title);
     els.title.textContent = cal.title(v, C.anchor, C.today);
     for (const b of els.views.children) b.setAttribute('aria-selected', String(b.dataset.view === v));
     const panel = statusPanel();
