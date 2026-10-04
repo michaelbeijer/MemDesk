@@ -88,7 +88,9 @@ existing install. Steps stop at the first failure; screenshots go to
 4. The user's update package: the extension as `git archive --format=zip
    --prefix=MemDesk/ -o MemDesk-x.y.z.zip origin/main` (unzipped over their
    unpacked extension folder, then reloaded in `chrome://extensions`), plus
-   `addon/Code.gs` (and `addon/appsscript.json` if it changed).
+   `addon/Code.gs` (and `addon/appsscript.json` if it changed). Put every zip
+   for the user, previews of a branch included, in **both** their Downloads
+   folder and the repo's `dist/` (gitignored), and say where.
 
 ## Style
 

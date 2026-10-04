@@ -247,7 +247,8 @@
 
   function switchView(view) {
     if (view === S.view || !S.open) return;
-    if (S.view === 'notes') ns.notes.flush();
+    // The notes, or the calendar's scratchpad tile.
+    ns.notes.flush();
     closeMenu(root);
     S.search = null;
     S.view = view;
@@ -452,7 +453,8 @@
     els.settings.hidden = notes || calendar;
     els.settings.disabled = S.status !== 'ready';
     for (const t of els.tabs.children) t.setAttribute('aria-selected', String(t.dataset.view === S.view));
-    if (notes) ns.notes.tick();
+    // The calendar's scratchpad tile has a "Saved 5s ago" of its own.
+    if (notes || calendar) ns.notes.tick();
     if (calendar) ns.calendar.tick();
   }
 

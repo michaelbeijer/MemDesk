@@ -6,9 +6,11 @@
 // Google Calendar, a task in Google Tasks (or, made from an email, the
 // email itself).
 //
-// On a computer there are three views - Week (seven columns), Month and
-// Agenda (four weeks as one list) - beside a small month, the calendars
-// and task lists to show or hide, and the tasks with no date. Narrow, as
+// On a computer there are three views - Week (seven columns, or two rows:
+// Monday to Thursday above Friday to Sunday and the scratchpad, at the
+// click of a button beside the views), Month and Agenda (four weeks as one
+// list) - beside a small month, the calendars and task lists to show or
+// hide, and the tasks with no date. Narrow, as
 // on a phone, it is always the week: two columns of days with the month
 // as the eighth tile, the sources as a row of chips above, and the tasks
 // with no date below. A swipe goes to the next or previous week, and a
@@ -41,6 +43,7 @@
     ctx: null,          // { root, onStateError, onLoaded, barChanged, prefs, connect }
     view: 'week',       // the view chosen on a wide screen
     order: 'down',      // narrow: the days down then across, or 'across' then down
+    layout: 'columns',  // wide, the week: seven columns, or two 'rows'
     anchor: '',         // the day in focus
     today: '',
     narrow: false,
@@ -98,6 +101,10 @@
           class: 'icon-btn cal-order', type: 'button', dataset: { key: 'cal-order' }, onclick: toggleOrder,
         })),
       els.title,
+      // Wide, in the week: seven columns or two rows.
+      els.layout = h('button', {
+        class: 'icon-btn cal-layout', type: 'button', dataset: { key: 'cal-layout' }, onclick: toggleLayout,
+      }),
       els.views);
 
     els.note = h('div', { class: 'cal-note', role: 'status' });
@@ -143,10 +150,12 @@
     if (C.prefsRead) return;
     C.prefsRead = true;
     try {
-      const [v, o, order] = await Promise.all(['calendarView', 'calendarSources', 'calendarOrder'].map(n => C.ctx.prefs.get(n)));
+      const names = ['calendarView', 'calendarSources', 'calendarOrder', 'calendarWeekLayout'];
+      const [v, o, order, layout] = await Promise.all(names.map(n => C.ctx.prefs.get(n)));
       if (cal.VIEWS.includes(v)) C.view = v;
       if (o && typeof o === 'object') C.overrides = o;
       if (order === 'across' || order === 'down') C.order = order;
+      if (layout === 'rows' || layout === 'columns') C.layout = layout;
     } catch { /* storage gone (extension reloaded); defaults will do */ }
   }
 
@@ -284,6 +293,14 @@
     draw();
   }
 
+  // On a computer, the week as seven columns, or as two rows: Monday to
+  // Thursday above, Friday to Sunday below.
+  function toggleLayout() {
+    C.layout = C.layout === 'rows' ? 'columns' : 'rows';
+    savePref('calendarWeekLayout', C.layout);
+    draw();
+  }
+
   function setView(v) {
     if (!cal.VIEWS.includes(v)) return;
     C.view = v;
@@ -343,6 +360,13 @@
     els.order.replaceChildren(icon(across ? 'rows' : 'columns', 20));
     els.order.title = across ? 'Days run across, then down. Tap for down, then across.' : 'Days run down, then across. Tap for across, then down.';
     els.order.setAttribute('aria-label', els.order.title);
+    els.wrap.dataset.layout = C.layout;
+    const rows = C.layout === 'rows';
+    els.layout.replaceChildren(icon(rows ? 'rows' : 'columns', 20));
+    els.layout.title = rows
+      ? 'The week in two rows, Monday to Thursday above Friday to Sunday. Click for seven columns.'
+      : 'The week in seven columns. Click for two rows, Monday to Thursday above Friday to Sunday.';
+    els.layout.setAttribute('aria-label', els.layout.title);
     els.title.textContent = cal.title(v, C.anchor, C.today);
     for (const b of els.views.children) b.setAttribute('aria-selected', String(b.dataset.view === v));
     const panel = statusPanel();
@@ -354,7 +378,11 @@
     if (panel) els.main.replaceChildren(panel);
     else if (v === 'month') els.main.replaceChildren(drawMonth());
     else if (v === 'agenda') els.main.replaceChildren(drawAgenda());
-    else els.main.replaceChildren(drawWeek());
+    else {
+      const week = drawWeek();
+      // Already showing: left in place (see drawWeek).
+      if (els.main.firstChild !== week || els.main.childNodes.length !== 1) els.main.replaceChildren(week);
+    }
   }
 
   // What is on, from the sources that are on, by day.
@@ -506,17 +534,27 @@
     return [base, k === C.today && 'today', wd >= 5 && 'weekend', wd === 6 && 'sunday', k < C.today && 'past'];
   }
 
+  // The week is one element, kept: its days are drawn afresh each time,
+  // but the scratchpad tile in the two rows' eighth space is only ever
+  // moved in or out, never taken out and put back - that would take the
+  // cursor out of it whenever the week was redrawn mid-sentence.
   function drawWeek() {
     const r = range();
     const keys = cal.days(r.start, r.end);
     const byDay = cal.byDay(visibleItems(), keys);
     const loading = C.status === 'loading' && !C.shown;
-    return h('div', { class: ['cal-week', loading && 'loading'], role: 'list' },
-      keys.map(k => h('section', { class: dayClasses(k, 'day'), role: 'listitem', 'aria-label': longDate(k), dataset: { day: k } },
-        dayHead(k),
-        h('div', { class: 'cal-items' }, byDay.get(k).map(e => itemEl(e))))),
-      // The eighth tile, in the two columns of a narrow screen.
-      h('div', { class: 'day mini-tile', 'aria-hidden': C.narrow ? null : 'true' }, miniMonth()));
+    const tile = !C.narrow && C.layout === 'rows' && ns.notes ? ns.notes.scratchTile() : null;
+    const week = els.week || (els.week = h('div', { role: 'list' }));
+    week.className = loading ? 'cal-week loading' : 'cal-week';
+    for (const kid of [...week.children]) if (kid !== tile) kid.remove();
+    const days = keys.map(k => h('section', { class: dayClasses(k, 'day'), role: 'listitem', 'aria-label': longDate(k), dataset: { day: k } },
+      dayHead(k),
+      h('div', { class: 'cal-items' }, byDay.get(k).map(e => itemEl(e)))));
+    // The eighth tile, in the two columns of a narrow screen.
+    days.push(h('div', { class: 'day mini-tile', 'aria-hidden': C.narrow ? null : 'true' }, miniMonth()));
+    if (tile && tile.parentNode === week) days.forEach(d => week.insertBefore(d, tile));
+    else week.append(...days, ...(tile ? [tile] : []));
+    return week;
   }
 
   function drawMonth() {
