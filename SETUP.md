@@ -201,6 +201,10 @@ with just this account.
   new `appsscript.json` as well as `Code.gs`, then, the first time you change
   something there, click **Allow** (or run `allowCalendar` once in the script
   editor).
+- **Updating to 0.28.0 (the licence)**: paste the new `appsscript.json` as
+  well as `Code.gs`. It lets the script check a licence key with Lemon
+  Squeezy, once licences are on sale; until then nothing is asked. The
+  permissions are the same, so Google asks for nothing.
 - **Updating to 0.21.0 (the panel puts the email on the board, and nothing
   more)**: paste the new `appsscript.json` as well as `Code.gs`. The old one
   names the panel's **All notes** and **New note** menu items, which are gone,

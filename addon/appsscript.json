@@ -25,7 +25,8 @@
   "urlFetchWhitelist": [
     "https://gmail.googleapis.com/",
     "https://www.googleapis.com/calendar/",
-    "https://tasks.googleapis.com/"
+    "https://tasks.googleapis.com/",
+    "https://api.lemonsqueezy.com/v1/licenses/"
   ],
   "addOns": {
     "common": {

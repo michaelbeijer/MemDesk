@@ -2456,7 +2456,7 @@ try {
     await p.context().close();
   });
 
-  await r.step('the logo: a menu with the version, the website and the privacy page; the timings are the phone app’s', async () => {
+  await r.step('the logo: a menu with the version, the website, the privacy page and the licence; the timings are the phone app’s', async () => {
     const p = await openPage();
     await p.context().route('https://memdesk.app/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>memdesk.app</title>' }));
     await openBoard(p);
@@ -2465,12 +2465,174 @@ try {
     await menu.waitFor();
     const version = JSON.parse(readFileSync(join(REPO, 'manifest.json'), 'utf8')).version;
     assert.equal(await menu.locator('.menu-heading').innerText(), `MemDesk ${version}`);
-    assert.deepEqual(await menu.locator('.menu-label').allInnerTexts(), ['memdesk.app', 'Privacy']);
+    assert.deepEqual((await menu.locator('.menu-label').allInnerTexts()).slice(0, 2), ['memdesk.app', 'Privacy']);
+    assert.match((await menu.locator('.menu-label').allInnerTexts())[2], /^Licence/, 'and the licence (see below)');
     assert.equal(await p.locator('[data-key="about:timings"]').count(), 0, 'no timings in Gmail');
     const [tab] = await Promise.all([p.context().waitForEvent('page'), p.locator('[data-key="about:Privacy"]').click()]);
     await tab.waitForLoadState();
     assert.equal(tab.url(), 'https://memdesk.app/privacy/');
     assert.equal(await menu.count(), 0, 'the menu closes');
+    await p.context().close();
+  });
+
+  // ── The licence ──
+
+  // Licences on sale, in the fake Lemon Squeezy's store; and the licence as kept.
+  const onSale = p => p.evaluate(() => { window.gkb.LICENCE_STORE_ID = window.__fakeLemon.STORE; });
+  const kept = p => p.evaluate(async () => (await chrome.storage.sync.get('licence')).licence || null);
+  const keep = (p, changes) => p.evaluate(async c => {
+    const { licence } = await chrome.storage.sync.get('licence');
+    await chrome.storage.sync.set({ licence: Object.assign({}, licence, c) });
+  }, changes);
+  const lemonAsked = p => p.evaluate(() => window.__fakeLemon.log.map(l => l.action));
+  const reopen = async p => {
+    await p.keyboard.press('Escape');
+    await p.locator('[data-action="toggle-board"]').click();
+    await p.locator('.overlay').waitFor({ state: 'visible' });
+  };
+  const aboutLicence = async p => {
+    await p.locator('[data-key="about"]').click();
+    const text = await p.locator('[data-key="about:licence"]').innerText();
+    await p.keyboard.press('Escape');
+    return text;
+  };
+
+  await r.step('licence: in preview it is free - the logo’s menu says so, nothing shows, nothing is asked or kept', async () => {
+    const p = await openPage();
+    await openBoard(p);
+    await until(async () => (await aboutLicence(p)) === 'Licence: free while in preview', 'the menu says so');
+    assert.equal(await p.locator('.licence-chip').isVisible(), false);
+    await p.locator('[data-key="about"]').click();
+    await p.locator('[data-key="about:licence"]').click();
+    await p.locator('.licence-dialog').waitFor();
+    assert.match(await p.locator('.licence-dialog').innerText(), /Free while in preview[\s\S]*nothing to enter/);
+    assert.equal(await p.locator('.licence-dialog [data-key="licence-key"]').count(), 0, 'no key to enter');
+    await p.keyboard.press('Escape');
+    assert.deepEqual(await lemonAsked(p), []);
+    assert.equal(await kept(p), null, 'no trial kept: it starts when licences go on sale');
+    await p.context().close();
+  });
+
+  await r.step('licence: on sale - the trial’s chip; once it is over, the licence screen for all three tabs; a wrong key says why, a good one brings them back', async () => {
+    const p = await openPage();
+    await onSale(p);
+    await openBoard(p);
+    const chip = p.locator('.licence-chip');
+    await until(async () => (await chip.isVisible()) && (await chip.innerText()) === 'Trial: 14 days left', 'the trial’s chip');
+    assert.ok((await kept(p)).trialStart > 0);
+    assert.equal(await aboutLicence(p), 'Licence: trial, 14 days left');
+    assert.deepEqual(await lemonAsked(p), [], 'a trial asks nothing');
+
+    await keep(p, { trialStart: Date.now() - 15 * 86400000 });
+    await reopen(p);
+    const panel = p.locator('.licence-panel');
+    await panel.waitFor();
+    assert.match(await panel.innerText(), /Your free trial has ended[\s\S]*still in Gmail, untouched[\s\S]*Supervertaler licence works too/);
+    assert.equal(await p.locator('.card').count(), 0, 'no board');
+    for (const tab of ['notes', 'calendar', 'board']) {
+      await p.locator(`[data-key="view:${tab}"]`).click();
+      assert.equal(await panel.isVisible(), true, `and no ${tab}`);
+    }
+    assert.equal(await chip.isVisible(), false);
+    await p.screenshot({ path: join(SCREENS, 'preview-licence-ended.png'), animations: 'disabled' });
+
+    const input = p.locator('[data-key="licence-key"]');
+    const error = p.locator('.licence-error');
+    for (const [key, why] of [['NOPE-0000', /not found/], ['OTHER-STORE-0006', /not a licence key/], ['MD-REFUNDED-0003', /disabled/], ['SV-EXPIRED-0005', /no longer in force/], ['MD-FULL-0002', /as many devices as it allows/]]) {
+      await input.fill(key);
+      await input.press('Enter');
+      await until(async () => why.test(await error.innerText()), `${key}: ${why}`);
+    }
+    assert.equal(await panel.isVisible(), true, 'still the licence screen');
+    // Lemon Squeezy out of reach: says so, and keeps what was.
+    await p.evaluate(() => { window.__fakeLemon.offline = true; });
+    await input.fill('MD-GOOD-0001');
+    await p.locator('[data-key="licence-enter"]').click();
+    await until(async () => /could not be reached/.test(await error.innerText()), 'unreachable');
+    await p.evaluate(() => { window.__fakeLemon.offline = false; });
+    await p.locator('[data-key="licence-enter"]').click();
+    await p.locator('.card').first().waitFor();
+    assert.equal(await panel.count(), 0, 'the board is back');
+    assert.equal(await aboutLicence(p), 'Licence: licensed');
+    const rec = await kept(p);
+    assert.deepEqual([rec.key, rec.kind, !!rec.instance], ['MD-GOOD-0001', 'memdesk', true]);
+    const log = await p.evaluate(() => window.__fakeLemon.log);
+    assert.match(log.at(-1).fields.instance_name, /^\S+ in Chrome, \d+ \w{3} \d{4}$/);
+    for (const l of log) assert.deepEqual(Object.keys(l.fields).filter(k => !['license_key', 'instance_name', 'instance_id'].includes(k)), [], 'nothing but the key and the activation');
+    await p.context().close();
+  });
+
+  await r.step('licence: a Supervertaler licence works; the email’s board menu waits for a licence too; taking it off', async () => {
+    const p = await openPage();
+    await onSale(p);
+    await openBoard(p);
+    await p.locator('.licence-chip').waitFor();
+    await keep(p, { trialStart: Date.now() - 15 * 86400000 });
+    await p.keyboard.press('Escape');
+    // Gmail with an email open: its board menu opens the licence screen instead.
+    await p.locator('#dev-toggle-thread').click();
+    const pill = p.locator('[data-action="thread-menu"]');
+    await pill.waitFor();
+    await pill.click();
+    await p.locator('.licence-panel').waitFor();
+    assert.equal(await p.locator('[role="menu"]').count(), 0, 'no columns to move it to');
+
+    await p.locator('[data-key="licence-key"]').fill('SV-ACTIVE-0004');
+    await p.locator('[data-key="licence-enter"]').click();
+    await p.locator('.card').first().waitFor();
+    assert.equal(await aboutLicence(p), 'Licence: with Supervertaler');
+    assert.deepEqual(await lemonAsked(p), ['validate'], 'checked, never activated');
+    // From the menu: the licence, and taking it off this computer.
+    await p.locator('[data-key="about"]').click();
+    await p.locator('[data-key="about:licence"]').click();
+    await p.locator('.licence-dialog').waitFor();
+    assert.match(await p.locator('.licence-dialog').innerText(), /Licensed[\s\S]*Supervertaler licence, the key ending 0004/);
+    await p.locator('[data-key="licence-remove"]').click();
+    await p.locator('[data-key="licence-remove-yes"]').click();
+    await p.locator('.licence-panel').waitFor();
+    assert.equal((await kept(p)).key, '');
+    await p.keyboard.press('Escape');
+    await p.context().close();
+  });
+
+  await r.step('licence: checked twice a day; unreachable for a month, it asks to be checked again', async () => {
+    const p = await openPage();
+    await onSale(p);
+    await openBoard(p);
+    await p.locator('.licence-chip').waitFor();
+    await p.locator('.licence-chip').click();
+    await p.locator('.licence-dialog [data-key="licence-key"]').fill('MD-GOOD-0001');
+    await p.locator('.licence-dialog [data-key="licence-enter"]').click();
+    await until(async () => (await p.locator('.licence-dialog').count()) === 0, 'licensed, the dialog closes');
+    await p.locator('.toast', { hasText: 'Licensed. Thank you!' }).waitFor();
+    assert.equal(await p.locator('.licence-chip').isVisible(), false);
+    const asked = (await lemonAsked(p)).length;
+    await reopen(p);
+    await p.waitForTimeout(300);
+    assert.equal((await lemonAsked(p)).length, asked, 'not asked again within twelve hours');
+    // Thirteen hours on, with Lemon Squeezy out of reach: still licensed.
+    await keep(p, { checked: Date.now() - 13 * 3600e3, tried: Date.now() - 13 * 3600e3 });
+    await p.evaluate(() => { window.__fakeLemon.offline = true; });
+    await reopen(p);
+    await until(async () => (await lemonAsked(p)).length === asked + 1, 'asked');
+    assert.equal(await p.locator('.licence-panel').count(), 0, 'still licensed');
+    // A month without a word: the licence screen, with Check again.
+    await keep(p, { checked: Date.now() - 31 * 86400000, tried: Date.now() - 13 * 3600e3 });
+    await reopen(p);
+    const panel = p.locator('.licence-panel');
+    await panel.waitFor();
+    assert.match(await panel.innerText(), /needs checking/);
+    await p.locator('[data-key="licence-check"]').click();
+    await until(async () => /could not be reached/.test(await p.locator('.licence-error').innerText()), 'says so');
+    await p.evaluate(() => { window.__fakeLemon.offline = false; });
+    await p.locator('[data-key="licence-check"]').click();
+    await p.locator('.card').first().waitFor();
+    // Refunded: at the next check, the licence screen.
+    await p.evaluate(() => { window.__fakeLemon.keys['MD-GOOD-0001'].status = 'disabled'; });
+    await keep(p, { tried: Date.now() - 13 * 3600e3, checked: Date.now() - 13 * 3600e3 });
+    await reopen(p);
+    await panel.waitFor();
+    assert.match(await panel.innerText(), /switched off/);
     await p.context().close();
   });
 

@@ -75,6 +75,9 @@ test('the demo is the real code: the preview’s content scripts, the phone app�
   assert.ok(server.indexOf('apps-script-services.js') < server.indexOf('code.js'));
   assert.ok(server.includes(JSON.stringify(JSON.parse(read('addon/appsscript.json')).urlFetchWhitelist)), 'the manifest’s whitelist');
   assert.match(page('demo/phone/index.html'), /<div class="demobar"[\s\S]*aria-current="page">Phone</);
+  // Free, whether licences are on sale or not.
+  assert.ok(server.indexOf('window.gkb.LICENCE_STORE_ID = 0;') > server.indexOf('code.js'), 'the phone demo’s script');
+  assert.match(page('demo/demo.js'), /window\.gkb\.LICENCE_STORE_ID = 0;/, 'the computer demo');
 });
 
 test('the website leads to the demo', () => {

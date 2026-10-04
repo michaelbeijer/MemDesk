@@ -62,6 +62,10 @@
   // The phone's page has no fake Gmail of its own to dress.
   if (!window.__mockChrome) return;
 
+  // The demo is free, whether licences are on sale or not (the fake
+  // worker reads this each time it is asked).
+  window.gkb.LICENCE_STORE_ID = 0;
+
   document.title = 'MemDesk demo';
   const bar = document.querySelector('.demobar');
   const devbar = document.querySelector('.devbar');

@@ -73,12 +73,13 @@ test('the preview loads exactly the manifest’s content scripts, in order', () 
 
 test('manifest: version, permissions and a key whose ID the README reports', () => {
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '0.27.0');
+  assert.equal(manifest.version, '0.28.0');
   assert.ok(read('README.md').includes(`badge/version-${manifest.version}-`), 'the README\'s version badge is current');
   assert.equal(require('../src/shared/ns.js').APP_VERSION, manifest.version, 'the logo menu\'s version (src/shared/ns.js) is current');
   assert.deepEqual(manifest.permissions.sort(), ['identity', 'storage']);
   // Gmail; and Calendar, Tasks and the address check for the calendar.
-  assert.deepEqual(manifest.host_permissions, ['https://gmail.googleapis.com/*', 'https://www.googleapis.com/*', 'https://tasks.googleapis.com/*']);
+  // Google's APIs, and Lemon Squeezy's for the licence.
+  assert.deepEqual(manifest.host_permissions, ['https://gmail.googleapis.com/*', 'https://www.googleapis.com/*', 'https://tasks.googleapis.com/*', 'https://api.lemonsqueezy.com/*']);
   assert.equal(manifest.commands['toggle-board'].suggested_key.default, 'Alt+Shift+K');
   for (const size of ['16', '32', '48', '128']) {
     assert.ok(fs.existsSync(path.join(ROOT, manifest.icons[size])), manifest.icons[size]);

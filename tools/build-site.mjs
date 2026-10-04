@@ -177,7 +177,7 @@ ${SERVER_SCRIPTS.map(f => `<script src="../${f}"></script>`).join('\n')}
   // is not logged: a long visit would only pile it up.
   (function () {
     var services = window.appsScriptServices;
-    var fake = { route: window.__mockChrome.route, googleRoute: window.__mockChrome.googleRoute };
+    var fake = { route: window.__mockChrome.route, googleRoute: window.__mockChrome.googleRoute, lemonRoute: window.__mockChrome.lemonRoute };
     window.UrlFetchApp = services.urlFetch(fake, { push: function () {} }, ${JSON.stringify(whitelist)});
     window.PropertiesService = services.propertiesService(fake);
     window.ScriptApp = services.scriptApp(fake);
@@ -185,6 +185,11 @@ ${SERVER_SCRIPTS.map(f => `<script src="../${f}"></script>`).join('\n')}
   })();
 </script>
 <script src="code.js"></script>
+<script>
+  // The demo is free, whether licences are on sale or not: the script
+  // reads this each time it is asked about the licence.
+  window.gkb.LICENCE_STORE_ID = 0;
+</script>
 </body>
 </html>
 `;

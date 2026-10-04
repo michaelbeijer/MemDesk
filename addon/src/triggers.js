@@ -37,3 +37,4 @@ function allowCalendar() { return gkb.app.allowCalendar(); }
 function appPrefsGet(keys) { return gkb.app.prefsGet(keys); }
 function appPrefsSet(items) { return gkb.app.prefsSet(items); }
 function appPrefsRemove(keys) { return gkb.app.prefsRemove(keys); }
+function appLicence(action, key) { return gkb.app.licence(action, key); }

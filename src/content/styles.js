@@ -673,6 +673,34 @@ button:disabled { cursor: default; }
 .panel p { margin: 0 0 20px; color: var(--fg-2); line-height: 1.5; }
 .panel .actions { display: flex; gap: 8px; justify-content: center; }
 
+/* The licence: the trial's chip in the bar, its dialog, and the screen
+   once it is over. */
+.licence-chip {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 14px;
+  background: var(--accent-soft);
+  color: var(--on-accent-soft);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.licence-chip:hover { filter: brightness(.96); }
+.licence-form { display: flex; gap: 8px; width: 100%; max-width: 440px; margin: 0 auto; }
+.licence-form .licence-key { flex: 1; min-width: 0; font-family: ui-monospace, Consolas, monospace; }
+.licence-error { margin: 8px 0 0; color: var(--danger); font-size: 13px; }
+.licence-error:empty { display: none; }
+.licence-links { display: flex; gap: 16px; justify-content: center; margin: 14px 0 0; font-size: 13.5px; }
+.licence-links a { color: var(--accent); }
+.licence-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.licence-confirm[hidden] { display: none; }
+.licence-dialog .licence-title { margin: 0; font-size: 16px; font-weight: 500; color: var(--fg); }
+.licence-dialog .licence-text { margin: 0 0 4px; color: var(--fg-2); line-height: 1.5; }
+.licence-dialog .licence-form { margin: 0; max-width: none; }
+.licence-dialog .licence-links { justify-content: flex-start; }
+.licence-panel { max-width: 520px; }
+
 /* ── Notes ── */
 
 .notes {

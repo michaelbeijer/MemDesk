@@ -8,7 +8,8 @@
 // script runs in the visitor's browser (site/demo).
 //
 // - UrlFetchApp sends each request to the fake services, and only to
-//   addresses on the manifest's whitelist, with the script's token.
+//   addresses on the manifest's whitelist: to Google with the script's
+//   token, and to Lemon Squeezy's licence API never with it.
 // - PropertiesService keeps the user's properties in memory.
 // - ScriptApp gives the token, and says what has been allowed.
 // - HtmlService makes the page doGet serves.
@@ -30,6 +31,7 @@
     tasks: 'https://tasks.googleapis.com/tasks/v1/',
   };
   const TOKEN = 'token-for-tests';
+  const LEMON = 'https://api.lemonsqueezy.com/v1/licenses/';
   const FETCH_OPTIONS = new Set(['method', 'headers', 'contentType', 'payload', 'muteHttpExceptions']);
 
   // Each request is logged with the round trip it went in: one fetch, or
@@ -41,6 +43,7 @@
       for (const k of Object.keys(opts)) if (!FETCH_OPTIONS.has(k)) throw new Error(`UrlFetchApp: unexpected option ${k}`);
       if (!opts.muteHttpExceptions) throw new Error('UrlFetchApp: without muteHttpExceptions a Gmail error would throw');
       if (!whitelist.some(w => url.startsWith(w))) throw new Error(`UrlFetchApp: ${url} is not on the manifest's whitelist`);
+      if (url.startsWith(LEMON)) return sendLemon(url, opts, round);
       if (!opts.headers || opts.headers.Authorization !== `Bearer ${TOKEN}`) return response(401, '{"error":{"message":"no token"}}');
       const service = Object.keys(GOOGLE).find(k => url.startsWith(GOOGLE[k]));
       if (service) return sendGoogle(service, url, opts, round);
@@ -91,6 +94,27 @@
         const status = m ? Number(m[1]) : err.code === 'not_allowed' ? 400 : 500;
         return response(status, JSON.stringify({ error: { code: status, message: err.message } }));
       }
+    }
+
+    // The licence: a form, to the fake Lemon Squeezy; and if the script's
+    // Google token came along, a failure - it must never go there.
+    function sendLemon(url, opts, round) {
+      if (opts.headers && Object.keys(opts.headers).some(h => /^authorization$/i.test(h))) {
+        throw new Error('UrlFetchApp: a Google token must never be sent to Lemon Squeezy');
+      }
+      if (String(opts.method || '').toLowerCase() !== 'post' || opts.contentType !== 'application/x-www-form-urlencoded' || typeof opts.payload !== 'string') {
+        throw new Error('UrlFetchApp: the licence API takes a form, posted');
+      }
+      const action = url.slice(LEMON.length);
+      const fields = {};
+      for (const part of opts.payload.split('&')) {
+        const [k, v = ''] = part.split('=');
+        fields[decodeURIComponent(k)] = decodeURIComponent(v);
+      }
+      log.push({ service: 'lemon', method: 'POST', path: action, body: fields, round });
+      if (!fake.lemonRoute) throw new Error('UrlFetchApp: no Lemon Squeezy to ask');
+      const r = fake.lemonRoute(action, fields);
+      return response(r.status, JSON.stringify(r.body));
     }
 
     return {

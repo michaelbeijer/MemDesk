@@ -39,7 +39,10 @@ function fakeGmail(search = '') {
   ctx.window = ctx;
   vm.createContext(ctx);
   for (const f of ['src/lib/util.js', 'src/lib/notes-logic.js', 'src/lib/calendar-logic.js', 'dev/mock-chrome.js']) vm.runInContext(read(f), ctx, { filename: f });
-  return { box: ctx.__fakeGmail, route: ctx.__mockChrome.route, googleRoute: ctx.__mockChrome.googleRoute, calendar: ctx.__fakeCalendar };
+  return {
+    box: ctx.__fakeGmail, route: ctx.__mockChrome.route, googleRoute: ctx.__mockChrome.googleRoute, calendar: ctx.__fakeCalendar,
+    lemonRoute: ctx.__mockChrome.lemonRoute, lemon: ctx.__fakeLemon,
+  };
 }
 
 // ── CardService ──────────────────────────────────────────────────────

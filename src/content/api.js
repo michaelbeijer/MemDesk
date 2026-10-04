@@ -76,6 +76,12 @@
     return send({ type: 'connect', kind: 'calendar', account: ns.hooks.getAccount() });
   }
 
+  // The licence (licenceLogic): 'status', 'check', 'enter' with a key, or
+  // 'remove'. { view, error? }.
+  function licence(action, key) {
+    return send({ type: 'licence', action, key });
+  }
+
   function openOptions() {
     return send({ type: 'open-options' });
   }
@@ -84,5 +90,5 @@
     return send({ type: 'hello' }).catch(() => {});
   }
 
-  ns.api = { ApiError, STATE_CODES, gmail, gmailMany, connect, google, googleMany, googleWrite, connectCalendar, openOptions, hello };
+  ns.api = { ApiError, STATE_CODES, gmail, gmailMany, connect, google, googleMany, googleWrite, connectCalendar, licence, openOptions, hello };
 })();

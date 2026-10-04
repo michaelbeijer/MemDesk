@@ -80,6 +80,14 @@
     return card('board', current ? `On the board: ${current.title}` : 'Not on the board', NAME, section);
   }
 
+  // Once the trial or the licence is over: where to enter a key.
+  function licenceCard() {
+    return card('licence', NAME, 'A licence is needed', CardService.newCardSection().addWidget(greyText(
+      `${NAME}'s free trial has ended. To carry on, enter a licence key in the ${NAME} app (in its logo's menu) or in ${NAME} on your computer. The board is still in Gmail, untouched.`)));
+  }
+  // The licence as kept, not asked about: the panel must not wait.
+  const licenceOver = () => ns.app.licence('peek').view.state === 'expired';
+
   function homeCard() {
     return card('home', NAME, 'The board', CardService.newCardSection().addWidget(greyText('Open an email to put it on the board.')));
   }
@@ -117,6 +125,7 @@
 
   // An email was opened.
   const onGmailMessage = cards(e => {
+    if (licenceOver()) return [licenceCard()];
     const g = (e && e.gmail) || (e && e.messageMetadata) || {};
     const messageId = panel.apiId(g.messageId);
     const threadId = panel.apiId(g.threadId);
@@ -127,6 +136,7 @@
 
   // A column's button, or Take off the board (no column).
   const onMoveThread = act(e => {
+    if (licenceOver()) return respond({ card: licenceCard(), notify: 'Not done: a licence is needed.' });
     const p = params(e);
     if (!p.threadId) return respond({ notify: 'Open an email first.' });
     const { columns, target } = store.moveThread(p.threadId, p.columnId || '');

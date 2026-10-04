@@ -36,7 +36,7 @@ redraws them. See [PUBLISHING.md](../PUBLISHING.md) for the whole process.
 > • A home-screen app with the board, your notes, the Scratchpad and your week, and a panel in the Gmail app that puts the open email on the board.
 >
 > PRIVATE BY DESIGN
-> • There is no MemDesk server. Everything is in your own Gmail, as labels and messages, and MemDesk talks only to Google (Gmail, and Calendar and Tasks for the calendar), from your browser.
+> • There is no MemDesk server. Everything is in your own Gmail, as labels and messages, and MemDesk talks only to Google (Gmail, and Calendar and Tasks for the calendar), from your browser - and to Lemon Squeezy, only to check your licence key.
 > • It never sends mail and never deletes mail for good. A calendar event or task is deleted only when you ask, after a confirmation and an Undo.
 >
 > Source available, so that anyone can check what it does with their mail: https://github.com/michaelbeijer/MemDesk
@@ -66,6 +66,7 @@ redraws them. See [PUBLISHING.md](../PUBLISHING.md) for the whole process.
 | `storage` | Keeps the board's column layout, card order, the user's own card titles, notes and colours, which calendars to show, and the short-lived access tokens (session storage only). |
 | Host `https://gmail.googleapis.com/*` | The Gmail API, for the board and the notes. |
 | Host `https://www.googleapis.com/*` | The Google Calendar API (the calendar list, and the events the user views, changes, adds or deletes), and Google's userinfo endpoint to check which account the calendar sign-in belongs to. |
+| Host `https://api.lemonsqueezy.com/*` | Lemon Squeezy's licence API, to check the user's licence key (the key, and a name for the activation; nothing of the mailbox). |
 | Host `https://tasks.googleapis.com/*` | The Google Tasks API, for tasks in the calendar: shown, ticked off, moved, added or deleted by the user. |
 | Content script on `https://mail.google.com/*` | Draws the board, the notes and the "Add to board" button inside Gmail. |
 | Remote code | No: every script is in the package. |
