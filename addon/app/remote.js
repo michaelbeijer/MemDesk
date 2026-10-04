@@ -291,7 +291,15 @@
     return results.map(r => (r && r.error ? { error: googleError(r.error) } : r));
   }
 
-  ns.api = { STATE_CODES: new Set(), gmail, gmailMany, googleMany };
+  // One change, as the extension's worker makes it: the answer, or a
+  // refusal thrown with its code ("changed", "calendar_scope").
+  async function googleWrite(service, method, path, body, etag) {
+    const r = await call('appGoogleWrite', service, method, path, body === undefined ? null : body, etag || '');
+    if (r && r.error) throw googleError(r.error);
+    return r ? r.data : null;
+  }
+
+  ns.api = { STATE_CODES: new Set(), gmail, gmailMany, googleMany, googleWrite };
   ns.appRemote = { call, start, hasCopy, firstColumns };
 
   // ── chrome.storage, as the board uses it ─────────────────────────────

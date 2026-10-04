@@ -21,6 +21,7 @@
 //                          test notes, for the README's pictures
 //   ?calendar=signin       the calendar asks to connect first
 //   ?calendar=notasks      Google Tasks was not allowed when connecting
+//   ?calendar=failwrite    every change to an event or a task fails with a 500
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -843,7 +844,8 @@
       ev(FAMILY, 'Choir rehearsal', at(1, 19, 30), at(1, 21, 30)),
       ev(JOBS, 'Call Bram about the office action', at(2, 11), at(2, 11, 30)),
       ev(JOBS, 'Lumenra glossary delivery', at(3, 14), at(3, 15)),
-      ev(FAMILY, 'Pub quiz', at(3, 19, 30), at(3, 22)),
+      // Organised by someone else, who did not let guests change it.
+      ev(FAMILY, 'Pub quiz', at(3, 19, 30), at(3, 22), { organizer: { self: false } }),
       ev(ME, 'Working from home', day(0), day(5), { eventType: 'workingLocation' }),
       ev(JOBS, 'Cancelled: weekly sync', at(4, 9), at(4, 9, 30), { status: 'cancelled' }),
       ev(FAMILY, 'Grandma’s birthday', day(6), day(7)),
@@ -881,13 +883,92 @@
     const endMs = e => (e.end.dateTime ? Date.parse(e.end.dateTime) : new Date(`${e.end.date}T00:00:00`).getTime());
     const fail = (status, message) => { const err = new Error(message); err.code = `http_${status}`; throw err; };
 
-    function route(service, path, query = {}) {
+    // Every event and task has a version (etag), new with each change; a
+    // change naming an older one is refused, as Google refuses it (412).
+    let versions = 0;
+    const version = () => `"v${++versions}"`;
+    for (const x of [...events, ...tasks]) x.etag = version();
+    const canWrite = id => calendars.some(c => c.id === id && (c.accessRole === 'owner' || c.accessRole === 'writer'));
+    // A start or end changed: nulls take a field away.
+    const timeWith = (was, change) => {
+      const out = Object.assign({}, was);
+      for (const [k, v] of Object.entries(change || {})) { if (v === null) delete out[k]; else out[k] = v; }
+      return out;
+    };
+
+    // One event or task added (POST), changed (PATCH) or deleted (DELETE).
+    function write(service, method, path, body, etag) {
+      if (CALENDAR === 'failwrite') fail(500, 'Backend Error');
+      let mm;
+      if (service === 'calendar' && (mm = /^calendars\/([^/]+)\/events(?:\/([^/]+))?$/.exec(path))) {
+        const id = decodeURIComponent(mm[1]);
+        if (!calendars.some(c => c.id === id)) fail(404, 'Not Found');
+        if (!canWrite(id)) fail(403, 'You need to have writer access to this calendar.');
+        if (method === 'POST') {
+          const e = {
+            calendarId: id, id: `ev${++n}`, status: 'confirmed', summary: body.summary || '', eventType: 'default',
+            htmlLink: `https://www.google.com/calendar/event?eid=ev${n}`,
+            start: timeWith({}, body.start), end: timeWith({}, body.end), etag: version(),
+          };
+          if (body.location) e.location = body.location;
+          events.push(e);
+          return strip(e);
+        }
+        const e = events.find(x => x.calendarId === id && x.id === decodeURIComponent(mm[2]) && x.status !== 'cancelled');
+        if (!e) fail(404, 'Not Found');
+        if (etag && etag !== e.etag) fail(412, 'Precondition Failed');
+        if (method === 'DELETE') {
+          e.status = 'cancelled';
+          e.etag = version();
+          return null;
+        }
+        for (const k of ['summary', 'location']) {
+          if (!(k in body)) continue;
+          if (body[k] === null || body[k] === '') delete e[k];
+          else e[k] = body[k];
+        }
+        if (body.start) e.start = timeWith(e.start, body.start);
+        if (body.end) e.end = timeWith(e.end, body.end);
+        e.etag = version();
+        return strip(e);
+      }
+      if (service === 'tasks' && (mm = /^lists\/([^/]+)\/tasks(?:\/([^/]+))?$/.exec(path))) {
+        const id = decodeURIComponent(mm[1]);
+        if (!lists.some(l => l.id === id)) fail(404, 'Not Found');
+        if (method === 'POST') {
+          const x = task(id, body.title || '', body.due ? { due: body.due } : {});
+          x.etag = version();
+          tasks.push(x);
+          return strip(x);
+        }
+        const x = tasks.find(y => y.list === id && y.id === decodeURIComponent(mm[2]) && !y.deleted);
+        if (!x) fail(404, 'Not Found');
+        if (method === 'DELETE') {
+          x.deleted = true;
+          return null;
+        }
+        for (const k of ['title', 'due', 'status', 'completed']) {
+          if (!(k in body)) continue;
+          if (body[k] === null) delete x[k];
+          else x[k] = body[k];
+        }
+        if (x.status === 'completed' && !x.completed) x.completed = new Date().toISOString();
+        if (x.status === 'needsAction') { delete x.completed; delete x.hidden; }
+        x.etag = version();
+        return strip(x);
+      }
+      return fail(400, 'Bad Request');
+    }
+
+    function route(service, path, query = {}, method = 'GET', body = undefined, etag = '') {
       const logic = window.gkb && window.gkb.calendarLogic;
-      if (logic && !logic.isAllowedRequest(service, 'GET', path)) {
-        const err = new Error(`GET ${service} ${path} is not something this extension does.`);
+      const m = String(method || 'GET').toUpperCase();
+      if (logic && !logic.isAllowedRequest(service, m, path, body === null ? undefined : body)) {
+        const err = new Error(`${m} ${service} ${path} is not something this extension does.`);
         err.code = 'not_allowed';
         throw err;
       }
+      if (m !== 'GET') return write(service, m, path, body, etag);
       let mm;
       if (service === 'calendar' && path === 'users/me/calendarList') return { items: calendars };
       if (service === 'calendar' && (mm = /^calendars\/([^/]+)\/events$/.exec(path))) {
@@ -957,8 +1038,8 @@
         if (STATE === 'not_configured') return fail('not_configured', 'Add your OAuth client ID on the setup page first.');
         if (!calendarConnected) return fail('calendar_auth_required', 'Google Calendar is not connected in this browser yet.');
         try {
-          const data = fakeCalendar.route(String(msg.service || ''), String(msg.path || ''), msg.query || {});
-          return { ok: true, data: JSON.parse(JSON.stringify(data)) };
+          const data = fakeCalendar.route(String(msg.service || ''), String(msg.path || ''), msg.query || {}, msg.method, msg.body, msg.etag);
+          return { ok: true, data: data === null ? null : JSON.parse(JSON.stringify(data)) };
         } catch (err) {
           return fail(err.code || 'internal', err.message);
         }

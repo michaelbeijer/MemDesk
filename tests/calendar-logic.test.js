@@ -12,19 +12,43 @@ const local = (y, m, d, hh = 0, mm = 0) => new Date(y, m - 1, d, hh, mm).toISOSt
 
 // ── Request policy ───────────────────────────────────────────────────
 
-test('only reads the calendar list, events, task lists and tasks', () => {
-  const ok = (s, p, m = 'GET') => cal.isAllowedRequest(s, m, p);
+test('reads the calendar list, events, task lists and tasks; writes one event or task, its own fields only', () => {
+  const ok = (s, p, m = 'GET', body) => cal.isAllowedRequest(s, m, p, body);
   assert.ok(ok('calendar', 'users/me/calendarList'));
   assert.ok(ok('calendar', `calendars/${encodeURIComponent('sam@example.com')}/events`));
   assert.ok(ok('calendar', `calendars/${encodeURIComponent('en.uk#holiday@group.v.calendar.google.com')}/events`));
   assert.ok(ok('tasks', 'users/@me/lists'));
   assert.ok(ok('tasks', 'lists/MDEyMzQ1Njc4OTAxMjM0NTY3ODk6MDow/tasks'));
 
-  assert.ok(!ok('calendar', 'users/me/calendarList', 'POST'), 'no writes');
-  assert.ok(!ok('calendar', 'calendars/primary/events', 'DELETE'));
-  assert.ok(!ok('tasks', 'lists/abc/tasks', 'PATCH'));
+  // Writes: one event or task, added, changed or deleted.
+  const when = { start: { dateTime: '2026-10-05T14:30:00+02:00', timeZone: 'Europe/Amsterdam' }, end: { date: '2026-10-06', dateTime: null } };
+  assert.ok(ok('calendar', 'calendars/primary/events', 'POST', { summary: 'Dentist', location: 'Town', ...when }));
+  assert.ok(ok('calendar', 'calendars/primary/events/abc_20261005T090000Z', 'PATCH', { summary: 'Dentist' }));
+  assert.ok(ok('calendar', 'calendars/primary/events/abc', 'DELETE'));
+  assert.ok(ok('tasks', 'lists/abc/tasks', 'POST', { title: 'Pay', due: '2026-10-05T00:00:00.000Z' }));
+  assert.ok(ok('tasks', 'lists/abc/tasks/t1', 'PATCH', { status: 'needsAction', completed: null }));
+  assert.ok(ok('tasks', 'lists/abc/tasks/t1', 'DELETE'));
+
+  // Nothing but those fields: no guests (who would get invitations), no
+  // reminders, no recurrence; no body where none belongs.
+  assert.ok(!ok('calendar', 'calendars/primary/events', 'POST', { summary: 'x', attendees: [{ email: 'a@b.c' }] }), 'no guests');
+  assert.ok(!ok('calendar', 'calendars/primary/events/abc', 'PATCH', { recurrence: ['RRULE:FREQ=DAILY'] }));
+  assert.ok(!ok('calendar', 'calendars/primary/events/abc', 'PATCH', { start: { dateTime: 'x', foo: 1 } }));
+  assert.ok(!ok('calendar', 'calendars/primary/events', 'POST'), 'a body is needed');
+  assert.ok(!ok('calendar', 'calendars/primary/events', 'POST', ['summary']));
+  assert.ok(!ok('tasks', 'lists/abc/tasks/t1', 'PATCH', { title: 'x', parent: 'y' }));
+  assert.ok(!ok('tasks', 'lists/abc/tasks/t1', 'DELETE', { title: 'x' }));
+
+  assert.ok(!ok('calendar', 'users/me/calendarList', 'POST', {}), 'no new calendars');
+  assert.ok(!ok('calendar', 'calendars/primary', 'DELETE'), 'never a calendar');
+  assert.ok(!ok('calendar', 'calendars/primary/events', 'DELETE'), 'never every event');
+  assert.ok(!ok('tasks', 'lists/abc', 'DELETE'), 'never a list');
+  assert.ok(!ok('tasks', 'lists/abc/tasks', 'PATCH', { title: 'x' }));
+  assert.ok(!ok('calendar', 'calendars/primary/events/abc', 'PUT', { summary: 'x' }), 'no replacing wholesale');
+  assert.ok(!ok('calendar', 'calendars/primary/events/abc/move', 'POST', { summary: 'x' }));
   assert.ok(!ok('calendar', 'calendars/primary/acl'), 'not sharing settings');
-  assert.ok(!ok('calendar', 'calendars/primary/events/abc'));
+  assert.ok(!ok('calendar', 'calendars/primary/acl', 'POST', {}));
+  assert.ok(!ok('calendar', 'calendars/primary/events/abc'), 'no single reads');
   assert.ok(!ok('calendar', 'users/me/settings'));
   assert.ok(!ok('tasks', 'lists/abc/tasks/clear'));
   assert.ok(!ok('gmail', 'profile'), 'not another service');
@@ -43,12 +67,14 @@ test('builds URLs on the right host, with repeated values', () => {
     'https://tasks.googleapis.com/tasks/v1/users/@me/lists?a=x&a=y%20z');
 });
 
-test('asks for read-only calendar and tasks access, and the address', () => {
+test('asks to read the calendar list, change events and tasks, and the address - nothing about calendars themselves', () => {
   assert.deepEqual(cal.SCOPES, [
     'email',
     'https://www.googleapis.com/auth/calendar.readonly',
-    'https://www.googleapis.com/auth/tasks.readonly',
+    'https://www.googleapis.com/auth/calendar.events',
+    'https://www.googleapis.com/auth/tasks',
   ]);
+  assert.ok(!cal.SCOPES.includes('https://www.googleapis.com/auth/calendar'), 'not the whole of Calendar (sharing, calendars)');
 });
 
 // ── Dates ────────────────────────────────────────────────────────────
@@ -304,4 +330,106 @@ test('the tray holds open tasks with no date, and overdue ones', () => {
   const t = cal.tray(items, '2026-10-02');
   assert.deepEqual(t.overdue.map(x => x.title), ['Earlier', 'Late']);
   assert.deepEqual(t.undated.map(x => x.title), ['Renew the guild membership']);
+});
+
+// ── Changes ──────────────────────────────────────────────────────────
+
+const OWN = { id: 'sam@example.com', colour: '#9fc6e7', name: 'sam', writable: true };
+
+test('which events can be changed here: on a calendar that may be, ordinary ones, organised by you or open to guests', () => {
+  const ev = extra => cal.eventItem(Object.assign({ id: 'e', etag: '"7"', summary: 'x', start: { date: '2026-10-05' }, end: { date: '2026-10-06' } }, extra), OWN);
+  assert.equal(ev({}).editable, true);
+  assert.equal(ev({}).etag, '"7"');
+  assert.equal(ev({}).eventId, 'e');
+  assert.equal(ev({ organizer: { self: true } }).editable, true);
+  assert.equal(ev({ organizer: { self: false } }).editable, false, 'someone else’s meeting');
+  assert.equal(ev({ organizer: { self: false }, guestsCanModify: true }).editable, true);
+  assert.equal(ev({ eventType: 'birthday' }).editable, false);
+  assert.equal(ev({ eventType: 'outOfOffice' }).editable, false);
+  assert.equal(cal.eventItem({ id: 'e', summary: 'x', start: { date: '2026-10-05' } }, CAL).editable, false, 'a calendar that may not be changed');
+  assert.equal(ev({ recurringEventId: 'base' }).recurring, true);
+  const sources = cal.sources([
+    { id: 'a', accessRole: 'owner' }, { id: 'b', accessRole: 'writer' }, { id: 'c', accessRole: 'reader' }, { id: 'd', accessRole: 'freeBusyReader' },
+  ], [{ id: 'L1', title: 'My Tasks' }]);
+  assert.deepEqual(sources.map(s => [s.id, s.writable]), [['a', true], ['b', true], ['c', false], ['d', false], ['L1', true]]);
+  assert.equal(cal.taskItem({ id: 't', title: 'x' }, LIST).editable, true);
+  assert.equal(cal.taskItem({ id: 't', title: 'x' }, LIST).taskId, 't');
+});
+
+test('typed into the add box: a time makes it an event, and comes out of the title', () => {
+  const q = cal.parseQuick;
+  assert.deepEqual(q('Dentist 14:30'), { title: 'Dentist', start: '14:30', end: '15:30' });
+  assert.deepEqual(q('Call Sam at 9.15-10:00'), { title: 'Call Sam', start: '09:15', end: '10:00' });
+  assert.deepEqual(q('14:00 – 15:45 Planning'), { title: 'Planning', start: '14:00', end: '15:45' });
+  assert.deepEqual(q('Lunch 12:00, Bram'), { title: 'Lunch, Bram', start: '12:00', end: '13:00' });
+  assert.deepEqual(q('Late 23:30'), { title: 'Late', start: '23:30', end: '23:59' }, 'not past midnight');
+  assert.deepEqual(q('Pay the invoice'), { title: 'Pay the invoice', start: '', end: '' });
+  assert.deepEqual(q('Flight 25:00'), { title: 'Flight 25:00', start: '', end: '' }, 'not a time');
+  assert.deepEqual(q('Back 10:00-9:00'), { title: 'Back', start: '10:00', end: '11:00' }, 'an end before the start is not believed');
+  assert.equal(cal.normTime('9:5'), '');
+  assert.equal(cal.normTime(' 7.05 '), '07:05');
+});
+
+test('an event for Google: local times with the day’s offset, all-day as dates, and what was wrong', () => {
+  const tz = 'Europe/Amsterdam';
+  const d = { title: ' Dentist ', day: '2026-10-05', endDay: '2026-10-05', start: '14:30', end: '15:30', where: '' };
+  assert.deepEqual(cal.eventBody(d, tz).body, {
+    summary: 'Dentist',
+    start: { dateTime: '2026-10-05T14:30:00+02:00', timeZone: tz },
+    end: { dateTime: '2026-10-05T15:30:00+02:00', timeZone: tz },
+  });
+  assert.equal(cal.eventBody(Object.assign({}, d, { day: '2026-11-05', endDay: '2026-11-05' }), tz).body.start.dateTime,
+    '2026-11-05T14:30:00+01:00', 'winter time');
+  // A change clears what no longer applies.
+  const patch = cal.eventBody(Object.assign({}, d, { where: '' }), tz, { patch: true }).body;
+  assert.equal(patch.location, '');
+  assert.equal(patch.start.date, null);
+  const allDay = cal.eventBody({ title: 'Trip', allDay: true, day: '2026-10-05', endDay: '2026-10-07' }, tz, { patch: true }).body;
+  assert.deepEqual([allDay.start, allDay.end], [{ date: '2026-10-05', dateTime: null }, { date: '2026-10-08', dateTime: null }], 'the end date is the day after');
+  assert.equal(cal.eventBody(Object.assign({}, d, { start: '15:30', end: '15:00' }), tz).error, 'It has to end after it starts.');
+  assert.match(cal.eventBody(Object.assign({}, d, { start: 'noon' }), tz).error, /start time/);
+  assert.equal(cal.eventBody(Object.assign({}, d, { title: ' ' }), tz).error, 'Give it a title.');
+  assert.equal(cal.eventBody(Object.assign({}, d, { endDay: '2026-10-06', end: '09:00' }), tz).body.end.dateTime, '2026-10-06T09:00:00+02:00', 'over midnight');
+  for (const body of [cal.eventBody(d, tz).body, patch, allDay]) assert.ok(cal.isAllowedRequest('calendar', 'PATCH', 'calendars/a/events/b', body));
+});
+
+test('a task for Google, ticked or not, with a day or none', () => {
+  assert.deepEqual(cal.taskBody({ title: 'Pay', day: '2026-10-05' }).body, { title: 'Pay', due: '2026-10-05T00:00:00.000Z' });
+  assert.deepEqual(cal.taskBody({ title: 'Pay', day: '' }).body, { title: 'Pay' });
+  assert.deepEqual(cal.taskBody({ title: 'Pay', day: '', done: true }, { patch: true }).body, { title: 'Pay', due: null, status: 'completed' });
+  assert.deepEqual(cal.tickBody(false), { status: 'needsAction', completed: null });
+  assert.equal(cal.taskBody({ title: '' }).error, 'Give it a title.');
+  for (const body of [cal.taskBody({ title: 'Pay', day: '', done: false }, { patch: true }).body, cal.tickBody(true)]) {
+    assert.ok(cal.isAllowedRequest('tasks', 'PATCH', 'lists/a/tasks/b', body));
+  }
+});
+
+test('dragged to another day: an event keeps its times across a clock change, a task gets the day or none', () => {
+  const tz = 'Europe/Amsterdam';
+  const timed = cal.eventItem({ id: 'e', summary: 'Call', start: { dateTime: local(2026, 10, 23, 22, 0) }, end: { dateTime: local(2026, 10, 23, 23, 0) } }, OWN);
+  assert.deepEqual(cal.moveBody(timed, '2026-10-23', '2026-10-26', tz), {
+    start: { dateTime: '2026-10-26T22:00:00+01:00', timeZone: tz }, end: { dateTime: '2026-10-26T23:00:00+01:00', timeZone: tz },
+  });
+  const moved = cal.movedItem(timed, '2026-10-23', '2026-10-26');
+  assert.equal(moved.first, '2026-10-26');
+  assert.equal(new Date(moved.start).getHours(), 22, 'still at ten, though the clocks went back');
+  const trip = cal.eventItem({ id: 't', summary: 'Trip', start: { date: '2026-10-05' }, end: { date: '2026-10-08' } }, OWN);
+  // Dragged by its second day onto the Thursday: two days on.
+  assert.deepEqual(cal.moveBody(trip, '2026-10-06', '2026-10-08', tz), { start: { date: '2026-10-07' }, end: { date: '2026-10-10' } });
+  const task = cal.taskItem({ id: 'k', title: 'Pay', due: '2026-10-05T00:00:00.000Z' }, LIST);
+  assert.deepEqual(cal.moveBody(task, '2026-10-05', '2026-10-09', tz), { due: '2026-10-09T00:00:00.000Z' });
+  assert.deepEqual(cal.moveBody(task, '2026-10-05', '', tz), { due: null }, 'onto No date');
+  assert.equal(cal.movedItem(task, '2026-10-05', '').due, '');
+});
+
+test('the editor starts from an item, or empty on a day', () => {
+  const timed = cal.eventItem({ id: 'e', summary: 'Call', location: 'Meet', start: { dateTime: local(2026, 10, 5, 9, 30) }, end: { dateTime: local(2026, 10, 6, 0, 0) } }, OWN);
+  assert.deepEqual(cal.draftOf(timed), { kind: 'event', title: 'Call', source: OWN.id, where: 'Meet', allDay: false, day: '2026-10-05', endDay: '2026-10-06', start: '09:30', end: '00:00' });
+  const trip = cal.eventItem({ id: 't', start: { date: '2026-10-05' }, end: { date: '2026-10-08' } }, OWN);
+  assert.deepEqual(cal.draftOf(trip), { kind: 'event', title: '', source: OWN.id, where: '', allDay: true, day: '2026-10-05', endDay: '2026-10-07', start: '', end: '' });
+  assert.deepEqual(cal.draftOf(cal.taskItem({ id: 'k', title: 'Pay', status: 'completed' }, LIST)), { kind: 'task', title: 'Pay', source: 'L1', day: '', done: true });
+  assert.equal(cal.newDraft('event', '2026-10-05', OWN.id).start, '09:00');
+  assert.deepEqual(cal.newDraft('task', '2026-10-05', 'L1'), { kind: 'task', title: '', source: 'L1', day: '2026-10-05', done: false });
+  assert.equal(cal.eventPath({ source: 'sam@example.com', eventId: 'a_20261005T090000Z' }), 'calendars/sam%40example.com/events/a_20261005T090000Z');
+  assert.equal(cal.taskPath({ source: 'L1', taskId: 'k' }), 'lists/L1/tasks/k');
 });

@@ -29,6 +29,7 @@ function appBoardGmail(method, path, query, body) { return gkb.app.boardGmail(me
 function appBoardGmailMany(list) { return gkb.app.boardGmailMany(list); }
 function appBoardColumns() { return gkb.app.boardColumns(); }
 function appGoogleMany(list) { return gkb.app.googleMany(list); }
+function appGoogleWrite(service, method, path, body, etag) { return gkb.app.googleWrite(service, method, path, body, etag); }
 
 // For the script editor: run once to give the phone app its calendar
 // permissions, if its Allow button does not.

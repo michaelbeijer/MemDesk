@@ -38,12 +38,13 @@ test('the manifest names functions the bundle has, and asks for no more than it 
   for (const fn of named) assert.equal(typeof addon[fn], 'function', fn);
   assert.equal(manifest.addOns.common.universalActions, undefined, "nothing of the panel's on Gmail's add-on menu");
   assert.deepEqual(manifest.oauthScopes.sort(), [
+    'https://www.googleapis.com/auth/calendar.events',
     'https://www.googleapis.com/auth/calendar.readonly',
     'https://www.googleapis.com/auth/gmail.addons.current.message.metadata',
     'https://www.googleapis.com/auth/gmail.addons.execute',
     'https://www.googleapis.com/auth/gmail.modify',
     'https://www.googleapis.com/auth/script.external_request',
-    'https://www.googleapis.com/auth/tasks.readonly',
+    'https://www.googleapis.com/auth/tasks',
   ]);
   assert.deepEqual(manifest.urlFetchWhitelist, [
     'https://gmail.googleapis.com/', 'https://www.googleapis.com/calendar/', 'https://tasks.googleapis.com/',
@@ -342,7 +343,7 @@ test('the calendar in the app: not allowed yet comes with Google’s page that a
   const { AUTHORIZE_URL } = require('./helpers/apps-script.js');
   const p = new Phone();
   p.fake.denied.add('https://www.googleapis.com/auth/calendar.readonly');
-  p.fake.denied.add('https://www.googleapis.com/auth/tasks.readonly');
+  p.fake.denied.add('https://www.googleapis.com/auth/tasks');
   const got = plain(p.server('appGoogleMany', [['calendar', 'users/me/calendarList', {}], ['tasks', 'users/@me/lists', {}]]));
   for (const r of got) {
     assert.equal(r.error.code, 'calendar_scope');
@@ -359,12 +360,62 @@ test('the calendar in the app: not allowed yet comes with Google’s page that a
 test('the calendar in the app: Tasks not allowed says so, and the calendar still reads', () => {
   const { AUTHORIZE_URL } = require('./helpers/apps-script.js');
   const p = new Phone();
-  p.fake.denied.add('https://www.googleapis.com/auth/tasks.readonly');
+  p.fake.denied.add('https://www.googleapis.com/auth/tasks');
   const got = plain(p.server('appGoogleMany', [['tasks', 'lists/MTAxMjM0NTY3ODk/tasks', {}], ['calendar', 'users/me/calendarList', {}]]));
   assert.equal(got[0].error.code, 'calendar_scope');
   assert.equal(got[0].error.message, 'Not allowed for this app yet.');
   assert.equal(got[0].error.url, AUTHORIZE_URL);
   assert.equal(got[1].items.length, 4);
+});
+
+test('the calendar in the app: one change at a time, only what the calendar does, never over a newer version', () => {
+  const { AUTHORIZE_URL } = require('./helpers/apps-script.js');
+  const cal = require('../src/lib/calendar-logic.js');
+  const p = new Phone();
+  const fake = p.fake.calendar;
+  const ME = 'test@example.com';
+  const write = (...args) => plain(p.server('appGoogleWrite', ...args));
+  const when = { start: { dateTime: '2026-10-05T14:30:00+01:00', timeZone: 'Europe/London' }, end: { dateTime: '2026-10-05T15:30:00+01:00', timeZone: 'Europe/London' } };
+
+  // An event: added, changed with its version, refused with an old one, deleted.
+  const made = write('calendar', 'POST', cal.eventsPath(ME), { summary: 'Dentist', ...when }, '').data;
+  assert.equal(made.summary, 'Dentist');
+  assert.ok(made.etag);
+  const path = cal.eventPath({ source: ME, eventId: made.id });
+  const changed = write('calendar', 'PATCH', path, { summary: 'Dentist, moved' }, made.etag).data;
+  assert.equal(changed.summary, 'Dentist, moved');
+  const stale = write('calendar', 'PATCH', path, { summary: 'Over the top' }, made.etag);
+  assert.equal(stale.error.code, 'changed', 'changed in Google meanwhile');
+  assert.equal(fake.events.find(e => e.id === made.id).summary, 'Dentist, moved', 'and not overwritten');
+  assert.equal(write('calendar', 'DELETE', path, null, changed.etag).data, null);
+  assert.equal(fake.events.find(e => e.id === made.id).status, 'cancelled');
+
+  // A task: added, ticked, back, deleted.
+  const LIST = fake.lists[0].id;
+  const t = write('tasks', 'POST', cal.tasksPath(LIST), { title: 'Pay the invoice', due: '2026-10-05T00:00:00.000Z' }, '').data;
+  const tpath = cal.taskPath({ source: LIST, taskId: t.id });
+  assert.equal(write('tasks', 'PATCH', tpath, cal.tickBody(true), '').data.status, 'completed');
+  assert.equal(write('tasks', 'PATCH', tpath, cal.tickBody(false), '').data.status, 'needsAction');
+  write('tasks', 'DELETE', tpath, null, '');
+  assert.equal(fake.tasks.find(x => x.id === t.id).deleted, true);
+
+  // A calendar shared read-only: Google says no.
+  const holiday = fake.events.find(e => e.summary === 'Bank holiday');
+  const refused = write('calendar', 'PATCH', cal.eventPath({ source: holiday.calendarId, eventId: holiday.id }), { summary: 'x' }, holiday.etag);
+  assert.equal(refused.error.status, 403);
+
+  // Nothing but the calendar's own changes, checked here whatever the page says.
+  assert.throws(() => p.server('appGoogleWrite', 'calendar', 'PATCH', path, { attendees: [{ email: 'a@b.c' }] }, ''), /not_allowed/);
+  assert.throws(() => p.server('appGoogleWrite', 'calendar', 'GET', path, null, ''), /not_allowed/);
+  assert.throws(() => p.server('appGoogleWrite', 'calendar', 'DELETE', `calendars/${encodeURIComponent(ME)}`, null, ''), /not_allowed/);
+  assert.throws(() => p.server('appGoogleWrite', 'gmail', 'POST', 'messages/send', { raw: 'x' }, ''), /not_allowed/);
+  assert.ok(p.log.filter(l => l.service && l.method !== 'GET').every(l => /^(calendars|lists)\//.test(l.path)), 'only events and tasks were written');
+
+  // Allowed to read but not yet to change (a sign-in from before): the page that allows it.
+  p.fake.denied.add('https://www.googleapis.com/auth/calendar.events');
+  const notYet = write('calendar', 'POST', cal.eventsPath(ME), { summary: 'Later', ...when }, '');
+  assert.equal(notYet.error.code, 'calendar_scope');
+  assert.equal(notYet.error.url, AUTHORIZE_URL);
 });
 
 test('the board in the app: whose mailbox, the first column layout, and settings kept per account', () => {

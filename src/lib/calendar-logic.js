@@ -7,10 +7,12 @@
 // view shows, turning the two APIs' answers into one kind of day item,
 // and which requests to Google are allowed at all.
 //
-// It is read-only for now. The second sign-in asks for read-only access to
-// Calendar and Tasks, and the request policy below only lets GETs through:
-// the calendar list, a calendar's events, the task lists and a list's
-// tasks.
+// It reads and writes, both ways: the second sign-in asks to read the
+// list of calendars and to change events and tasks, and the request
+// policy below lets through only what the calendar does - reading the
+// calendar list, a calendar's events, the task lists and a list's tasks;
+// and adding, changing and deleting one event or one task, with only the
+// fields the calendar edits.
 //
 // Loaded by the content scripts, the service worker, the phone app's
 // script and Node's tests.
@@ -25,11 +27,15 @@
 
   // The second sign-in, separate from Gmail's, so that the board and the
   // notes never stop working for someone who has not allowed the calendar.
-  // "email" lets the worker check whose calendar it is.
+  // "email" lets the worker check whose calendar it is. Reading the list
+  // of calendars needs calendar.readonly; calendar.events changes events,
+  // and nothing else about a calendar (not its sharing, not the calendar
+  // itself).
   const SCOPES = [
     'email',
     'https://www.googleapis.com/auth/calendar.readonly',
-    'https://www.googleapis.com/auth/tasks.readonly',
+    'https://www.googleapis.com/auth/calendar.events',
+    'https://www.googleapis.com/auth/tasks',
   ];
 
   const BASES = {
@@ -48,21 +54,52 @@
     return !/^\.+$/.test(plain) && !plain.includes('/');
   }
 
+  // A path of the given shape, each {} one segment.
+  const shaped = (p, re) => { const m = re.exec(p); return !!m && m.slice(1).every(isSegment); };
+  const EVENTS = /^calendars\/([^/]+)\/events$/;
+  const EVENT = /^calendars\/([^/]+)\/events\/([^/]+)$/;
+  const TASKS = /^lists\/([^/]+)\/tasks$/;
+  const TASK = /^lists\/([^/]+)\/tasks\/([^/]+)$/;
+
+  // What may be asked, by service and method: reads of the four lists;
+  // one event or task added (POST to the list), changed (PATCH) or
+  // deleted (DELETE). Nothing else - no calendar, list or sharing.
   const ALLOWED = {
-    calendar: [
-      p => p === 'users/me/calendarList',
-      p => { const m = /^calendars\/([^/]+)\/events$/.exec(p); return !!m && isSegment(m[1]); },
-    ],
-    tasks: [
-      p => p === 'users/@me/lists',
-      p => { const m = /^lists\/([^/]+)\/tasks$/.exec(p); return !!m && isSegment(m[1]); },
-    ],
+    calendar: {
+      GET: [p => p === 'users/me/calendarList', p => shaped(p, EVENTS)],
+      POST: [p => shaped(p, EVENTS)],
+      PATCH: [p => shaped(p, EVENT)],
+      DELETE: [p => shaped(p, EVENT)],
+    },
+    tasks: {
+      GET: [p => p === 'users/@me/lists', p => shaped(p, TASKS)],
+      POST: [p => shaped(p, TASKS)],
+      PATCH: [p => shaped(p, TASK)],
+      DELETE: [p => shaped(p, TASK)],
+    },
   };
 
-  function isAllowedRequest(service, method, path) {
-    if (String(method || 'GET').toUpperCase() !== 'GET') return false;
-    const rules = Object.prototype.hasOwnProperty.call(ALLOWED, service) ? ALLOWED[service] : null;
-    return !!rules && rules.some(ok => ok(String(path || '')));
+  // The fields the calendar sets, and nothing else: no attendees (who would be
+  // sent invitations), no reminders, no sharing.
+  const EVENT_KEYS = ['summary', 'location', 'start', 'end'];
+  const TIME_KEYS = ['date', 'dateTime', 'timeZone'];
+  const TASK_KEYS = ['title', 'due', 'status', 'completed'];
+
+  const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  const isPlain = o => !!o && typeof o === 'object' && !Array.isArray(o);
+  const onlyKeys = (o, keys) => isPlain(o) && Object.keys(o).every(k => keys.includes(k));
+
+  function isAllowedBody(service, body) {
+    if (service === 'tasks') return onlyKeys(body, TASK_KEYS);
+    return onlyKeys(body, EVENT_KEYS) && ['start', 'end'].every(k => !own(body, k) || onlyKeys(body[k], TIME_KEYS));
+  }
+
+  function isAllowedRequest(service, method, path, body) {
+    const m = String(method || 'GET').toUpperCase();
+    const rules = own(ALLOWED, service) && own(ALLOWED[service], m) ? ALLOWED[service][m] : null;
+    if (!rules || !rules.some(ok => ok(String(path || '')))) return false;
+    if (m === 'POST' || m === 'PATCH') return isAllowedBody(service, body);
+    return body === undefined || body === null;
   }
 
   // Query values may be arrays, as for Gmail.
@@ -240,12 +277,14 @@
       kind: 'calendar', id: String(c.id), name,
       colour: safeColour(c.backgroundColor) || '#1a73e8',
       primary: !!c.primary, on: c.selected !== false,
+      // Holidays, birthdays and calendars shared read-only stay read-only.
+      writable: c.accessRole === 'owner' || c.accessRole === 'writer',
     };
   }
 
   function listSource(l) {
     if (!l || !l.id) return null;
-    return { kind: 'tasks', id: String(l.id), name: String(l.title || '').trim() || 'Tasks', on: true };
+    return { kind: 'tasks', id: String(l.id), name: String(l.title || '').trim() || 'Tasks', on: true, writable: true };
   }
 
   // The main calendar first, then the rest as Google lists them, then
@@ -265,7 +304,8 @@
   // ── Requests ─────────────────────────────────────────────────────────
 
   const CALENDAR_LIST_FIELDS = 'items(id,summary,summaryOverride,backgroundColor,selected,hidden,primary,accessRole)';
-  const EVENT_FIELDS = 'items(id,status,summary,start,end,htmlLink,colorId,eventType,location),nextPageToken';
+  const EVENT_FIELDS = 'items(id,etag,status,summary,start,end,htmlLink,colorId,eventType,location,' +
+    'organizer(self),guestsCanModify,recurringEventId),nextPageToken';
 
   function sourceRequests() {
     return [
@@ -316,10 +356,17 @@
     const s = ev.start || {};
     const e = ev.end || {};
     const base = {
-      kind: 'event', id: `${cal.id}|${ev.id}`, source: cal.id,
+      kind: 'event', id: `${cal.id}|${ev.id}`, source: cal.id, eventId: String(ev.id), etag: String(ev.etag || ''),
       title: String(ev.summary || '').trim() || '(No title)',
       colour: EVENT_COLOURS[ev.colorId] || cal.colour,
       link: safeLink(ev.htmlLink), where: String(ev.location || '').trim(),
+      // Changed here only on a calendar that may be changed, and only an
+      // ordinary event: not a birthday or an out-of-office, and not one
+      // someone else organises unless they let guests change it.
+      editable: !!cal.writable && (!ev.eventType || ev.eventType === 'default') &&
+        (!ev.organizer || ev.organizer.self === true || ev.guestsCanModify === true),
+      // One occurrence of a repeating event: a change is to this one only.
+      recurring: !!ev.recurringEventId,
     };
     if (isKey(s.date)) {
       const last = isKey(e.date) ? addDays(e.date, -1) : s.date;
@@ -346,9 +393,9 @@
     const due = /^\d{4}-\d{2}-\d{2}/.test(String(t.due || '')) ? String(t.due).slice(0, 10) : '';
     const mail = (t.links || []).find(l => l && l.type === 'email' && /^https:\/\/mail\.google\.com\//.test(String(l.link || '')));
     return {
-      kind: 'task', id: `${list.id}|${t.id}`, source: list.id, title, due,
+      kind: 'task', id: `${list.id}|${t.id}`, source: list.id, taskId: String(t.id), title, due,
       done: t.status === 'completed', email: !!mail,
-      link: safeLink(mail ? mail.link : t.webViewLink), list: list.name,
+      link: safeLink(mail ? mail.link : t.webViewLink), list: list.name, editable: true,
     };
   }
 
@@ -397,9 +444,150 @@
     };
   }
 
+  // ── Changes ──────────────────────────────────────────────────────────
+  //
+  // What the calendar sends to Google to add, change or move one event or
+  // one task, built here so that Node's tests can check them. A time is
+  // local time on the 24-hour clock, sent with the offset that day has and
+  // the browser's time zone, so Google keeps the event where it was put.
+
+  // "09:30" from "9:30" or "9.30"; '' for anything that is not a time.
+  function normTime(s) {
+    const m = /^\s*(\d{1,2})[:.](\d{2})\s*$/.exec(String(s || ''));
+    if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return '';
+    return `${pad(Number(m[1]))}:${m[2]}`;
+  }
+
+  const minutes = t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  const clock = m => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+
+  // What was typed into the add box: "Dentist 14:30", "Call Sam at
+  // 9.15-10:00". The time (or the two) comes out, and what is left is the
+  // title. With no end, an hour, but not past midnight.
+  function parseQuick(text) {
+    const s = String(text || '');
+    const re = /(^|\s)(?:at\s+)?(\d{1,2}[:.]\d{2})(?:\s*[-–]\s*(\d{1,2}[:.]\d{2}))?(?=$|[\s,;!?])/i;
+    const m = re.exec(s);
+    const start = m ? normTime(m[2]) : '';
+    if (!start) return { title: s.trim(), start: '', end: '' };
+    let end = m[3] ? normTime(m[3]) : '';
+    if (!end || minutes(end) <= minutes(start)) end = clock(Math.min(minutes(start) + 60, 23 * 60 + 59));
+    const title = (s.slice(0, m.index) + m[1] + s.slice(m.index + m[0].length))
+      .replace(/\s+/g, ' ').replace(/\s+([,;])/g, '$1').replace(/[\s,;]+$/, '').trim();
+    return { title, start, end };
+  }
+
+  // "2026-10-05T14:30:00+01:00": a day and a time here, as Google wants it.
+  function localStamp(day, time) {
+    const [y, mo, d] = day.split('-').map(Number);
+    const at = new Date(y, mo - 1, d, Number(time.slice(0, 2)), Number(time.slice(3, 5)));
+    const off = -at.getTimezoneOffset();
+    const a = Math.abs(off);
+    return `${day}T${time}:00${off < 0 ? '-' : '+'}${pad(Math.floor(a / 60))}:${pad(a % 60)}`;
+  }
+
+  const clockOf = ms => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+
+  // An event or a task as the editor starts it: an existing one, or a new
+  // one on `day` in `source` (a calendar's or a list's id).
+  function draftOf(item) {
+    if (item.kind === 'task') return { kind: 'task', title: item.title, source: item.source, day: item.due || '', done: !!item.done };
+    return {
+      kind: 'event', title: item.title === '(No title)' ? '' : item.title, source: item.source, where: item.where || '',
+      allDay: !!item.allDay, day: item.first,
+      endDay: item.allDay ? item.last : dateKey(item.end),
+      start: item.allDay ? '' : clockOf(item.start), end: item.allDay ? '' : clockOf(item.end),
+    };
+  }
+
+  function newDraft(kind, day, source) {
+    return kind === 'task'
+      ? { kind, title: '', source, day, done: false }
+      : { kind, title: '', source, where: '', allDay: false, day, endDay: day, start: '09:00', end: '10:00' };
+  }
+
+  // An event, for Google: { body } or { error } to show. A change clears
+  // what no longer applies (an all-day event's dateTime, a timed one's
+  // date) with nulls; a new one leaves it out.
+  function eventBody(d, timeZone, { patch = false } = {}) {
+    const title = String(d.title || '').trim();
+    if (!title) return { error: 'Give it a title.' };
+    if (!isKey(d.day)) return { error: 'Choose a day.' };
+    const body = { summary: title, location: String(d.where || '').trim() };
+    if (!patch && !body.location) delete body.location;
+    const endDay = isKey(d.endDay) && d.endDay >= d.day ? d.endDay : d.day;
+    if (d.allDay) {
+      body.start = { date: d.day };
+      body.end = { date: addDays(endDay, 1) };
+      if (patch) { body.start.dateTime = null; body.end.dateTime = null; }
+      return { body };
+    }
+    const start = normTime(d.start);
+    const end = normTime(d.end);
+    if (!start) return { error: 'The start time is hours and minutes, as 09:30.' };
+    if (!end) return { error: 'The end time is hours and minutes, as 10:30.' };
+    const a = localStamp(d.day, start);
+    const b = localStamp(endDay, end);
+    if (Date.parse(b) <= Date.parse(a)) return { error: 'It has to end after it starts.' };
+    body.start = { dateTime: a };
+    body.end = { dateTime: b };
+    if (timeZone) { body.start.timeZone = timeZone; body.end.timeZone = timeZone; }
+    if (patch) { body.start.date = null; body.end.date = null; }
+    return { body };
+  }
+
+  // A task, for Google: done or not goes in with a change, not a new one.
+  function taskBody(d, { patch = false } = {}) {
+    const title = String(d.title || '').trim();
+    if (!title) return { error: 'Give it a title.' };
+    const body = { title, due: isKey(d.day) ? `${d.day}T00:00:00.000Z` : null };
+    if (!patch && !body.due) delete body.due;
+    if (patch) Object.assign(body, tickBody(!!d.done));
+    return { body };
+  }
+
+  // Ticked, or not: Google stamps the time it was done itself.
+  function tickBody(done) {
+    return done ? { status: 'completed' } : { status: 'needsAction', completed: null };
+  }
+
+  // Dragged from one day to another (a task to '' for no day): an event
+  // keeps its times and length, a task gets the new day.
+  function moveBody(item, fromDay, toDay, timeZone) {
+    if (item.kind === 'task') return { due: toDay ? `${toDay}T00:00:00.000Z` : null };
+    const delta = daysBetween(fromDay, toDay);
+    if (item.allDay) return { start: { date: addDays(item.first, delta) }, end: { date: addDays(item.last, delta + 1) } };
+    const at = ms => {
+      const d = new Date(ms);
+      d.setDate(d.getDate() + delta);
+      const t = { dateTime: localStamp(dateKey(d), clockOf(d)) };
+      if (timeZone) t.timeZone = timeZone;
+      return t;
+    };
+    return { start: at(item.start), end: at(item.end) };
+  }
+
+  // The same move on the item on screen, until Google's answer is in.
+  function movedItem(item, fromDay, toDay) {
+    if (item.kind === 'task') return Object.assign({}, item, { due: toDay || '' });
+    const delta = daysBetween(fromDay, toDay);
+    const shift = ms => { const d = new Date(ms); d.setDate(d.getDate() + delta); return d.getTime(); };
+    return Object.assign({}, item, {
+      first: addDays(item.first, delta), last: addDays(item.last, delta),
+      start: item.allDay ? 0 : shift(item.start), end: item.allDay ? 0 : shift(item.end),
+    });
+  }
+
+  const eventsPath = calendarId => `calendars/${encodeURIComponent(calendarId)}/events`;
+  const eventPath = item => `${eventsPath(item.source)}/${encodeURIComponent(item.eventId)}`;
+  const tasksPath = listId => `lists/${encodeURIComponent(listId)}/tasks`;
+  const taskPath = item => `${tasksPath(item.source)}/${encodeURIComponent(item.taskId)}`;
+
   const api = {
     SCOPES, BASES, USERINFO_URL, VIEWS, AGENDA_DAYS, DAY_NAMES, MONTHS, MONTHS_LONG, EVENT_COLOURS,
     isAllowedRequest, buildUrl,
+    normTime, parseQuick, localStamp, draftOf, newDraft, eventBody, taskBody, tickBody, moveBody, movedItem,
+    eventsPath, eventPath, tasksPath, taskPath,
     dateKey, isKey, fromKey, addDays, daysBetween, weekday, weekStart, isoWeek, monthStart, addMonths, days,
     viewRange, step, monthWeeks, spanText, title, monthName, dayName,
     safeColour, safeLink, calendarSource, listSource, sources, isOn,
