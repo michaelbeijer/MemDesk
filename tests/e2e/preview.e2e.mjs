@@ -12,6 +12,7 @@
 
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { REPO, loadPlaywright, findChromium, screensDir, runner, until, watchErrors } from './lib.mjs';
 
@@ -1390,6 +1391,8 @@ try {
     }
     for (const t of ['Working from home', 'Cancelled: weekly sync', 'Old and deleted']) assert.ok(!text.includes(t), `not ${t}`);
     assert.equal(await p.locator('.task.done').filter({ hasText: 'Proofread the IFU' }).count(), 1);
+    const kickOff = p.locator('.cal-week .ev').filter({ hasText: 'Kestrel Medical: kick-off call' });
+    assert.equal(await kickOff.locator('.time').innerText(), '09:30', 'the 24-hour clock, whatever the browser’s language');
 
     // Each opens where it lives in Google, in a tab of its own.
     const quote = p.locator('.cal-week a.task').filter({ hasText: 'Quote for Ingrid' });
@@ -1646,6 +1649,24 @@ try {
     assert.equal(await tile.locator('.ne-body').getAttribute('contenteditable'), 'false');
     assert.equal(await p.locator('.panel').count(), 0, 'no Connect Gmail panel over the calendar');
     assert.ok((await weekText(p)).includes('Lumenra glossary delivery'));
+    await p.context().close();
+  });
+
+  await r.step('the logo: a menu with the version, the website and the privacy page; the timings are the phone app’s', async () => {
+    const p = await openPage();
+    await p.context().route('https://memdesk.app/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>memdesk.app</title>' }));
+    await openBoard(p);
+    await p.locator('[data-key="about"]').click();
+    const menu = p.locator('.menu');
+    await menu.waitFor();
+    const version = JSON.parse(readFileSync(join(REPO, 'manifest.json'), 'utf8')).version;
+    assert.equal(await menu.locator('.menu-heading').innerText(), `MemDesk ${version}`);
+    assert.deepEqual(await menu.locator('.menu-label').allInnerTexts(), ['memdesk.app', 'Privacy']);
+    assert.equal(await p.locator('[data-key="about:timings"]').count(), 0, 'no timings in Gmail');
+    const [tab] = await Promise.all([p.context().waitForEvent('page'), p.locator('[data-key="about:Privacy"]').click()]);
+    await tab.waitForLoadState();
+    assert.equal(tab.url(), 'https://memdesk.app/privacy/');
+    assert.equal(await menu.count(), 0, 'the menu closes');
     await p.context().close();
   });
 

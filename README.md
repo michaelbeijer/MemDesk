@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.22.0" src="https://img.shields.io/badge/version-0.22.0-6D28D9">
+  <img alt="Version 0.23.0" src="https://img.shields.io/badge/version-0.23.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -132,7 +132,7 @@ The **Calendar** tab reads Google Calendar and Google Tasks with a sign-in of
 its own (read-only), asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.22.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.23.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -171,6 +171,10 @@ extension. It only matters if you ever pack a `.crx`.
 - **Open the board** with the **Board** button at the bottom left of Gmail, the
   toolbar icon, or **Alt+Shift+K**. Change the shortcut at
   `chrome://extensions/shortcuts`. Press **Esc** to close it.
+- **The MemDesk logo** at the top left opens a small menu: the version you
+  have, the website and the privacy page. In the phone app it also has
+  **Advanced: startup timings**, how long the app took to open, for finding
+  out what is slow.
 - The first time you open it, the board creates any column labels that are
   missing, plus their parent (`_Board`) so Gmail nests them in the sidebar.
 - Columns remember their label's id as well as its name, so renaming a label in
@@ -339,7 +343,8 @@ in Gmail and the notes follow.
   one of the account open in the tab. This is a sign-in of its own: the board
   and the notes never needed it, and keep working whatever you answer.
 - **Week, Month, Agenda** at the top right. The week is seven columns, without
-  an hour grid: the times are on the items. The button just left of **Week**
+  an hour grid: the times are on the items, on the 24-hour clock (09:30,
+  19:30). The button just left of **Week**
   turns it into two rows instead, Monday to Thursday above Friday to Sunday,
   which gives each day more room across; this computer remembers which you
   chose. The space left over, beside Sunday, holds the **Scratchpad**: the

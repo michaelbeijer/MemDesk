@@ -20,10 +20,11 @@
   'use strict';
 
   const ns = (globalThis.gkb = globalThis.gkb || {});
-  const { mountShadow, toast } = ns.ui;
+  const { mountShadow } = ns.ui;
 
-  // How long opening took, for anyone curious (tap the logo): from this
-  // page's start, which comes after Google's own page around it.
+  // How long opening took, for finding out what is slow (the logo's menu,
+  // under Advanced): from this page's start, which comes after Google's
+  // own page around it.
   const marks = { code: performance.now() };
   const mark = name => { if (!(name in marks)) marks[name] = performance.now(); };
   const secs = ms => `${(ms / 1000).toFixed(1)} s`;
@@ -44,7 +45,7 @@
      settings; gone while a note has the whole screen. On a small phone
      only the open tab says its name. */
   .bar { height: 56px; padding: 0 4px 0 12px; gap: 2px; }
-  .brand > span:not(.logo), .account, .updated { display: none; }
+  .brand-btn > span:not(.logo), .account, .updated { display: none; }
   .tabs { margin-left: 10px; min-width: 0; }
   .tab { padding: 0 12px 0 10px; }
   :host([data-view="note"]) .bar { display: none; }
@@ -153,6 +154,7 @@
     ns.boardFrame = {
       root,
       view: 'notes',
+      timings: timingText,
       // On a computer, typing goes straight into the Scratchpad. (A phone
       // would only pop its keyboard up over it, so there it waits for a tap.)
       focus: wide(),
@@ -202,10 +204,6 @@
       else ns.board.refreshIfStale();
     });
     window.addEventListener('pagehide', () => ns.notes.flush());
-
-    root.addEventListener('click', e => {
-      if (e.target.closest && e.target.closest('.brand .logo')) toast(root, timingText(), { timeout: 8000 });
-    });
 
     // One call to the script, sent before anything else (remote.js). With
     // the phone's copy of the notes, the app opens on that at once and the
