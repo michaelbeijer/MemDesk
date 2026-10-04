@@ -1664,29 +1664,38 @@ try {
   // ── The week by the hour ──
 
   // Where a time of day is on a day's hours, on the page; and where an
-  // event is on them, in minutes after midnight.
+  // event is on them, in minutes after midnight. The hours on screen run
+  // from and to the week's data-span, in minutes.
+  const spanOf = async p => (await p.locator('.cal-week').getAttribute('data-span')).split('-').map(Number);
   const hourPoint = async (p, i, minutes, dx = 0.5) => {
+    const [from, to] = await spanOf(p);
     const box = await weekDay(p, i).locator('.grid-body').boundingBox();
-    const at = { x: box.x + box.width * dx, y: box.y + box.height * minutes / 1440 };
+    const at = { x: box.x + box.width * dx, y: box.y + box.height * (minutes - from) / (to - from) };
     const view = p.viewportSize();
     assert.ok(at.y > 0 && at.y < view.height, `${minutes} minutes is on screen`);
     return at;
   };
   const minutesOf = (p, el) => el.evaluate(e => {
+    const [from, to] = e.closest('.cal-week').dataset.span.split('-').map(Number);
     const body = e.closest('.grid-body').getBoundingClientRect();
     const b = e.getBoundingClientRect();
-    const m = y => Math.round((y - body.top) / body.height * 1440);
+    const m = y => Math.round(from + (y - body.top) / body.height * (to - from));
     return { from: m(b.top), to: m(b.bottom), left: Math.round(b.left), width: Math.round(b.width) };
   });
+  const night = p => p.locator('[data-key="cal-night"]');
 
   await r.step('calendar: by the hour - events where they happen, all-day ones and tasks above, the line for now, and a second time zone', async () => {
     const p = await openPage();
     await openCalendar(p);
     assert.equal(await p.locator('.cal-week.hours').count(), 1, 'wide, the week is by the hour');
-    assert.equal(await p.locator('.grid-hour').count(), 24);
     const week = p.locator('.cal-week');
-    const hour = await weekDay(p, 0).locator('.grid-body').evaluate(e => e.offsetHeight / 24);
-    assert.ok(Math.abs(await week.evaluate(e => e.scrollTop) - hour * 6.75) < 2, 'it opens at seven in the morning');
+    // The day, seven to ten, filling the space: nothing to scroll.
+    assert.deepEqual(await spanOf(p), [420, 1320]);
+    assert.equal(await p.locator('.grid-hour').count(), 15);
+    assert.equal(await p.locator('.grid-hour .own').first().textContent(), '07:00');
+    assert.ok(await week.evaluate(e => e.scrollHeight <= e.clientHeight + 1), 'no scrolling');
+    const bottom = await weekDay(p, 0).locator('.grid-body').evaluate(e => e.getBoundingClientRect().bottom);
+    assert.ok(Math.abs(bottom - (await week.boundingBox()).y - (await week.boundingBox()).height) < 4, 'down to the bottom of the view');
 
     const kickOff = await minutesOf(p, weekDay(p, 1).locator('a.ev', { hasText: 'Kestrel Medical' }));
     assert.ok(Math.abs(kickOff.from - 570) <= 2 && Math.abs(kickOff.to - 615) <= 3, `09:30 to 10:15: ${JSON.stringify(kickOff)}`);
@@ -1695,13 +1704,25 @@ try {
     assert.equal(await p.locator('.grid-body .task, .grid-body .all-day').count(), 0, 'neither in the hours');
     assert.equal(await p.locator('.now-line').count(), 1);
     assert.equal(await p.locator('.day.today .now-line').count(), 1, 'the line for now, today only');
+
+    // The moon: all 24 hours, opened a little before seven, the night
+    // shaded; remembered; and back.
+    assert.equal(await night(p).getAttribute('aria-pressed'), 'false');
+    await night(p).click();
+    await until(async () => (await p.locator('.grid-hour').count()) === 24, 'all 24 hours');
+    assert.equal(await night(p).getAttribute('aria-pressed'), 'true');
+    assert.deepEqual(await spanOf(p), [0, 1440]);
+    assert.ok(await week.evaluate(e => e.scrollTop > 0 && e.scrollHeight > e.clientHeight), 'they scroll, opened past the night');
+    assert.equal(await p.evaluate(async () => (await chrome.storage.local.get('pref:test@example.com:calendarNight'))['pref:test@example.com:calendarNight']), true, 'remembered');
     // Held at the top while the hours scroll.
     await week.evaluate(e => { e.scrollTop = e.scrollHeight; });
     const head = await weekDay(p, 0).locator('.day-head').boundingBox();
     const weekBox = await week.boundingBox();
     assert.ok(Math.abs(head.y - weekBox.y) < 3, 'the days’ heads stay put');
     assert.ok((await p.locator('.grid-corner').boundingBox()).y - weekBox.y < 3);
-    await week.evaluate((e, top) => { e.scrollTop = top; }, hour * 6.75);
+    await night(p).click();
+    await until(async () => (await p.locator('.grid-hour').count()) === 15, 'the day again');
+    assert.equal(await week.evaluate(e => e.scrollTop), 0);
 
     // A second time zone, beside your own.
     const zones = p.locator('[data-key="cal-zones"]');
@@ -1721,7 +1742,7 @@ try {
         f({ timeZoneName: 'shortOffset' }).formatToParts(at).find(x => x.type === 'timeZoneName').value];
     });
     assert.match(want[1], /^GMT-[45]$/);
-    const nine = await p.locator('.grid-hour').nth(9).evaluate(e => [...e.children].map(x => x.textContent));
+    const nine = await p.locator('.grid-hour').nth(2).evaluate(e => [...e.children].map(x => x.textContent));
     assert.deepEqual(nine, [want[0], '09:00'], 'the second time zone’s hour beside your own');
     assert.equal(await p.locator('.grid-zones .other').innerText(), want[1]);
     assert.equal(await p.evaluate(async () => (await chrome.storage.local.get('pref:test@example.com:calendarZone2'))['pref:test@example.com:calendarZone2']), 'America/New_York', 'remembered');
@@ -1738,6 +1759,18 @@ try {
     await q.evaluate(() => chrome.storage.local.set({ 'pref:test@example.com:calendarZone2': 'Mars/Olympus_Mons' }));
     await openCalendar(q);
     assert.equal(await q.locator('.grid-zones span').count(), 1);
+
+    // Something on in the night: the hours widen to show it, and it alone.
+    await weekDay(q, 2).locator('.day-add').click();
+    await editor(q).waitFor();
+    await q.keyboard.type('Early ferry 05:30');
+    await q.keyboard.press('Enter');
+    await until(async () => (await spanOf(q))[0] === 300, 'from five');
+    assert.equal(await q.locator('.grid-hour .own').first().textContent(), '05:00');
+    assert.equal((await spanOf(q))[1], 1320, 'still to ten at night');
+    const ferry = await minutesOf(q, q.locator('.cal-week a.ev', { hasText: 'Early ferry' }));
+    assert.ok(Math.abs(ferry.from - 330) <= 3, JSON.stringify(ferry));
+    assert.equal(await q.locator('.cal-week').evaluate(e => e.scrollTop), 0, 'from its top');
     await q.context().close();
   });
 
@@ -1876,8 +1909,10 @@ try {
     assert.ok(added.start.dateTime.startsWith(`${monday}T13:00`) && added.end.dateTime.startsWith(`${monday}T14:00`), JSON.stringify(added));
     await until(async () => (await weekDay(p, 0).locator('.grid-body').innerText()).includes('Translation review'), 'in the hours');
 
-    // Late in the evening, it ends the next day.
+    // Late in the evening, with the night shown, it ends the next day.
     await until(async () => !(await p.evaluate(() => window.gkb.calendar.isLoading())), 'read back');
+    await night(p).click();
+    await until(async () => (await spanOf(p))[1] === 1440, 'the night shown');
     await p.locator('.cal-week').evaluate(w => { w.scrollTop = w.scrollHeight; });
     const late = await hourPoint(p, 4, 23 * 60 + 40, 0.3);
     await p.mouse.click(late.x, late.y);
@@ -1921,6 +1956,8 @@ try {
 
     // Scrolled, the hours stay where they are through a redraw, and
     // through the month and back.
+    await night(p).click();
+    await until(async () => (await spanOf(p))[0] === 0, 'the night shown');
     const week = p.locator('.cal-week');
     await week.evaluate(w => { w.scrollTop = 200; });
     await p.waitForTimeout(100);

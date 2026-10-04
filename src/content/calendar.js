@@ -37,10 +37,12 @@
   const MONTH_ROWS = 4;
   const SWIPE_PX = 60;
   // The week by the hour: a drag moves in quarter hours, a click adds at
-  // the half hour, and the hours open at seven in the morning.
+  // the half hour; the day is seven in the morning to ten at night, and
+  // the night is shown when asked for (or when something is on then).
   const STEP_MIN = 15;
   const CLICK_MIN = 30;
-  const FIRST_HOUR = 7;
+  const DAY_FROM = 7 * 60;
+  const DAY_TO = 22 * 60;
 
   const C = {
     ctx: null,          // { root, onStateError, onLoaded, barChanged, prefs, connect }
@@ -48,7 +50,9 @@
     order: 'down',      // narrow: the days down then across, or 'across' then down
     layout: 'columns',  // wide, the week: by the hour in seven columns, or two 'rows'
     zone2: '',          // by the hour: a second time zone beside your own, or none
+    night: false,       // by the hour: all 24 hours, or the day's (and whatever is on outside them)
     hoursTop: null,     // how far the hours were scrolled, kept across redraws
+    span: [0, 1440],    // the hours on screen, from and to, in minutes after midnight
     anchor: '',         // the day in focus
     today: '',
     narrow: false,
@@ -111,7 +115,11 @@
           class: 'icon-btn cal-order', type: 'button', dataset: { key: 'cal-order' }, onclick: toggleOrder,
         })),
       els.title,
-      // Wide, in the week: seven columns or two rows.
+      // Wide, in the week by the hour: the night shown or not.
+      els.night = h('button', {
+        class: 'icon-btn cal-night', type: 'button', dataset: { key: 'cal-night' }, onclick: toggleNight,
+      }, icon('night', 20)),
+      // Wide, in the week: by the hour, or two rows.
       els.layout = h('button', {
         class: 'icon-btn cal-layout', type: 'button', dataset: { key: 'cal-layout' }, onclick: toggleLayout,
       }),
@@ -166,13 +174,14 @@
     if (C.prefsRead) return;
     C.prefsRead = true;
     try {
-      const names = ['calendarView', 'calendarSources', 'calendarOrder', 'calendarWeekLayout', 'calendarZone2'];
-      const [v, o, order, layout, zone2] = await Promise.all(names.map(n => C.ctx.prefs.get(n)));
+      const names = ['calendarView', 'calendarSources', 'calendarOrder', 'calendarWeekLayout', 'calendarZone2', 'calendarNight'];
+      const [v, o, order, layout, zone2, night] = await Promise.all(names.map(n => C.ctx.prefs.get(n)));
       if (cal.VIEWS.includes(v)) C.view = v;
       if (o && typeof o === 'object') C.overrides = o;
       if (order === 'across' || order === 'down') C.order = order;
       if (layout === 'rows' || layout === 'columns') C.layout = layout;
       if (isZone(zone2)) C.zone2 = zone2;
+      C.night = night === true;
     } catch { /* storage gone (extension reloaded); defaults will do */ }
   }
 
@@ -320,6 +329,15 @@
     draw();
   }
 
+  // By the hour, the night - ten at night to seven in the morning - is
+  // left out unless something is on then; or shown, all 24 hours.
+  function toggleNight() {
+    C.night = !C.night;
+    C.hoursTop = null;
+    savePref('calendarNight', C.night);
+    draw();
+  }
+
   function setView(v) {
     if (!cal.VIEWS.includes(v)) return;
     C.view = v;
@@ -386,6 +404,11 @@
       ? 'The week in two rows, Monday to Thursday above Friday to Sunday. Click for the week by the hour.'
       : 'The week by the hour. Click for two rows, Monday to Thursday above Friday to Sunday.';
     els.layout.setAttribute('aria-label', els.layout.title);
+    els.night.setAttribute('aria-pressed', String(C.night));
+    els.night.title = C.night
+      ? 'All 24 hours. Click to leave out the night, 22:00 to 07:00, unless something is on then.'
+      : 'The night, 22:00 to 07:00, is left out unless something is on then. Click for all 24 hours.';
+    els.night.setAttribute('aria-label', 'All 24 hours');
     els.title.textContent = cal.title(v, C.anchor, C.today);
     for (const b of els.views.children) b.setAttribute('aria-selected', String(b.dataset.view === v));
     const panel = statusPanel();
@@ -401,11 +424,12 @@
       const week = drawWeek();
       // Already showing: left in place (see drawWeek).
       if (els.main.firstChild !== week || els.main.childNodes.length !== 1) els.main.replaceChildren(week);
-      // By the hour: where it was scrolled to, or seven in the morning
-      // (and a little before, so that its hour shows).
+      // By the hour: where it was scrolled to; at first, the top - or with
+      // the night shown, a little before seven in the morning.
       if (isHours()) {
         const body = week.querySelector('.grid-body');
-        week.scrollTop = C.hoursTop !== null ? C.hoursTop : body ? body.offsetHeight / 24 * (FIRST_HOUR - 0.25) : 0;
+        const hourPx = body ? body.offsetHeight / ((C.span[1] - C.span[0]) / 60) : 0;
+        week.scrollTop = C.hoursTop !== null ? C.hoursTop : C.night ? hourPx * Math.max(0, (DAY_FROM - C.span[0]) / 60 - 0.25) : 0;
       }
     }
   }
@@ -611,10 +635,11 @@
   //
   // On a computer, as in Google Calendar: seven columns beside the hours,
   // each day's all-day events and tasks along the top, its other events
-  // placed by the hour, side by side where they overlap. The hours scroll
-  // under the days' heads. An event can be dragged to another time (in
-  // quarter hours) or day, and its bottom edge up or down to change when
-  // it ends; a click on an empty half hour adds one there.
+  // placed by the hour, side by side where they overlap. The day's hours
+  // fill the space there is; with the night as well, they scroll under the
+  // days' heads. An event can be dragged to another time (in quarter
+  // hours) or day, and its bottom edge up or down to change when it ends;
+  // a click on an empty half hour adds one there.
 
   const isHours = () => !C.narrow && view() === 'week' && C.layout === 'columns';
 
@@ -635,21 +660,37 @@
     const rows = Math.min(4, Math.max(1, ...keys.map(k => untimed(k).length)));
     setVars(els.week, { '--allday-rows': rows });
     els.week.dataset.zones = C.zone2 ? '2' : '1';
+    // The day's hours, and any of the night's that something is on in.
+    const placed = keys.map(k => cal.dayLayout(byDay.get(k), k));
+    let [from, to] = C.night ? [0, 1440] : [DAY_FROM, DAY_TO];
+    for (const p of placed.flat()) {
+      from = Math.min(from, Math.floor(p.from / 60) * 60);
+      to = Math.max(to, Math.ceil(p.to / 60) * 60);
+    }
+    C.span = [from, to];
+    setVars(els.week, { '--span-from': from, '--hours': (to - from) / 60 });
+    els.week.dataset.span = `${from}-${to}`;
     const now = minuteOf(Date.now());
-    const days = keys.map(k => h('section', {
+    const days = keys.map((k, i) => h('section', {
       class: dayClasses(k, 'day'), role: 'listitem', 'aria-label': longDate(k), dataset: { day: k, drop: k },
     },
     dayHead(k),
     h('div', { class: 'cal-items grid-allday' }, untimed(k).map(e => itemEl(e))),
-    hoursBody(k, byDay.get(k), k === C.today ? now : -1)));
+    hoursBody(k, placed[i], k === C.today ? now : -1)));
     return [hoursColumn(keys), ...days];
   }
 
-  function hoursBody(k, entries, now) {
+  function hoursBody(k, placed, now) {
     const body = h('div', { class: 'grid-body', onclick: e => clickHour(e, k) });
-    for (const p of cal.dayLayout(entries, k)) body.append(...timedEls(p, k));
-    if (now >= 0) body.append(setVars(h('div', { class: 'now-line', 'aria-hidden': 'true' }), { '--from': now }));
+    for (const p of placed) body.append(...timedEls(p, k));
+    if (now >= 0) body.append(placeNow(h('div', { class: 'now-line', 'aria-hidden': 'true' }), now));
     return body;
+  }
+
+  // The line for now, where it is - or none, in the night left out.
+  function placeNow(line, now) {
+    line.hidden = now < C.span[0] || now >= C.span[1];
+    return setVars(line, { '--from': now });
   }
 
   // An event in the hours, and for one that ends that day and can be
@@ -688,10 +729,10 @@
       zones.map(z => h('span', { class: z === here ? 'own' : 'other', text: zoneShort(z, at(12)) })),
       C.zone2 ? null : icon('add', 14)));
     const hours = [];
-    for (let hr = 0; hr < 24; hr++) {
-      hours.push(h('div', { class: 'grid-hour' }, hr ? zones.map(z => h('span', {
+    for (let hr = C.span[0] / 60; hr < C.span[1] / 60; hr++) {
+      hours.push(h('div', { class: 'grid-hour' }, zones.map(z => h('span', {
         class: z === here ? 'own' : 'other', text: z === here ? clock(hr * 60) : zoneClock(z, at(hr)),
-      })) : null));
+      }))));
     }
     return h('div', { class: 'grid-times' }, corner, h('div', { class: 'grid-hours', 'aria-hidden': 'true' }, hours));
   }
@@ -761,7 +802,8 @@
   // between `lo` and `hi`.
   function minuteAt(body, y) {
     const r = body.getBoundingClientRect();
-    return (y - r.top) / (r.height / 1440);
+    const [from, to] = C.span;
+    return from + (y - r.top) / (r.height / (to - from));
   }
   const snap = (min, step, lo, hi, floor = false) =>
     Math.min(hi, Math.max(lo, (floor ? Math.floor(min / step) : Math.round(min / step)) * step));
@@ -769,7 +811,7 @@
   // A click on an empty half hour: a new event there, an hour long.
   function clickHour(e, k) {
     if (e.target !== e.currentTarget || !canChange() || !writable('calendar').length) return;
-    openEditor(null, k, snap(minuteAt(e.currentTarget, e.clientY), CLICK_MIN, 0, 1440 - CLICK_MIN, true));
+    openEditor(null, k, snap(minuteAt(e.currentTarget, e.clientY), CLICK_MIN, C.span[0], C.span[1] - CLICK_MIN, true));
   }
 
   // The bottom edge of an event, dragged: where it ends, in quarter hours,
@@ -788,7 +830,7 @@
     const time = el.querySelector('.time');
     const move = ev => {
       if (!(ev.buttons & 1)) { finish({ type: 'pointercancel' }); return; }
-      const min = snap(minuteAt(body, ev.clientY), STEP_MIN, p.from + STEP_MIN, 1440);
+      const min = snap(minuteAt(body, ev.clientY), STEP_MIN, p.from + STEP_MIN, C.span[1]);
       if (min === to) return;
       to = min;
       setVars(el, { '--to': to });
@@ -1072,7 +1114,7 @@
     if (!t || !els.wrap.contains(t)) return null;
     if (!t.dataset.drop && d.item.kind !== 'task') return null;
     const body = d.timed ? e.target.closest('.grid-body') : null;
-    const at = body ? snap(minuteAt(body, e.clientY - d.grab), STEP_MIN, 0, 1440 - STEP_MIN) : null;
+    const at = body ? snap(minuteAt(body, e.clientY - d.grab), STEP_MIN, C.span[0], C.span[1] - STEP_MIN) : null;
     if (t.dataset.drop === d.from && (at === null || at === d.startMin)) return null;
     return { el: t, day: t.dataset.drop, at, body };
   }
@@ -1089,7 +1131,7 @@
     const length = Math.round((C.drag.item.end - C.drag.item.start) / 60000);
     if (!els.ghost) els.ghost = h('div', { class: 'drop-ghost', 'aria-hidden': 'true' });
     els.ghost.textContent = `${clock(t.at)} – ${clock((t.at + length) % 1440)}`;
-    setVars(els.ghost, { '--from': t.at, '--to': Math.min(1440, t.at + Math.max(length, STEP_MIN)) });
+    setVars(els.ghost, { '--from': t.at, '--to': Math.min(C.span[1], t.at + Math.max(length, STEP_MIN)) });
     if (els.ghost.parentNode !== t.body) t.body.append(els.ghost);
   }
 
@@ -1650,7 +1692,7 @@
   function tick() {
     const now = cal.dateKey(new Date());
     const line = els.week && els.week.querySelector('.now-line');
-    if (line) setVars(line, { '--from': minuteOf(Date.now()) });
+    if (line) placeNow(line, minuteOf(Date.now()));
     if (now === C.today) return;
     if (C.anchor === C.today) C.anchor = now;
     C.today = now;
