@@ -4,6 +4,10 @@
 project. If someone sent you links to MemDesk, follow
 [INSTALL.md](INSTALL.md) instead: it is much shorter.*
 
+*MemDesk is source available, not open source. Until licences are on sale, a
+free preview licence lets you use a copy you set up from this repository for
+yourself; it does not let you pass copies on. See [LICENSE](LICENSE).*
+
 MemDesk has three parts. You need the first; the other two are for your
 phone and can be added any time.
 

@@ -15,7 +15,7 @@
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
-  <a href="LICENSE"><img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-A78BFA"></a>
+  <a href="LICENSE"><img alt="Source available" src="https://img.shields.io/badge/licence-source%20available-A78BFA"></a>
 </p>
 
 <p align="center">
@@ -695,7 +695,7 @@ The display name appears in exactly these places:
    `tools/make-icons.mjs` again, and copy the new path into `LOGO` in
    `src/content/ui.js` (a test says if they differ).
 
-The guides (`INSTALL.md`, `SETUP.md`, `PUBLISHING.md`, `PRIVACY.md`),
+The licence (`LICENSE`), the guides (`INSTALL.md`, `SETUP.md`, `PUBLISHING.md`, `PRIVACY.md`),
 `store/listing.md` and the website (`site/index.html`, and the demo's `site/demo/`) use the name in their
 text, and link to the repository by its address. The pictures take the name from `APP_NAME`: run
 `tools/readme-shots.mjs` again.
@@ -884,7 +884,7 @@ PUBLISHING.md              for the publisher: the store build, the shared sign-i
 PRIVACY.md                 the privacy policy
 store/                     the Chrome Web Store listing and its pictures
 tools/package-extension.mjs  the store build (dist/, not committed)
-LICENSE                    MIT
+LICENSE                    the licence: source available
 ```
 
 ## Roadmap
@@ -900,4 +900,12 @@ LICENSE                    MIT
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+Source available. Anyone may read, audit and build MemDesk's code, to check
+what it does with their mail, notes and calendar; using it needs a licence
+from the copyright holder. Until licences are on sale, a free preview licence
+covers anyone who sets up a copy for themselves from this repository, or was
+given one by the copyright holder. The terms are in [LICENSE](LICENSE).
+
+Earlier versions of MemDesk were published under the MIT licence, and anyone
+who has a copy of one of those may keep using it on those terms. This licence
+covers every version since it was added.
