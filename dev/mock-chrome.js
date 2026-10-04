@@ -22,6 +22,8 @@
 //   ?calendar=signin       the calendar asks to connect first
 //   ?calendar=notasks      Google Tasks was not allowed when connecting
 //   ?calendar=failwrite    every change to an event or a task fails with a 500
+//   ?calendar=readonly     the sign-in only allows reading (from before changes)
+//   ?calendar=hangwrite    a change to an event or a task is never answered
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -844,6 +846,7 @@
       ev(FAMILY, 'Choir rehearsal', at(1, 19, 30), at(1, 21, 30)),
       ev(JOBS, 'Call Bram about the office action', at(2, 11), at(2, 11, 30)),
       ev(JOBS, 'Lumenra glossary delivery', at(3, 14), at(3, 15)),
+      ev(ME, 'Stand-up', at(5, 9), at(5, 9, 15), { recurringEventId: 'standup' }),
       // Organised by someone else, who did not let guests change it.
       ev(FAMILY, 'Pub quiz', at(3, 19, 30), at(3, 22), { organizer: { self: false } }),
       ev(ME, 'Working from home', day(0), day(5), { eventType: 'workingLocation' }),
@@ -1019,7 +1022,11 @@
   }
 
   async function handle(msg) {
-    log.push({ type: msg.type, method: msg.method, service: msg.service, path: msg.path, query: msg.type === 'google' ? msg.query : undefined, at: Date.now() });
+    log.push({
+      type: msg.type, method: msg.method, service: msg.service, path: msg.path, at: Date.now(),
+      query: msg.type === 'google' ? msg.query : undefined,
+      body: msg.type === 'google' ? msg.body : undefined, etag: msg.type === 'google' ? msg.etag : undefined,
+    });
     switch (msg.type) {
       case 'gmail': {
         if (STATE === 'not_configured') return fail('not_configured', 'Add your OAuth client ID on the setup page first.');
@@ -1037,10 +1044,18 @@
       case 'google': {
         if (STATE === 'not_configured') return fail('not_configured', 'Add your OAuth client ID on the setup page first.');
         if (!calendarConnected) return fail('calendar_auth_required', 'Google Calendar is not connected in this browser yet.');
+        // A sign-in from before the calendar could change things: reads only.
+        // Google never answering a change.
+        if (CALENDAR === 'hangwrite' && msg.method && msg.method !== 'GET') return new Promise(() => {});
+        if (CALENDAR === 'readonly' && msg.method && msg.method !== 'GET') {
+          return fail('calendar_scope', 'Changing it was not allowed when you connected. Connect again, and allow it on Google’s page.');
+        }
         try {
           const data = fakeCalendar.route(String(msg.service || ''), String(msg.path || ''), msg.query || {}, msg.method, msg.body, msg.etag);
           return { ok: true, data: data === null ? null : JSON.parse(JSON.stringify(data)) };
         } catch (err) {
+          // As the worker says it: changed in Google since it was read.
+          if (err.code === 'http_412') return fail('changed', 'It was changed in Google meanwhile.');
           return fail(err.code || 'internal', err.message);
         }
       }

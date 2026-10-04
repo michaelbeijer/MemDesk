@@ -29,14 +29,15 @@ redraws them. See [PUBLISHING.md](../PUBLISHING.md) for the whole process.
 > THE CALENDAR
 > • Your Google Calendar with Google Tasks in it: the week, the month, or the next four weeks as a list.
 > • Tasks with a date sit in their day; the ones without wait at the side. A task made from an email opens the email.
-> • Show or hide each calendar and task list with one click. Read-only: it never changes your calendar.
+> • Show or hide each calendar and task list with one click.
+> • Both ways: change an event, tick a task off, drag either to another day, or add one with the + on a day ("Dentist 14:30"). It goes straight to Google Calendar and Google Tasks.
 >
 > ON YOUR PHONE
 > • A home-screen app with the board, your notes, the Scratchpad and your week, and a panel in the Gmail app that puts the open email on the board.
 >
 > PRIVATE BY DESIGN
 > • There is no MemDesk server. Everything is in your own Gmail, as labels and messages, and MemDesk talks only to Google (Gmail, and Calendar and Tasks for the calendar), from your browser.
-> • It never sends mail and never deletes anything for good.
+> • It never sends mail and never deletes mail for good. A calendar event or task is deleted only when you ask, after a confirmation and an Undo.
 >
 > Open source: https://github.com/michaelbeijer/MemDesk
 
@@ -61,11 +62,11 @@ redraws them. See [PUBLISHING.md](../PUBLISHING.md) for the whole process.
 
 | Permission | Why |
 |---|---|
-| `identity` | Signs in with Google (chrome.identity.launchWebAuthFlow) to get a Gmail access token, and, for the calendar, a separate read-only Calendar and Tasks token. |
+| `identity` | Signs in with Google (chrome.identity.launchWebAuthFlow) to get a Gmail access token, and, for the calendar, a separate Calendar and Tasks token (the calendar list, events and tasks; never sharing or calendars themselves). |
 | `storage` | Keeps the board's column layout, card order, the user's own card titles, notes and colours, which calendars to show, and the short-lived access tokens (session storage only). |
 | Host `https://gmail.googleapis.com/*` | The Gmail API, for the board and the notes. |
-| Host `https://www.googleapis.com/*` | The Google Calendar API (read-only), and Google's userinfo endpoint to check which account the calendar sign-in belongs to. |
-| Host `https://tasks.googleapis.com/*` | The Google Tasks API (read-only), for tasks in the calendar. |
+| Host `https://www.googleapis.com/*` | The Google Calendar API (the calendar list, and the events the user views, changes, adds or deletes), and Google's userinfo endpoint to check which account the calendar sign-in belongs to. |
+| Host `https://tasks.googleapis.com/*` | The Google Tasks API, for tasks in the calendar: shown, ticked off, moved, added or deleted by the user. |
 | Content script on `https://mail.google.com/*` | Draws the board, the notes and the "Add to board" button inside Gmail. |
 | Remote code | No: every script is in the package. |
 

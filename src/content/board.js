@@ -165,6 +165,7 @@
       barChanged: updateBar,
       prefs,
       connect: () => api.connectCalendar(),
+      dialog: { show: showDialog, close: closeEditor },
     }, frame && frame.calendar));
 
     // A move made from the dock (or another tab) makes what the board last
@@ -299,6 +300,8 @@
     S.open = false;
     S.search = null;
     S.drawer = null;
+    // The calendar's dialog is told it closed; the card editor just goes.
+    if (S.editor && S.editor.external) closeEditor();
     S.editor = null;
     renderDrawer();
     renderEditor();
@@ -364,7 +367,7 @@
   // A modal that lets Tab wander into the page behind it is not modal.
   function trapFocus(e) {
     const scope = S.editor ? els.editorLayer : S.drawer ? els.drawerLayer : els.overlay;
-    const focusable = [...scope.querySelectorAll('button:not([disabled]), input:not([disabled]), textarea:not([disabled])')]
+    const focusable = [...scope.querySelectorAll('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href]')]
       .filter(el => el.getClientRects().length);
     if (!focusable.length) return;
     const first = focusable[0];
@@ -1294,8 +1297,24 @@
     if (input) input.select();
   }
 
+  // A dialog of another view's - the calendar's editor - in the card
+  // editor's layer, so the scrim, Esc and the focus trap work the same.
+  // `onClose` runs however it closes.
+  function showDialog(dialog, { onClose } = {}) {
+    closeMenu(root);
+    S.editor = { external: true, onClose };
+    els.editorLayer.replaceChildren(h('div', { class: 'scrim', onclick: closeEditor }), dialog);
+  }
+
   function closeEditor() {
     if (!S.editor) return;
+    if (S.editor.external) {
+      const { onClose } = S.editor;
+      S.editor = null;
+      els.editorLayer.replaceChildren();
+      if (onClose) onClose();
+      return;
+    }
     const id = S.editor.id;
     S.editor = null;
     renderEditor();

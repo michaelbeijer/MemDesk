@@ -38,7 +38,8 @@ Use a **new** project, not the one your own copy uses (that one is
 5. **Data access** → **Add or remove scopes**: add
    `https://www.googleapis.com/auth/gmail.modify`, and for the calendar
    `https://www.googleapis.com/auth/calendar.readonly`,
-   `https://www.googleapis.com/auth/tasks.readonly` and
+   `https://www.googleapis.com/auth/calendar.events`,
+   `https://www.googleapis.com/auth/tasks` and
    `https://www.googleapis.com/auth/userinfo.email`. Save.
 6. **Audience** → **Publish app** → **Confirm** (status "In production").
    No review starts unless you ask for one.
@@ -114,9 +115,9 @@ Give people the store link and the phone-app link, with
 3. Apps Script: paste the new `Code.gs` (and `appsscript.json`, if it
    changed), **Ctrl+S**, then **Deploy → Manage deployments** → the web
    app's pencil → **Version: New version** → **Deploy**. The link stays the
-   same. When `appsscript.json` asks for more (0.17.0 added read-only
-   Calendar and Tasks), Google does not ask people by itself: the app's
-   calendar shows an **Allow** button that opens Google's page for it.
+   same. When `appsscript.json` asks for more (0.17.0 added Calendar and
+   Tasks, 0.24.0 changing them), Google does not ask people by itself: the
+   app's calendar shows an **Allow** button that opens Google's page for it.
 
 ## Beyond 100 people: Google's verification
 
@@ -125,9 +126,9 @@ the app: in Google Auth Platform → **Verification centre**, with a home page
 and privacy policy on a domain you own (supervertaler.com or beijer.uk
 would do), a short video showing the sign-in and what MemDesk does with
 Gmail and with the calendar, and a reason for each permission: `gmail.modify`
-(restricted) for the board and the notes, `calendar.readonly` and
-`tasks.readonly` (sensitive, which need the review but no security
-assessment) for the Calendar tab. It is free but takes weeks. Apps whose Gmail data never leaves the user's device - the Chrome
+(restricted) for the board and the notes, `calendar.readonly`,
+`calendar.events` and `tasks` (sensitive, which need the review but no
+security assessment) for the Calendar tab. It is free but takes weeks. Apps whose Gmail data never leaves the user's device - the Chrome
 extension - can usually skip the paid security assessment that comes with
 Gmail access; the phone app, which runs on Apps Script, may not, which is a
 reason to move it to a plain web page first.

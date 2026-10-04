@@ -42,6 +42,7 @@
   --press: rgba(68, 71, 70, .14);
   --focus: #0b57d0;
   --danger: #b3261e;
+  --on-danger: #ffffff;
   --star: #e8a400;
   --inverse: #303030;
   --on-inverse: #f2f2f2;
@@ -89,6 +90,7 @@
     --press: rgba(227, 227, 227, .14);
     --focus: #a8c7fa;
     --danger: #f2b8b5;
+    --on-danger: #601410;
     --star: #fdd663;
     --inverse: #e3e3e3;
     --on-inverse: #1f1f1f;
@@ -168,7 +170,10 @@ button:disabled { cursor: default; }
 .btn-tonal { background: var(--accent-soft); color: var(--on-accent-soft); }
 .btn-text { color: var(--accent); padding: 0 12px; }
 .btn-text:hover, .btn-tonal:hover { background-image: linear-gradient(var(--hover), var(--hover)); }
-.btn:disabled { opacity: .5; box-shadow: none; }
+.btn-text.danger { color: var(--danger); }
+.btn-danger { background: var(--danger); color: var(--on-danger); }
+.btn-danger:hover { box-shadow: var(--shadow-1); }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: .5; box-shadow: none; }
 
 /* ── Menus ── */
 
@@ -1437,6 +1442,30 @@ a.item:hover { background-image: linear-gradient(var(--hover), var(--hover)); }
 .task .due { flex: none; margin-left: auto; color: var(--danger); font-size: 11.5px; }
 .task .mail { flex: none; display: inline-flex; margin-left: auto; color: var(--accent); }
 .task .due + .mail { margin-left: 4px; }
+
+/* Changing things: a + on each day, a task's box that ticks it, dragging
+   to another day, and the editor. */
+.day-add { width: 28px; height: 28px; color: var(--fg-2); flex: none; }
+.day-head .day-add { margin: -5px -5px -5px auto; }
+.mhead { display: flex; align-items: center; }
+.mcell .day-add { width: 24px; height: 24px; margin-left: auto; opacity: 0; }
+.mcell:hover .day-add, .mcell .day-add:focus-visible { opacity: 1; }
+.task-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; color: inherit; text-decoration: none; }
+.cal-week .task-link, .cal-tray .task-link { align-items: flex-start; }
+div.item.task:hover { background-image: linear-gradient(var(--hover), var(--hover)); }
+button.box { padding: 0; background: none; color: inherit; cursor: pointer; }
+.item.dragging { opacity: .45; }
+.drop-here { box-shadow: inset 0 0 0 2px var(--accent); }
+.cal-edit-kinds { display: flex; gap: 2px; padding: 3px; border-radius: 20px; background: var(--hover); justify-self: start; }
+.cal-edit-kinds .seg[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: var(--shadow-1); }
+.cal-edit-part { display: grid; gap: 14px; }
+.cal-edit-part[hidden], .cal-edit .dialog-foot[hidden], .cal-edit .cal-time[hidden] { display: none; }
+.cal-edit-row { display: flex; align-items: center; gap: 8px; }
+.cal-edit-row .cal-date { flex: 1; min-width: 0; }
+.cal-time { width: 6.5em; flex: none; text-align: center; font-variant-numeric: tabular-nums; }
+.cal-edit-check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.cal-edit-where { padding: 4px 0; }
+.cal-edit .dialog-body > .note, .cal-edit-part > .note { margin: 0; font-size: 12px; color: var(--fg-3); }
 
 /* Month */
 .cal-month { flex: 1; display: flex; flex-direction: column; min-height: 0; }
