@@ -156,7 +156,10 @@
   }
   @media (max-width: 520px) {
     body { font-size: 16px; }
-    .top nav a { margin-left: 16px; }
+    .brand { font-size: 19px; gap: 8px; }
+    .brand img { width: 30px; height: 30px; }
+    .top nav { white-space: nowrap; }
+    .top nav a { margin-left: 13px; font-size: 14px; }
     .top nav .hide-small { display: none; }
     .intro { padding-top: 30px; padding-bottom: 26px; }
     .points { grid-template-columns: 1fr; }
@@ -173,8 +176,9 @@
     <nav>
       <a class="hide-small" href="#what">What it does</a>
       <a href="#screens">Screenshots</a>
+      <a href="demo/">Demo</a>
       <a href="privacy/">Privacy</a>
-      <a href="https://github.com/michaelbeijer/MemDesk">GitHub</a>
+      <a class="hide-small" href="https://github.com/michaelbeijer/MemDesk">GitHub</a>
     </nav>
   </div>
   <div class="wrap intro">
@@ -183,6 +187,7 @@
       Your calendar, with your tasks in it. No server, no database, nothing to sign up for.</p>
     <div class="buttons">
       <a class="btn btn-main" href="#get">Get MemDesk</a>
+      <a class="btn btn-ghost" href="demo/">Try the demo</a>
       <a class="btn btn-ghost" href="https://github.com/michaelbeijer/MemDesk">See it on GitHub</a>
     </div>
     <p class="platforms">Chrome on your computer · the Gmail app and a home‑screen app on Android</p>
@@ -291,6 +296,8 @@
       <p>MemDesk is not in the Chrome Web Store yet. Until it is, you can set it up yourself from
         GitHub: about ten minutes, once, with pictures of every step.</p>
       <p>Did someone send you a link to their copy? Then you only need the short install guide.</p>
+      <p>Want to try it first? The <a href="demo/">demo</a> is MemDesk in a made-up Gmail, on a
+        computer and on a phone, with nothing to install.</p>
       <div class="buttons">
         <a class="btn btn-main" href="https://github.com/michaelbeijer/MemDesk/blob/main/SETUP.md">Set it up</a>
         <a class="btn btn-ghost" href="https://github.com/michaelbeijer/MemDesk/blob/main/INSTALL.md">Install guide</a>

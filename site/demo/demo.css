@@ -1,0 +1,116 @@
+/* ─────────────────────────────────────────────────────────────────────
+   The website's demo: its bar, on both pages, and the phone page's frame
+
+   The bar says what this is, switches between the computer and the
+   phone, and leads back to the website. tools/build-site.mjs writes it
+   into each page; the computer page's comes from the dev preview, whose
+   developer bar demo.js puts it in place of.
+   ───────────────────────────────────────────────────────────────────── */
+
+.demobar {
+  display: flex;
+  align-items: center;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  flex: none;
+  padding: 7px 16px;
+  background: linear-gradient(135deg, #2e1065 0%, #4c1d95 45%, #6d28d9 100%);
+  color: #ede9fe;
+  font: 13.5px/1.35 Roboto, "Segoe UI", Arial, sans-serif;
+}
+.demobar a { color: #fff; }
+.demo-home {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.demo-home img { width: 22px; height: 22px; }
+.demo-what { flex: 1 1 20em; min-width: 0; }
+/* The computer page's styles are the preview's, whose nav is Gmail's
+   side bar: this one is not. */
+.demobar .demo-switch {
+  display: inline-flex;
+  width: auto;
+  overflow: visible;
+  padding: 2px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .14);
+}
+.demo-switch a {
+  padding: 3px 12px;
+  border-radius: 14px;
+  text-decoration: none;
+  font-weight: 500;
+}
+.demo-switch a[aria-current="page"] { background: #fff; color: #4c1d95; }
+.demo-get {
+  padding: 4px 14px;
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, .7);
+  text-decoration: none;
+  font-weight: 500;
+}
+.demo-get:hover { background: rgba(255, 255, 255, .1); }
+
+/* What a link to Google would have done, said instead. */
+.demo-note {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 2147483647;
+  max-width: min(32em, calc(100vw - 32px));
+  transform: translateX(-50%);
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: #2e1065;
+  color: #fff;
+  font: 14px/1.4 Roboto, "Segoe UI", Arial, sans-serif;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .3);
+}
+
+/* The phone page: the app in a phone, beside a word about it; on a
+   phone, the app fills the screen. */
+html.phone-page, .phone-page body { height: 100%; margin: 0; }
+.phone-page body {
+  display: flex;
+  flex-direction: column;
+  background: #1c0b3d radial-gradient(circle at 20% 10%, #4c1d95 0, transparent 55%);
+  color: #ede9fe;
+  font: 16px/1.55 Roboto, "Segoe UI", Arial, sans-serif;
+}
+.stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 56px;
+  padding: 20px;
+}
+.phone {
+  flex: none;
+  width: 390px;
+  height: min(844px, 100%);
+  padding: 11px;
+  border-radius: 46px;
+  background: #0d0d10;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .55), inset 0 0 0 2px #2a2a33;
+}
+.phone iframe { display: block; width: 100%; height: 100%; border: 0; border-radius: 36px; background: #f6f8fc; }
+.side { max-width: 22em; }
+.side h1 { margin: 0 0 12px; font-size: 26px; line-height: 1.25; color: #fff; }
+.side p { margin: 0 0 12px; }
+@media (max-width: 860px) {
+  .side { display: none; }
+}
+@media (max-width: 520px) {
+  .demo-what, .demo-name { display: none; }
+  .demobar { gap: 8px 12px; padding: 7px 12px; }
+  .demobar > :last-child { margin-left: auto; }
+  .stage { padding: 0; }
+  .phone { width: 100%; height: 100%; padding: 0; border-radius: 0; box-shadow: none; background: none; }
+  .phone iframe { border-radius: 0; }
+}

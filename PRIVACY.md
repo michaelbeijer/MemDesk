@@ -91,6 +91,13 @@ MemDesk's use and transfer of information received from Google APIs
 adheres to the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy),
 including the Limited Use requirements.
 
+## The demo on memdesk.app
+
+The website's demo is MemDesk with a made-up mailbox, notes and calendar,
+running in your browser. It does not ask for your Google account and sends
+nothing anywhere. What you type in it stays in your browser, and a reload
+starts afresh.
+
 ## Removing MemDesk
 
 Remove the extension in `chrome://extensions`, and withdraw its access to

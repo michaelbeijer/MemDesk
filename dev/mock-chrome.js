@@ -24,12 +24,15 @@
 //   ?calendar=failwrite    every change to an event or a task fails with a 500
 //   ?calendar=readonly     the sign-in only allows reading (from before changes)
 //   ?calendar=hangwrite    a change to an event or a task is never answered
+//
+// A page can set window.__mockSearch to the flags it wants before this
+// loads, in place of its own address's: the website's demo does.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
   'use strict';
 
-  const params = new URLSearchParams(location.search);
+  const params = new URLSearchParams(typeof window.__mockSearch === 'string' ? window.__mockSearch : location.search);
   const LATENCY = Number(params.get('latency') || 120);
   const STATE = params.get('state') || '';
   const FAIL = params.get('fail') || '';

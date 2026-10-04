@@ -35,6 +35,7 @@ when it changes) into their Apps Script project.
 | Phone app server functions (`appStart`, `appSave`, …) | `addon/src/app-server.js`, entry points in `addon/src/triggers.js` |
 | Dev preview with a fake Gmail | `dev/preview.html`, `dev/mock-chrome.js` |
 | Website (memdesk.app, GitHub Pages via Actions) | `site/index.html`, `tools/build-site.mjs`, `.github/workflows/pages.yml` |
+| The demo (memdesk.app/demo/): the preview and the phone app with `Code.gs` in the page | `site/demo/`, built by `tools/build-site.mjs`; Apps Script's services in `dev/apps-script-services.js` (shared with `tests/helpers/apps-script.js`) |
 | README / store pictures | `tools/readme-shots.mjs` → `images/`, `store/` |
 | Icon | `tools/icon-svg.py` → `icons/icon.svg` → `tools/make-icons.mjs`; `LOGO` in `src/content/ui.js` must match |
 
@@ -56,6 +57,9 @@ when it changes) into their Apps Script project.
 - No HTML-string sinks in `src/` or `dev/` (`innerHTML`, `insertAdjacentHTML`,
   `DOMParser`, …): Gmail's Trusted Types would block them. Build DOM with `h()`.
   HTML is read with note-format's own tokenizer.
+- The website's pages (`index.html`, `privacy/`) run no scripts; only the
+  demo does, and it loads nothing from elsewhere. The demo is built from the
+  real code, never a copy: keep it that way.
 - The display name "MemDesk" appears only in the rename spots listed in the
   README's *Renaming* section; elsewhere use `APP_NAME`.
 - Internal identifiers stay brand-free (`gkb` namespace, storage keys). The
@@ -82,6 +86,7 @@ npx playwright-core install chromium
 node tests/e2e/preview.e2e.mjs     # board, notes, editor, tables in the dev preview
 node tests/e2e/app.e2e.mjs         # the phone app against the Apps Script stand-in
 node tests/e2e/extension.e2e.mjs   # the real extension loaded in Chromium
+node tests/e2e/demo.e2e.mjs        # the website's demo, built and served
 ```
 
 Set `PLAYWRIGHT_CORE` (a playwright-core folder) or `CHROMIUM_PATH` to use an
@@ -93,7 +98,7 @@ existing install. Steps stop at the first failure; screenshots go to
 1. Bump the version in `manifest.json`, `package.json`, `tests/static.test.js`,
    `APP_VERSION` in `src/shared/ns.js` (the logo menu shows it), and the
    README's badge and "Version x.y.z" line.
-2. `node tools/build-addon.mjs`, then `npm test` and the three browser suites.
+2. `node tools/build-addon.mjs`, then `npm test` and the four browser suites.
 3. Privacy: if what is stored or read changes, update `PRIVACY.md` (and its
    date); the website's privacy page is built from it.
 4. The user's update package: the extension as `git archive --format=zip

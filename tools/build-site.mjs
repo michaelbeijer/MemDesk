@@ -6,7 +6,8 @@
 //
 // Puts together what GitHub Pages serves: site/index.html as it is, the
 // privacy policy made into a page from PRIVACY.md (so there is one text,
-// not two), and the icons and README pictures the page shows. Nothing is
+// not two), the icons and README pictures the page shows, and the demo
+// (demo/, demo/phone/), made of the real code and its fakes. Nothing is
 // written into the repository itself; .github/workflows/pages.yml runs
 // this on every push to main and publishes the result.
 // ─────────────────────────────────────────────────────────────────────
@@ -14,6 +15,7 @@
 import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { appHtml } from './build-addon.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = rel => readFileSync(join(REPO, rel), 'utf8');
@@ -100,6 +102,116 @@ ${markdown(md)}
 `;
 }
 
+// ── The demo ──
+//
+// demo/: the dev preview - the extension's real content scripts in a
+// made-up Gmail - in its tidy showcase mode, under the demo's bar.
+// demo/phone/: the phone app's page, as Code.gs serves it, with Code.gs
+// itself running beside it in a hidden frame (server.html), its Apps
+// Script services standing in against the same kind of made-up mailbox.
+// Nothing is kept: a reload starts afresh. See site/demo.
+
+// Each change to a page made here must find its place exactly once, so
+// that a change to the preview or the app's page breaks the build, not
+// the demo.
+function once(text, find, put) {
+  const n = text.split(find).length - 1;
+  if (n !== 1) throw new Error(`build-site: expected "${find}" once, found it ${n} times`);
+  return text.replace(find, () => put);
+}
+
+// The fake services: tidy, and a little quicker than the preview's.
+const DEMO_FLAGS = '?showcase&latency=80';
+
+function demoBar(phone) {
+  const root = phone ? '../../' : '../';
+  return `<div class="demobar" role="region" aria-label="About this demo">
+  <a class="demo-home" href="${root}" aria-label="${esc(APP_NAME)}: the website"><img src="${root}icon.svg" alt="" width="22" height="22"><span class="demo-name">${esc(APP_NAME)}</span></a>
+  <span class="demo-what">A demo with made-up mail, notes and calendar. Try anything: nothing leaves this page, and a reload starts afresh.</span>
+  <nav class="demo-switch" aria-label="Computer or phone">
+    <a href="${phone ? '../?computer' : './'}"${phone ? '' : ' aria-current="page"'}>Computer</a><a href="${phone ? './' : 'phone/'}"${phone ? ' aria-current="page"' : ''}>Phone</a>
+  </nav>
+  <a class="demo-get" href="${root}#get">Get ${esc(APP_NAME)}</a>
+</div>`;
+}
+
+export const CONTENT_SCRIPTS = JSON.parse(read('manifest.json')).content_scripts[0].js;
+// What the hidden script frame needs besides Code.gs: the fake mailbox,
+// and what it uses.
+const SERVER_SCRIPTS = ['src/lib/util.js', 'src/lib/notes-logic.js', 'src/lib/calendar-logic.js'];
+
+function computerPage() {
+  let html = read('dev/preview.html');
+  html = once(html, /<title>[^<]*<\/title>/.exec(html)[0], `<title>${esc(APP_NAME)} demo</title>
+<meta name="description" content="Try ${esc(APP_NAME)} in a made-up Gmail: the board, the notes and the calendar, with nothing to install.">
+<link rel="icon" href="../icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="demo.css">`);
+  html = once(html, '<body>\n', `<body>\n${demoBar(false)}\n`);
+  html = once(html, '<script src="mock-chrome.js"></script>', `<script>
+    window.__mockSearch = '${DEMO_FLAGS}';
+    // On a phone, the phone's demo, unless the computer's was asked for.
+    if (matchMedia('(max-width: 700px)').matches && !/[?&]computer\\b/.test(location.search)) location.replace('phone/');
+  </script>
+  <script src="mock-chrome.js"></script>`);
+  const scripts = html.match(/<script src="\.\.\/src\/[^"]+"><\/script>/g) || [];
+  if (scripts.length !== CONTENT_SCRIPTS.length) throw new Error('build-site: the preview does not load the manifest’s content scripts');
+  html = html.replace(/<script src="\.\.\/src\//g, '<script src="src/');
+  return once(html, '</body>', '<script src="demo.js"></script>\n</body>');
+}
+
+function serverPage() {
+  const whitelist = JSON.parse(read('addon/appsscript.json')).urlFetchWhitelist;
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The phone app's script, standing in</title>
+</head>
+<body>
+<script>window.__mockSearch = '${DEMO_FLAGS.replace(/latency=\d+/, 'latency=0')}';</script>
+${SERVER_SCRIPTS.map(f => `<script src="../${f}"></script>`).join('\n')}
+<script src="../mock-chrome.js"></script>
+<script src="../apps-script-services.js"></script>
+<script>
+  // Apps Script's globals, as Code.gs finds them there. What it fetches
+  // is not logged: a long visit would only pile it up.
+  (function () {
+    var services = window.appsScriptServices;
+    var fake = { route: window.__mockChrome.route, googleRoute: window.__mockChrome.googleRoute };
+    window.UrlFetchApp = services.urlFetch(fake, { push: function () {} }, ${JSON.stringify(whitelist)});
+    window.PropertiesService = services.propertiesService(fake);
+    window.ScriptApp = services.scriptApp(fake);
+    window.HtmlService = services.htmlService();
+  })();
+</script>
+<script src="code.js"></script>
+</body>
+</html>
+`;
+}
+
+function buildDemo(out) {
+  const demo = join(out, 'demo');
+  const copy = (from, to) => {
+    mkdirSync(dirname(join(demo, to)), { recursive: true });
+    copyFileSync(join(REPO, from), join(demo, to));
+  };
+  mkdirSync(join(demo, 'phone'), { recursive: true });
+  writeFileSync(join(demo, 'index.html'), computerPage());
+  for (const f of new Set([...CONTENT_SCRIPTS, ...SERVER_SCRIPTS])) copy(f, f);
+  copy('dev/mock-chrome.js', 'mock-chrome.js');
+  copy('dev/apps-script-services.js', 'apps-script-services.js');
+  copy('site/demo/demo.css', 'demo.css');
+  copy('site/demo/demo.js', 'demo.js');
+  writeFileSync(join(demo, 'phone', 'index.html'), once(read('site/demo/phone.html'), '<!-- demo bar -->', demoBar(true)));
+  writeFileSync(join(demo, 'phone', 'app.html'), appHtml({
+    before: '<link rel="stylesheet" href="../demo.css">\n<script src="../demo.js"></script>\n<script src="run.js"></script>\n',
+  }));
+  copy('site/demo/run.js', 'phone/run.js');
+  writeFileSync(join(demo, 'phone', 'server.html'), serverPage());
+  copy('addon/Code.gs', 'phone/code.js');
+}
+
 export function build(out) {
   rmSync(out, { recursive: true, force: true });
   mkdirSync(join(out, 'img'), { recursive: true });
@@ -108,6 +220,7 @@ export function build(out) {
   writeFileSync(join(out, 'privacy', 'index.html'), privacyPage());
   for (const f of ICONS) copyFileSync(join(REPO, 'icons', f), join(out, f));
   for (const f of PICTURES) copyFileSync(join(REPO, 'images', f), join(out, 'img', f));
+  buildDemo(out);
   return out;
 }
 

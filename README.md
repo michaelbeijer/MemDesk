@@ -20,6 +20,7 @@
 
 <p align="center">
   <a href="https://memdesk.app">memdesk.app</a> ·
+  <a href="https://memdesk.app/demo/">Try the demo</a> ·
   <a href="#what-it-does">What it does</a> ·
   <a href="SETUP.md">Set it up</a> ·
   <a href="#usage">How to use it</a> ·
@@ -695,7 +696,7 @@ The display name appears in exactly these places:
    `src/content/ui.js` (a test says if they differ).
 
 The guides (`INSTALL.md`, `SETUP.md`, `PUBLISHING.md`, `PRIVACY.md`),
-`store/listing.md` and the website (`site/index.html`) use the name in their
+`store/listing.md` and the website (`site/index.html`, and the demo's `site/demo/`) use the name in their
 text, and link to the repository by its address. The pictures take the name from `APP_NAME`: run
 `tools/readme-shots.mjs` again.
 
@@ -735,6 +736,7 @@ npm i --no-save playwright-core
 npm run test:preview          # (a) content scripts against a fake Gmail
 npm run test:extension        # (b) the real unpacked extension
 npm run test:app              # (c) the phone app at a phone's size
+npm run test:demo             # (d) the website's demo, built and served
 ```
 
 - `CHROMIUM_PATH` chooses the browser. It must be full Chromium, because
@@ -765,6 +767,34 @@ npm run test:app              # (c) the phone app at a phone's size
   typing and formatting with autosave, ticking a box, the back gesture,
   search, a new note, saving on switching away, the board, the calendar's
   phone week with its chips and swipes, and dark mode.
+- (d) builds the website, serves it over HTTP as GitHub Pages would, and
+  tries the demo: on a computer, the board below the demo's bar, the notes
+  and the week; on a phone, the phone app with `Code.gs` running beside it
+  in the page, a Scratchpad save through it, the board and the week; that
+  links to Google say so instead of leaving; and that a reload starts
+  afresh.
+
+### The demo on memdesk.app
+
+[memdesk.app/demo/](https://memdesk.app/demo/) is MemDesk with a made-up
+mailbox, notes and calendar, built by `tools/build-site.mjs` from the real
+code - nothing written for the demo alone but its bar and its glue
+(`site/demo/`):
+
+- **On a computer** it is the dev preview in its tidy `?showcase` mode: the
+  extension's content scripts in a fake Gmail, opening on the board. The
+  demo's bar takes the place of the developer's strip.
+- **On a phone** (and at `/demo/phone/`) it is the phone app's page, as
+  `Code.gs` serves it. `Code.gs` itself runs in a hidden frame of the page,
+  with Apps Script's services standing in (`dev/apps-script-services.js`,
+  shared with the tests) against the same fake Gmail, Calendar and Tasks;
+  `site/demo/run.js` hands it each `google.script.run` call. On a computer
+  the app sits in a phone's frame.
+- Nothing is kept: the fakes live in the page, so a reload starts afresh.
+  Links that would open Google Calendar, Google Tasks or Gmail say so
+  instead.
+- The website is rebuilt whenever the code under it changes on `main`, so
+  the demo is always the version released.
 
 ### Dev preview
 
@@ -839,12 +869,15 @@ addon/                     the phone panel and phone app (Apps Script)
   app/shell.js             its full-screen frame and phone layout
 tests/                     unit tests; tests/e2e/ browser checks;
                            helpers/apps-script.js, a stand-in Apps Script
+                           (its services in dev/apps-script-services.js)
+site/                      the website, memdesk.app; site/demo/ the demo's bar and glue
 icons/icon.svg             the icon; icon-*.png are rendered from it
 images/                    the README's pictures
 tools/icon-svg.py          draws icons/icon.svg
 tools/make-icons.mjs       renders the icon PNGs
 tools/readme-shots.mjs     takes the README's pictures
 tools/build-addon.mjs      builds addon/Code.gs
+tools/build-site.mjs       builds the website and its demo
 SETUP.md                   step-by-step setup of your own copy
 INSTALL.md                 installing from the store and a shared phone app
 PUBLISHING.md              for the publisher: the store build, the shared sign-in

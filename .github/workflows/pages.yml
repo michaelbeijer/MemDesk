@@ -1,5 +1,6 @@
 # The website, memdesk.app: built by tools/build-site.mjs and published
-# with GitHub Pages on every push to main that changes it. Pages must be
+# with GitHub Pages on every push to main that changes it - the demo is
+# made of the extension's and the phone app's own code, so that too. Pages must be
 # set to "GitHub Actions" (Settings → Pages → Source) for this to deploy.
 name: Website
 
@@ -11,8 +12,12 @@ on:
       - 'PRIVACY.md'
       - 'images/**'
       - 'icons/**'
-      - 'src/shared/ns.js'
+      - 'src/**'
+      - 'dev/**'
+      - 'addon/**'
+      - 'manifest.json'
       - 'tools/build-site.mjs'
+      - 'tools/build-addon.mjs'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
