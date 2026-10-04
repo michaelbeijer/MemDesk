@@ -6,6 +6,11 @@ messages under `_Notes`. No server, no database. Formerly called Supermail
 (until 0.17.1). The README is the full manual; this is the short version for
 working on the code.
 
+The licence is source available (`LICENSE`, modelled on Supervertaler for
+Trados's): anyone may read, audit and build the code, but using it needs a
+licence, with a free preview licence until licences are sold. It was MIT
+before; never call MemDesk open source now.
+
 ## Three ways it runs, one codebase
 
 | Surface | Where | Talks to Google through |

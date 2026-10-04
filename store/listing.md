@@ -39,7 +39,7 @@ redraws them. See [PUBLISHING.md](../PUBLISHING.md) for the whole process.
 > • There is no MemDesk server. Everything is in your own Gmail, as labels and messages, and MemDesk talks only to Google (Gmail, and Calendar and Tasks for the calendar), from your browser.
 > • It never sends mail and never deletes mail for good. A calendar event or task is deleted only when you ask, after a confirmation and an Undo.
 >
-> Open source: https://github.com/michaelbeijer/MemDesk
+> Source available, so that anyone can check what it does with their mail: https://github.com/michaelbeijer/MemDesk
 
 **Category:** Productivity › Workflow & Planning
 **Language:** English

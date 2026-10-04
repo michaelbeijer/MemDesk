@@ -1,21 +1,76 @@
-MIT License
+MemDesk — Source Available Licence
 
-Copyright (c) 2026 Michael Beijer
+Copyright (c) 2026 Michael Beijer (memdesk.app)
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Permission is hereby granted to any person obtaining a copy of this software
+and associated documentation files (the "Software") to:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+  1. View, study, audit, and reference the source code;
+  2. Fork and modify the source code for private study, auditing, and
+     experimentation;
+  3. Build the Software from source in order to inspect or verify it.
+
+These grants exist so that anyone can satisfy themselves that the Software is
+safe and does what it claims with their mail, notes and calendar. They are
+NOT a grant of use. Using the Software - the Chrome extension, the phone app
+or the phone panel - with a Google account, for work or otherwise, requires a
+valid licence obtained from the copyright holder. This applies equally to a
+build you made from source and to one you installed. Trying the demo that the
+copyright holder publishes at https://memdesk.app needs no licence.
+
+Preview licence. Until the copyright holder sells licences for the Software,
+the copyright holder grants you a free licence to use it yourself, with your
+own Google account: a copy you set up from this repository by following its
+setup guide, or one you obtained from the copyright holder. This preview
+licence is subject to the restrictions below. The copyright holder may end it
+by publishing a notice at https://memdesk.app; it then ends 30 days after the
+notice is published, and using the Software after that requires a licence as
+above.
+
+Grants 2 and 3, and the preview licence, are subject to the restrictions
+below, and in particular do not extend to the Licensing Mechanisms.
+
+"Licensing Mechanisms" means any part of the Software that implements or
+supports licence key entry, activation, deactivation, validation, tier or
+entitlement resolution, trial eligibility or expiry, or feature gating, and
+any key, account or credential the copyright holder uses to sign or publish
+the Software.
+
+The following restrictions apply:
+
+  1. You may NOT redistribute the Software or packages of it (including
+     .zip and .crx packages of the extension, and copies of its Apps Script
+     code for others to use), whether modified or unmodified, free of charge
+     or commercially.
+  2. You may NOT offer the Software, or any derivative of it, as a
+     commercial product or service.
+  3. You may NOT sublicense the Software.
+  4. You may NOT modify, disable, bypass, or remove the Licensing Mechanisms,
+     nor publish or distribute any modification, patch, tool, or instructions
+     for doing so. You may NOT build, install, or use any copy of the Software
+     in which the Licensing Mechanisms have been modified, disabled, bypassed,
+     or removed. This applies whether or not the resulting build is shared
+     with anyone else.
+  5. You may NOT use any signing key, publishing account or credential
+     belonging to the copyright holder to sign or publish a build of the
+     Software or of any derivative work.
+  6. You may NOT remove or alter any copyright, licence, branding, or
+     attribution notice in the Software.
+
+Any breach of the restrictions above automatically and immediately terminates
+the permissions granted by this licence. Use of the Software after termination
+is unlicensed.
+
+Packages of the Software are available exclusively from the copyright holder,
+via https://memdesk.app and, once it is listed there, the Chrome Web Store.
+
+Contributions submitted to this repository (e.g. via pull requests) are
+licensed under the same terms and the copyright holder retains the right to
+distribute them as part of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
