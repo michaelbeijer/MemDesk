@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.24.0" src="https://img.shields.io/badge/version-0.24.0-6D28D9">
+  <img alt="Version 0.25.0" src="https://img.shields.io/badge/version-0.25.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -133,7 +133,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.24.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.25.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -365,12 +365,20 @@ in Gmail and the notes follow.
 - **What is on a day**: all-day events first, then the rest by time, then the
   tasks due that day, open ones before ticked ones.
 - **Change an event**: click it. A small editor opens: the title, all day or
-  from when until when (on the 24-hour clock), and where; **Save** sends it to
-  Google Calendar. One occurrence of a repeating event changes on its own.
+  from when until when (on the 24-hour clock), how it repeats, and where;
+  **Save** sends it to Google Calendar.
   Events MemDesk may not change open in Google Calendar instead, as before:
   ones on a calendar shared with you read-only (holidays, say), birthdays,
   and meetings someone else organises without letting guests change them.
   Ctrl-click (or the middle button) always opens an event in Google Calendar.
+- **Repeats** is Google's own menu - daily, weekly on the day, monthly on its
+  weekday, annually, every weekday - or **Custom…**: every so many days,
+  weeks, months or years, on the weekdays you pick, ending never, on a date
+  or after so many times. One event of a series asks, when you save or
+  delete, whether that is for **this event** or **all events**; a new rule
+  is for all of them, and stopping a series repeating (which takes its other
+  events away) waits out an Undo, as a delete does. A rule MemDesk cannot
+  show, made in Google Calendar, is kept as it is unless you choose another.
 - **Tick a task off** with its box, and again to undo; click its title for the
   editor (title, day or none, done). A task made from an email (with an
   envelope) opens that email on a Ctrl-click.
@@ -607,8 +615,9 @@ The privacy policy is [PRIVACY.md](PRIVACY.md). In detail:
   calendar's token cannot read Gmail's profile). None of them reaches a
   calendar itself or its sharing. The worker lets through only four kinds of
   `GET` - the calendar list, a calendar's events, the task lists and a list's
-  tasks - and one event or one task added (`POST`), changed (`PATCH`) or
-  deleted (`DELETE`), with only the fields the editor edits: never guests
+  tasks, and one event on its own (a series, for its rule) - and one event
+  or one task added (`POST`), changed (`PATCH`) or deleted (`DELETE`), with
+  only the fields the editor edits, how it repeats included: never guests
   (who would be sent invitations), never a calendar or a task list. A change
   to an event carries its version (`If-Match`), so one changed in Google
   meanwhile is refused rather than overwritten or deleted unseen. A delete is

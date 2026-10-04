@@ -30,9 +30,15 @@ test('reads the calendar list, events, task lists and tasks; writes one event or
   assert.ok(ok('tasks', 'lists/abc/tasks/t1', 'DELETE'));
 
   // Nothing but those fields: no guests (who would get invitations), no
-  // reminders, no recurrence; no body where none belongs.
+  // reminders; repeat rules only as Google's own kinds of line; no body
+  // where none belongs.
   assert.ok(!ok('calendar', 'calendars/primary/events', 'POST', { summary: 'x', attendees: [{ email: 'a@b.c' }] }), 'no guests');
-  assert.ok(!ok('calendar', 'calendars/primary/events/abc', 'PATCH', { recurrence: ['RRULE:FREQ=DAILY'] }));
+  assert.ok(!ok('calendar', 'calendars/primary/events/abc', 'PATCH', { reminders: { useDefault: false } }), 'no reminders');
+  assert.ok(ok('calendar', 'calendars/primary/events/abc', 'PATCH', { recurrence: ['RRULE:FREQ=DAILY', 'EXDATE;VALUE=DATE:20261014'] }));
+  assert.ok(ok('calendar', 'calendars/primary/events/abc', 'PATCH', { recurrence: [] }), 'no longer repeating');
+  assert.ok(!ok('calendar', 'calendars/primary/events/abc', 'PATCH', { recurrence: 'RRULE:FREQ=DAILY' }), 'a list of lines');
+  assert.ok(!ok('calendar', 'calendars/primary/events/abc', 'PATCH', { recurrence: ['X-THING:1'] }), 'only rule lines');
+  assert.ok(!ok('calendar', 'calendars/primary/events/abc', 'PATCH', { recurrence: ['RRULE:FREQ=DAILY' + String.fromCharCode(10) + 'ATTENDEE:a@b.c'] }), 'one line each');
   assert.ok(!ok('calendar', 'calendars/primary/events/abc', 'PATCH', { start: { dateTime: 'x', foo: 1 } }));
   assert.ok(!ok('calendar', 'calendars/primary/events', 'POST'), 'a body is needed');
   assert.ok(!ok('calendar', 'calendars/primary/events', 'POST', ['summary']));
@@ -48,7 +54,8 @@ test('reads the calendar list, events, task lists and tasks; writes one event or
   assert.ok(!ok('calendar', 'calendars/primary/events/abc/move', 'POST', { summary: 'x' }));
   assert.ok(!ok('calendar', 'calendars/primary/acl'), 'not sharing settings');
   assert.ok(!ok('calendar', 'calendars/primary/acl', 'POST', {}));
-  assert.ok(!ok('calendar', 'calendars/primary/events/abc'), 'no single reads');
+  assert.ok(ok('calendar', 'calendars/primary/events/abc'), 'one event read on its own: a series, for its rule');
+  assert.ok(!ok('calendar', 'calendars/primary/events/abc/instances'), 'nothing under it');
   assert.ok(!ok('calendar', 'users/me/settings'));
   assert.ok(!ok('tasks', 'lists/abc/tasks/clear'));
   assert.ok(!ok('gmail', 'profile'), 'not another service');
@@ -432,4 +439,87 @@ test('the editor starts from an item, or empty on a day', () => {
   assert.deepEqual(cal.newDraft('task', '2026-10-05', 'L1'), { kind: 'task', title: '', source: 'L1', day: '2026-10-05', done: false });
   assert.equal(cal.eventPath({ source: 'sam@example.com', eventId: 'a_20261005T090000Z' }), 'calendars/sam%40example.com/events/a_20261005T090000Z');
   assert.equal(cal.taskPath({ source: 'L1', taskId: 'k' }), 'lists/L1/tasks/k');
+});
+
+// ── Repeating ────────────────────────────────────────────────────────
+
+test('Google’s repeat menu, for the day the event starts', () => {
+  // Wednesday 7 October 2026, the first Wednesday of its month.
+  assert.deepEqual(cal.repeatChoices('2026-10-07').map(c => [c.id, c.label, c.rule]), [
+    ['none', 'Does not repeat', ''],
+    ['daily', 'Daily', 'RRULE:FREQ=DAILY'],
+    ['weekly', 'Weekly on Wednesday', 'RRULE:FREQ=WEEKLY;BYDAY=WE'],
+    ['monthly', 'Monthly on the first Wednesday', 'RRULE:FREQ=MONTHLY;BYDAY=1WE'],
+    ['yearly', 'Annually on 7 October', 'RRULE:FREQ=YEARLY'],
+    ['weekdays', 'Every weekday (Monday to Friday)', 'RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR'],
+  ]);
+  assert.equal(cal.repeatChoices('2026-10-28')[3].label, 'Monthly on the fourth Wednesday');
+  assert.equal(cal.repeatChoices('2026-10-29')[3].rule, 'RRULE:FREQ=MONTHLY;BYDAY=-1TH', 'a fifth Thursday is the last');
+  assert.equal(cal.repeatChoices('2026-10-29')[3].label, 'Monthly on the last Thursday');
+});
+
+test('a rule from Google: one of the menu’s, a custom one, or one kept as it is', () => {
+  const day = '2026-10-07';
+  assert.deepEqual(cal.repeatOf([], day), { id: 'none', rule: '' });
+  assert.equal(cal.repeatOf(['RRULE:FREQ=WEEKLY;BYDAY=WE'], day).id, 'weekly');
+  assert.equal(cal.repeatOf(['RRULE:FREQ=WEEKLY;WKST=SU;BYDAY=WE'], day).id, 'weekly', 'the week’s first day does not matter');
+  assert.equal(cal.repeatOf(['EXDATE;VALUE=DATE:20261014', 'RRULE:FREQ=WEEKLY;BYDAY=TH,TU,MO,FR,WE'], day).id, 'weekdays');
+  assert.equal(cal.repeatOf(['RRULE:FREQ=MONTHLY;BYDAY=1WE'], day).id, 'monthly');
+
+  const two = cal.repeatOf(['RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,TH;COUNT=10'], day);
+  assert.equal(two.id, 'custom');
+  assert.deepEqual(two.custom, { every: 2, unit: 'week', days: ['MO', 'TH'], monthBy: 'date', ends: 'after', until: '2027-01-07', count: 10 });
+  assert.equal(cal.describeRepeat(two, day), 'Every 2 weeks on Monday and Thursday, 10 times');
+  const until = cal.repeatOf(['RRULE:FREQ=DAILY;UNTIL=20261201T225959Z'], day);
+  assert.equal(cal.describeRepeat(until, day), 'Daily, until 1 Dec 2026');
+  assert.equal(cal.repeatOf(['RRULE:FREQ=MONTHLY;BYMONTHDAY=7'], day).custom.monthBy, 'date');
+
+  // More than the editor can hold: kept, and said so.
+  for (const rule of ['RRULE:FREQ=MONTHLY;BYDAY=MO,TU', 'RRULE:FREQ=YEARLY;BYMONTH=3', 'RRULE:FREQ=HOURLY', 'RRULE:FREQ=WEEKLY;BYDAY=1MO']) {
+    const r = cal.repeatOf([rule], day);
+    assert.deepEqual([r.id, r.rule], ['other', rule], rule);
+    assert.equal(cal.describeRepeat(r, day), 'Repeats as set in Google Calendar');
+    assert.equal(cal.ruleFor(r, day, false), rule, 'and sent back unchanged');
+  }
+});
+
+test('the rule sent for what the editor holds, worked out for the day it starts', () => {
+  assert.equal(cal.ruleFor({ id: 'none' }, '2026-10-07'), '');
+  assert.equal(cal.ruleFor({ id: 'weekly' }, '2026-10-08'), 'RRULE:FREQ=WEEKLY;BYDAY=TH', 'moved to a Thursday: weekly on Thursday');
+  const custom = { every: 3, unit: 'month', days: [], monthBy: 'weekday', ends: 'on', until: '2027-06-30', count: 5 };
+  assert.equal(cal.ruleFor({ id: 'custom', custom }, '2026-10-07', false), 'RRULE:FREQ=MONTHLY;INTERVAL=3;BYDAY=1WE;UNTIL=20270630T235959Z');
+  assert.equal(cal.ruleFor({ id: 'custom', custom }, '2026-10-07', true), 'RRULE:FREQ=MONTHLY;INTERVAL=3;BYDAY=1WE;UNTIL=20270630', 'all day: a date');
+  assert.equal(cal.customRule({ every: 1, unit: 'week', days: [], ends: 'after', count: 0 }, '2026-10-07', false),
+    'RRULE:FREQ=WEEKLY;BYDAY=WE;COUNT=1', 'no day ticked: the day it starts; at least once');
+  assert.equal(cal.customRule({ every: 0, unit: 'day', ends: 'never' }, '2026-10-07', false), 'RRULE:FREQ=DAILY');
+  // Every rule the editor makes is one the policy lets through.
+  for (const rule of [cal.ruleFor({ id: 'custom', custom }, '2026-10-07', false), ...cal.repeatChoices('2026-10-29').map(c => c.rule).filter(Boolean)]) {
+    assert.ok(cal.isAllowedRequest('calendar', 'PATCH', 'calendars/a/events/b', { recurrence: [rule] }), rule);
+    assert.ok(cal.parseRule(rule), `and one it can read back: ${rule}`);
+  }
+});
+
+test('a new rule keeps the dates Google added or left out; no rule, no lines', () => {
+  const lines = ['RRULE:FREQ=WEEKLY;BYDAY=WE', 'EXDATE;TZID=Europe/Amsterdam:20261014T090000', 'RDATE;VALUE=DATE:20261016'];
+  assert.deepEqual(cal.recurrenceWith(lines, 'RRULE:FREQ=DAILY'), ['RRULE:FREQ=DAILY', lines[1], lines[2]]);
+  assert.deepEqual(cal.recurrenceWith(lines, ''), []);
+  assert.deepEqual(cal.recurrenceWith(undefined, 'RRULE:FREQ=DAILY'), ['RRULE:FREQ=DAILY']);
+  const body = cal.eventBody({ title: 'Stand-up', day: '2026-10-07', endDay: '2026-10-07', start: '09:00', end: '09:15' }, 'Europe/Amsterdam',
+    { recurrence: cal.recurrenceWith(lines, 'RRULE:FREQ=DAILY') }).body;
+  assert.equal(body.recurrence.length, 3);
+  assert.equal(body.start.timeZone, 'Europe/Amsterdam', 'a repeating event needs its time zone, and has it');
+  assert.equal('recurrence' in cal.eventBody({ title: 'x', day: '2026-10-07', start: '09:00', end: '10:00' }, '').body, false, 'not sent unless given');
+});
+
+test('a change made on one occurrence, for the whole series: from its first day, moved as far', () => {
+  const draft = { kind: 'event', title: 'Stand-up', day: '2026-10-22', endDay: '2026-10-22', start: '09:30', end: '09:45', allDay: false };
+  // Series from Wednesday 7 October; the occurrence on the 21st, moved to the 22nd.
+  assert.deepEqual(cal.seriesDraft('2026-10-07', '2026-10-21', draft), Object.assign({}, draft, { day: '2026-10-08', endDay: '2026-10-08' }));
+  const trip = Object.assign({}, draft, { allDay: true, day: '2026-10-21', endDay: '2026-10-23' });
+  assert.deepEqual([cal.seriesDraft('2026-10-07', '2026-10-21', trip).day, cal.seriesDraft('2026-10-07', '2026-10-21', trip).endDay], ['2026-10-07', '2026-10-09']);
+  assert.equal(cal.startDayOf({ start: { date: '2026-10-07' } }), '2026-10-07');
+  assert.equal(cal.startDayOf({ start: { dateTime: local(2026, 10, 7, 9, 0) } }), '2026-10-07');
+  const occurrence = cal.eventItem({ id: 'abc_20261021T070000Z', recurringEventId: 'abc', summary: 'Stand-up', start: { dateTime: local(2026, 10, 21, 9) }, end: { dateTime: local(2026, 10, 21, 9, 15) } }, OWN);
+  assert.equal(occurrence.seriesId, 'abc');
+  assert.equal(occurrence.recurring, true);
 });

@@ -116,8 +116,10 @@
 
   // What the editor holds: a change to `item`, or a new one when there is
   // none. A draft that will not do is refused here, before Google is asked.
-  function save(item, draft, timeZone) {
-    const made = draft.kind === 'task' ? cal.taskBody(draft, { patch: !!item }) : cal.eventBody(draft, timeZone, { patch: !!item });
+  // `recurrence`: an event's rule lines, when they are to be set.
+  function save(item, draft, timeZone, recurrence) {
+    const made = draft.kind === 'task' ? cal.taskBody(draft, { patch: !!item })
+      : cal.eventBody(draft, timeZone, { patch: !!item, recurrence });
     if (made.error) return Promise.reject(Object.assign(new Error(made.error), { code: 'invalid' }));
     if (draft.kind === 'task') {
       return item ? write('tasks', 'PATCH', cal.taskPath(item), made.body) : write('tasks', 'POST', cal.tasksPath(draft.source), made.body);
@@ -133,5 +135,32 @@
       : write('calendar', 'DELETE', cal.eventPath(item), undefined, item.etag);
   }
 
-  ns.calendarStore = { loadSources, loadRange, forget, tick, move, save, remove, SIGN_IN };
+  // ── A repeating event's series ──
+  //
+  // An occurrence names its series; Google's event for the series holds
+  // the rule, the first day and the version. A change or a delete for all
+  // events goes to the series, at that version.
+
+  const seriesPath = (item, series) => cal.eventPath({ source: item.source, eventId: series ? series.id : item.seriesId });
+
+  async function series(item) {
+    const [r] = await ns.api.googleMany([['calendar', seriesPath(item), {}]]);
+    if (!r || r.error) throw (r && r.error) || new Error('Google did not answer.');
+    return r;
+  }
+
+  // The occurrence's draft, for the whole series, with `rule` ('' to stop
+  // it repeating) in place of the series' own.
+  function saveSeries(s, item, draft, rule, timeZone) {
+    const d = cal.seriesDraft(cal.startDayOf(s), item.first, draft);
+    const made = cal.eventBody(d, timeZone, { patch: true, recurrence: cal.recurrenceWith(s.recurrence, rule) });
+    if (made.error) return Promise.reject(Object.assign(new Error(made.error), { code: 'invalid' }));
+    return write('calendar', 'PATCH', seriesPath(item, s), made.body, s.etag);
+  }
+
+  function removeSeries(s, item) {
+    return write('calendar', 'DELETE', seriesPath(item, s), undefined, s.etag);
+  }
+
+  ns.calendarStore = { loadSources, loadRange, forget, tick, move, save, remove, series, saveSeries, removeSeries, SIGN_IN };
 })();

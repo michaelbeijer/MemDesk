@@ -66,7 +66,8 @@
   // deleted (DELETE). Nothing else - no calendar, list or sharing.
   const ALLOWED = {
     calendar: {
-      GET: [p => p === 'users/me/calendarList', p => shaped(p, EVENTS)],
+      // One event read on its own: a repeating event's series, for its rule.
+      GET: [p => p === 'users/me/calendarList', p => shaped(p, EVENTS), p => shaped(p, EVENT)],
       POST: [p => shaped(p, EVENTS)],
       PATCH: [p => shaped(p, EVENT)],
       DELETE: [p => shaped(p, EVENT)],
@@ -80,8 +81,11 @@
   };
 
   // The fields the calendar sets, and nothing else: no attendees (who would be
-  // sent invitations), no reminders, no sharing.
-  const EVENT_KEYS = ['summary', 'location', 'start', 'end'];
+  // sent invitations), no reminders, no sharing. How an event repeats is a
+  // list of rule lines, each one of the four kinds Google knows.
+  const EVENT_KEYS = ['summary', 'location', 'start', 'end', 'recurrence'];
+  const isRuleLines = v => Array.isArray(v) && v.length <= 20 &&
+    v.every(l => typeof l === 'string' && /^(RRULE|EXRULE|RDATE|EXDATE)[:;][^\r\n]{1,1000}$/.test(l));
   const TIME_KEYS = ['date', 'dateTime', 'timeZone'];
   const TASK_KEYS = ['title', 'due', 'status', 'completed'];
 
@@ -91,7 +95,8 @@
 
   function isAllowedBody(service, body) {
     if (service === 'tasks') return onlyKeys(body, TASK_KEYS);
-    return onlyKeys(body, EVENT_KEYS) && ['start', 'end'].every(k => !own(body, k) || onlyKeys(body[k], TIME_KEYS));
+    return onlyKeys(body, EVENT_KEYS) && ['start', 'end'].every(k => !own(body, k) || onlyKeys(body[k], TIME_KEYS)) &&
+      (!own(body, 'recurrence') || isRuleLines(body.recurrence));
   }
 
   function isAllowedRequest(service, method, path, body) {
@@ -367,6 +372,7 @@
         (!ev.organizer || ev.organizer.self === true || ev.guestsCanModify === true),
       // One occurrence of a repeating event: a change is to this one only.
       recurring: !!ev.recurringEventId,
+      seriesId: String(ev.recurringEventId || ''),
     };
     if (isKey(s.date)) {
       const last = isKey(e.date) ? addDays(e.date, -1) : s.date;
@@ -508,13 +514,15 @@
 
   // An event, for Google: { body } or { error } to show. A change clears
   // what no longer applies (an all-day event's dateTime, a timed one's
-  // date) with nulls; a new one leaves it out.
-  function eventBody(d, timeZone, { patch = false } = {}) {
+  // date) with nulls; a new one leaves it out. `recurrence`, when given,
+  // is the event's rule lines (recurrenceWith).
+  function eventBody(d, timeZone, { patch = false, recurrence } = {}) {
     const title = String(d.title || '').trim();
     if (!title) return { error: 'Give it a title.' };
     if (!isKey(d.day)) return { error: 'Choose a day.' };
     const body = { summary: title, location: String(d.where || '').trim() };
     if (!patch && !body.location) delete body.location;
+    if (recurrence !== undefined) body.recurrence = recurrence;
     const endDay = isKey(d.endDay) && d.endDay >= d.day ? d.endDay : d.day;
     if (d.allDay) {
       body.start = { date: d.day };
@@ -578,6 +586,192 @@
     });
   }
 
+  // ── Repeating ────────────────────────────────────────────────────────
+  //
+  // How an event repeats is Google's: one RRULE line, with any EXDATE or
+  // RDATE lines beside it, which are kept as they are. The editor offers
+  // Google's own menu - daily, weekly on the day, monthly on its weekday,
+  // annually, every weekday - and a custom rule. A rule it cannot show is
+  // kept untouched, unless another is chosen.
+
+  const WEEKDAY_CODES = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+  const WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const ORDINALS = { 1: 'first', 2: 'second', 3: 'third', 4: 'fourth', '-1': 'last' };
+  const FREQS = { DAILY: 'day', WEEKLY: 'week', MONTHLY: 'month', YEARLY: 'year' };
+  const WORKDAYS = 'MO,TU,WE,TH,FR';
+
+  // Which of its weekday in its month a day is: 1 to 4, or -1 for a fifth,
+  // which Google calls the last.
+  const nthOf = day => { const n = Math.ceil(Number(day.slice(8)) / 7); return n > 4 ? -1 : n; };
+
+  // Google's menu, for an event starting on `day`.
+  function repeatChoices(day) {
+    const wd = weekday(day);
+    const nth = nthOf(day);
+    return [
+      { id: 'none', label: 'Does not repeat', rule: '' },
+      { id: 'daily', label: 'Daily', rule: 'RRULE:FREQ=DAILY' },
+      { id: 'weekly', label: `Weekly on ${WEEKDAY_NAMES[wd]}`, rule: `RRULE:FREQ=WEEKLY;BYDAY=${WEEKDAY_CODES[wd]}` },
+      { id: 'monthly', label: `Monthly on the ${ORDINALS[nth]} ${WEEKDAY_NAMES[wd]}`, rule: `RRULE:FREQ=MONTHLY;BYDAY=${nth}${WEEKDAY_CODES[wd]}` },
+      { id: 'yearly', label: `Annually on ${Number(day.slice(8))} ${MONTHS_LONG[Number(day.slice(5, 7)) - 1]}`, rule: 'RRULE:FREQ=YEARLY' },
+      { id: 'weekdays', label: 'Every weekday (Monday to Friday)', rule: `RRULE:FREQ=WEEKLY;BYDAY=${WORKDAYS}` },
+    ];
+  }
+
+  // An RRULE line as its parts, or null for one with parts the editor does
+  // not know - which is then kept as it is.
+  function parseRule(line) {
+    const m = /^RRULE:(.+)$/.exec(String(line || ''));
+    if (!m) return null;
+    const p = {};
+    for (const kv of m[1].split(';')) {
+      const [k, v, more] = kv.split('=');
+      if (more !== undefined || !v || !['FREQ', 'INTERVAL', 'BYDAY', 'BYMONTHDAY', 'COUNT', 'UNTIL', 'WKST'].includes(k)) return null;
+      p[k] = v;
+    }
+    if (!FREQS[p.FREQ]) return null;
+    const rule = { freq: p.FREQ, interval: 1, byday: [], bymonthday: 0, count: 0, until: '' };
+    if (p.INTERVAL) {
+      if (!/^\d{1,3}$/.test(p.INTERVAL) || Number(p.INTERVAL) < 1) return null;
+      rule.interval = Number(p.INTERVAL);
+    }
+    if (p.BYDAY) {
+      rule.byday = p.BYDAY.split(',');
+      if (!rule.byday.every(d => /^(-1|[1-4])?(MO|TU|WE|TH|FR|SA|SU)$/.test(d))) return null;
+    }
+    if (p.BYMONTHDAY) {
+      if (!/^\d{1,2}$/.test(p.BYMONTHDAY) || Number(p.BYMONTHDAY) < 1 || Number(p.BYMONTHDAY) > 31) return null;
+      rule.bymonthday = Number(p.BYMONTHDAY);
+    }
+    if (p.COUNT) {
+      if (!/^\d{1,3}$/.test(p.COUNT) || Number(p.COUNT) < 1) return null;
+      rule.count = Number(p.COUNT);
+    }
+    if (p.UNTIL) {
+      const u = /^(\d{4})(\d{2})(\d{2})(T\d{6}Z?)?$/.exec(p.UNTIL);
+      if (!u) return null;
+      rule.until = `${u[1]}-${u[2]}-${u[3]}`;
+    }
+    return rule;
+  }
+
+  // The editor's own form of a rule: every `every` `unit`s; on `days` of a
+  // week; a month by its date or by its weekday; ending never, `on` a day,
+  // or `after` so many times.
+  function customFor(day) {
+    return { every: 1, unit: 'week', days: [WEEKDAY_CODES[weekday(day)]], monthBy: 'date', ends: 'never', until: addMonths(day, 3), count: 10 };
+  }
+
+  // A parsed rule as the editor's form, or null if the form cannot hold it.
+  function customOf(rule, day) {
+    if (!rule) return null;
+    const c = Object.assign(customFor(day), { every: rule.interval, unit: FREQS[rule.freq] });
+    const plain = rule.byday.filter(d => /^[A-Z]{2}$/.test(d));
+    if (rule.freq === 'WEEKLY') {
+      if (plain.length !== rule.byday.length || rule.bymonthday) return null;
+      if (plain.length) c.days = WEEKDAY_CODES.filter(d => plain.includes(d));
+    } else if (rule.freq === 'MONTHLY') {
+      if (rule.byday.length > 1 || (rule.byday.length && plain.length) || (rule.byday.length && rule.bymonthday)) return null;
+      c.monthBy = rule.byday.length ? 'weekday' : 'date';
+    } else if (rule.byday.length || rule.bymonthday) {
+      return null;
+    }
+    if (rule.count) Object.assign(c, { ends: 'after', count: rule.count });
+    else if (rule.until) Object.assign(c, { ends: 'on', until: rule.until });
+    return c;
+  }
+
+  // The editor's form as an RRULE line, for an event starting on `day`. An
+  // end date is the day itself for an all-day event, and the end of that
+  // day in UTC for a timed one, as Google wants it.
+  function customRule(c, day, allDay) {
+    const freq = Object.keys(FREQS).find(k => FREQS[k] === c.unit) || 'WEEKLY';
+    const parts = [`FREQ=${freq}`];
+    const every = Math.max(1, Math.min(999, Math.round(Number(c.every) || 1)));
+    if (every > 1) parts.push(`INTERVAL=${every}`);
+    if (freq === 'WEEKLY') {
+      const days = WEEKDAY_CODES.filter(d => (c.days || []).includes(d));
+      parts.push(`BYDAY=${(days.length ? days : [WEEKDAY_CODES[weekday(day)]]).join(',')}`);
+    }
+    if (freq === 'MONTHLY' && c.monthBy === 'weekday') parts.push(`BYDAY=${nthOf(day)}${WEEKDAY_CODES[weekday(day)]}`);
+    if (c.ends === 'after') parts.push(`COUNT=${Math.max(1, Math.min(999, Math.round(Number(c.count) || 1)))}`);
+    if (c.ends === 'on' && isKey(c.until)) {
+      const ymd = c.until.replace(/-/g, '');
+      parts.push(`UNTIL=${allDay ? ymd : `${ymd}T235959Z`}`);
+    }
+    return `RRULE:${parts.join(';')}`;
+  }
+
+  // How an event repeats, from its recurrence lines and its first day:
+  // { id } - a choice from the menu, 'custom' with its form, 'other' for a
+  // rule kept as it is - and the rule line itself.
+  function repeatOf(lines, day) {
+    const rule = (lines || []).find(l => /^RRULE:/.test(l)) || '';
+    if (!rule) return { id: 'none', rule: '' };
+    const parsed = parseRule(rule);
+    if (!parsed) return { id: 'other', rule };
+    const same = (a, b) => a && b && a.freq === b.freq && a.interval === b.interval && a.count === b.count &&
+      a.until === b.until && a.bymonthday === b.bymonthday && a.byday.slice().sort().join() === b.byday.slice().sort().join();
+    const preset = repeatChoices(day).find(c => c.rule && same(parseRule(c.rule), parsed));
+    if (preset) return { id: preset.id, rule };
+    const custom = customOf(parsed, day);
+    return custom ? { id: 'custom', rule, custom } : { id: 'other', rule };
+  }
+
+  // The rule line for what the editor holds, for an event starting on
+  // `day`: a choice from the menu (worked out for that day), the custom
+  // form, or the rule kept as it was.
+  function ruleFor(repeat, day, allDay) {
+    if (!repeat || repeat.id === 'none') return '';
+    if (repeat.id === 'custom') return customRule(repeat.custom || customFor(day), day, allDay);
+    if (repeat.id === 'other') return repeat.rule || '';
+    const c = repeatChoices(day).find(x => x.id === repeat.id);
+    return c ? c.rule : '';
+  }
+
+  // The recurrence lines with a new rule: the other lines (dates left out
+  // or added) kept; none at all once it no longer repeats.
+  function recurrenceWith(lines, rule) {
+    if (!rule) return [];
+    return [rule].concat((lines || []).filter(l => !/^RRULE:/.test(l)));
+  }
+
+  const listOf = names => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] || '');
+
+  // In words, as the editor shows it: "Every 2 weeks on Monday and
+  // Thursday, 10 times".
+  function describeRepeat(repeat, day) {
+    if (!repeat || repeat.id === 'none') return 'Does not repeat';
+    if (repeat.id !== 'custom' && repeat.id !== 'other') {
+      const c = repeatChoices(day).find(x => x.id === repeat.id);
+      return c ? c.label : '';
+    }
+    const c = repeat.id === 'custom' ? repeat.custom : null;
+    if (!c) return 'Repeats as set in Google Calendar';
+    const unit = c.every > 1 ? `Every ${c.every} ${c.unit}s` : `${{ day: 'Daily', week: 'Weekly', month: 'Monthly', year: 'Annually' }[c.unit]}`;
+    let on = '';
+    if (c.unit === 'week') on = ` on ${listOf(WEEKDAY_CODES.filter(d => c.days.includes(d)).map(d => WEEKDAY_NAMES[WEEKDAY_CODES.indexOf(d)]))}`;
+    if (c.unit === 'month') on = c.monthBy === 'weekday' ? ` on the ${ORDINALS[nthOf(day)]} ${WEEKDAY_NAMES[weekday(day)]}` : ` on day ${Number(day.slice(8))}`;
+    const end = c.ends === 'after' ? `, ${c.count} time${c.count === 1 ? '' : 's'}`
+      : c.ends === 'on' && isKey(c.until) ? `, until ${Number(c.until.slice(8))} ${MONTHS[Number(c.until.slice(5, 7)) - 1]} ${c.until.slice(0, 4)}` : '';
+    return unit + on + end;
+  }
+
+  // A change made on one occurrence, for the whole series: the series still
+  // starts on its first day, moved by as many days as the occurrence was,
+  // with the occurrence's new times, length, title and place.
+  function seriesDraft(seriesStartDay, occurrenceDay, d) {
+    const day = addDays(seriesStartDay, daysBetween(occurrenceDay, d.day));
+    const span = Math.max(0, daysBetween(d.day, isKey(d.endDay) ? d.endDay : d.day));
+    return Object.assign({}, d, { day, endDay: addDays(day, span) });
+  }
+
+  // The first day of a series, from Google's event for it.
+  function startDayOf(ev) {
+    const s = (ev && ev.start) || {};
+    return isKey(s.date) ? s.date : isFinite(Date.parse(s.dateTime)) ? dateKey(Date.parse(s.dateTime)) : '';
+  }
+
   const eventsPath = calendarId => `calendars/${encodeURIComponent(calendarId)}/events`;
   const eventPath = item => `${eventsPath(item.source)}/${encodeURIComponent(item.eventId)}`;
   const tasksPath = listId => `lists/${encodeURIComponent(listId)}/tasks`;
@@ -587,6 +781,8 @@
     SCOPES, BASES, USERINFO_URL, VIEWS, AGENDA_DAYS, DAY_NAMES, MONTHS, MONTHS_LONG, EVENT_COLOURS,
     isAllowedRequest, buildUrl,
     normTime, parseQuick, localStamp, draftOf, newDraft, eventBody, taskBody, tickBody, moveBody, movedItem,
+    WEEKDAY_CODES, WEEKDAY_NAMES, repeatChoices, parseRule, customFor, customOf, customRule, repeatOf, ruleFor,
+    recurrenceWith, describeRepeat, seriesDraft, startDayOf,
     eventsPath, eventPath, tasksPath, taskPath,
     dateKey, isKey, fromKey, addDays, daysBetween, weekday, weekStart, isoWeek, monthStart, addMonths, days,
     viewRange, step, monthWeeks, spanText, title, monthName, dayName,

@@ -49,7 +49,10 @@ when it changes) into their Apps Script project.
   sharing. An event's change carries its version (If-Match) and is refused
   ("changed") if Google has a newer one. A delete is sent only after the
   editor's confirmation and an 8-second Undo; a tab closed before then
-  deletes nothing. Tests cover each of these: keep them.
+  deletes nothing. A series is one event: "All events" goes to it (read
+  first, for its rule and version); deleting it, or stopping it repeating,
+  waits out the same Undo. Rule lines MemDesk cannot show are kept as they
+  are. Tests cover each of these: keep them.
 - No HTML-string sinks in `src/` or `dev/` (`innerHTML`, `insertAdjacentHTML`,
   `DOMParser`, …): Gmail's Trusted Types would block them. Build DOM with `h()`.
   HTML is read with note-format's own tokenizer.

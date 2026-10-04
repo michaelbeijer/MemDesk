@@ -61,7 +61,7 @@
     recheck: false,     // Allow was pressed: read everything again on return
     writes: Promise.resolve(), // changes go to Google one after another
     pending: 0,         // changes on their way: a read started before one lands is not shown
-    deleting: new Map(), // item id → its timer: deleted on screen, sent to Google once Undo has passed
+    later: new Map(),   // key → { timer, hides }: done on screen, sent to Google once its Undo has passed
     drag: null,         // { item, from }: what is being dragged, and from which day ('' for no day)
     edit: null,         // the editor, while it is open
   };
@@ -403,7 +403,8 @@
   function visibleItems() {
     if (!C.shown) return [];
     const on = new Set(onSources().map(s => s.id));
-    return C.shown.items.filter(x => on.has(x.source) && !C.deleting.has(x.id));
+    const waiting = [...C.later.values()].filter(l => l.hides);
+    return C.shown.items.filter(x => on.has(x.source) && !waiting.some(l => l.hides(x)));
   }
 
   function statusPanel() {
@@ -851,35 +852,65 @@
       `Couldn’t move “${item.title}” to ${to ? longDate(to) : 'No date'}`);
   }
 
-  // ── Deleting ──
+  // ── Done after an Undo ──
   //
-  // Only ever after the editor's "Delete?" is confirmed, only the one
-  // event (or the one occurrence of a repeating one) or task, and never
-  // over a newer version. It goes from the screen at once, but Google is
-  // only asked once the Undo has had its time: a tab closed before then
-  // deletes nothing at all.
+  // Deleting - one event, one task, or every event in a series - and a
+  // series stopped repeating (which takes its other events away) only ever
+  // follow a confirmation in the editor. The screen shows it at once, but
+  // Google is only asked once the Undo has had its time: a tab closed
+  // before then changes nothing at all.
 
   const UNDO_MS = 8000;
 
-  function deleteLater(item) {
+  // `hides`: the items that go from the screen meanwhile.
+  function later(key, { message, hides, run, what }) {
     const timer = setTimeout(() => {
-      if (!C.deleting.has(item.id)) return;
-      showChanged(item.id, null);
-      C.deleting.delete(item.id);
-      change(versioned(item, it => store.remove(it)), `Couldn’t delete “${item.title}”`);
+      if (!C.later.has(key)) return;
+      C.later.delete(key);
+      if (hides) {
+        for (const entry of new Set([...C.cache.values(), C.shown].filter(Boolean))) entry.items = entry.items.filter(x => !hides(x));
+        draw();
+      }
+      change(run, what);
     }, UNDO_MS + 500); // after the Undo is gone, never while it shows
-    C.deleting.set(item.id, timer);
+    C.later.set(key, { timer, hides });
     draw();
-    toast(C.ctx.root, `Deleted “${item.title}”.`, {
+    toast(C.ctx.root, message, {
       timeout: UNDO_MS,
       action: {
         label: 'Undo',
         onClick: () => {
-          clearTimeout(C.deleting.get(item.id));
-          C.deleting.delete(item.id);
+          clearTimeout(timer);
+          C.later.delete(key);
           draw();
         },
       },
+    });
+  }
+
+  function deleteLater(item) {
+    later(`delete:${item.id}`, {
+      message: `Deleted “${item.title}”.`,
+      hides: x => x.id === item.id,
+      run: versioned(item, it => store.remove(it)),
+      what: `Couldn’t delete “${item.title}”`,
+    });
+  }
+
+  function deleteSeriesLater(series, item) {
+    later(`series:${item.source}|${series.id}`, {
+      message: `Deleted every event in “${item.title}”.`,
+      hides: x => x.source === item.source && (x.seriesId === series.id || x.eventId === series.id),
+      run: () => store.removeSeries(series, item),
+      what: `Couldn’t delete the events in “${item.title}”`,
+    });
+  }
+
+  function stopLater(series, item, draft) {
+    later(`stop:${item.source}|${series.id}`, {
+      message: `“${item.title}” will stop repeating.`,
+      run: () => store.saveSeries(series, item, draft, '', timeZone()),
+      what: `Couldn’t stop “${item.title}” repeating`,
     });
   }
 
@@ -888,7 +919,9 @@
   // One dialog for an event or a task, new or not, in the board's dialog
   // layer. New, it starts on the day whose + was pressed; typing
   // "Dentist 14:30" makes it an event at that time, "Pay the invoice" a
-  // task, until Event or Task is chosen by hand.
+  // task, until Event or Task is chosen by hand. An event can repeat, as
+  // Google's own menu offers; one occurrence of a series asks, on saving
+  // or deleting, whether that is for this event or for all of them.
 
   function openEditor(item, day) {
     if (!canChange() || (item && !item.editable)) return;
@@ -898,14 +931,32 @@
     const start = item ? cal.draftOf(item) : null;
     const defaultCal = (cals.find(c => c.primary) || cals[0] || {}).id || '';
     const ed = {
-      item, isNew: !item, kindChosen: false, timesTouched: false, saving: false, confirming: false, error: '',
+      item, isNew: !item, kindChosen: false, timesTouched: false, saving: false, confirming: false, scope: false, error: '',
       kind: item ? item.kind : cals.length ? 'event' : 'task',
       title: start ? start.title : '',
       event: start && start.kind === 'event' ? start : cal.newDraft('event', day || C.today, defaultCal),
       task: start && start.kind === 'task' ? start : cal.newDraft('task', day || '', (lists[0] || {}).id || ''),
+      // How it repeats: as chosen here, and as it was.
+      repeat: { id: 'none', rule: '' }, repeatAt: null, repeatTouched: false,
+      // An occurrence's series, read from Google: { state, event, error }.
+      series: null,
       back: item ? `cal-item:${item.id}` : `cal-add:${day}`,
     };
     C.edit = ed;
+    if (item && item.recurring && item.seriesId) {
+      ed.series = { state: 'loading' };
+      store.series(item).then(ev => {
+        if (C.edit !== ed) return;
+        ed.series = { state: 'ready', event: ev };
+        ed.repeatAt = cal.repeatOf(ev.recurrence, cal.startDayOf(ev));
+        if (!ed.repeatTouched) ed.repeat = copyRepeat(ed.repeatAt);
+        ed.sync();
+      }, err => {
+        if (C.edit !== ed) return;
+        ed.series = { state: 'error', error: err.message };
+        ed.sync();
+      });
+    }
     C.ctx.dialog.show(editorEl(ed, cals, lists), {
       onClose: () => {
         if (C.edit === ed) C.edit = null;
@@ -915,6 +966,17 @@
     const title = C.ctx.root.querySelector('[data-key="cal-edit-title"]');
     if (title) { title.focus(); title.select(); }
   }
+
+  const copyRepeat = r => Object.assign({}, r, r.custom ? { custom: Object.assign({}, r.custom, { days: r.custom.days.slice() }) } : {});
+
+  // The day a rule is worked out for: the event's own, or for an
+  // occurrence, its series' first day, moved as far as the occurrence was.
+  function repeatDay(ed) {
+    const s = ed.series && ed.series.state === 'ready' ? ed.series.event : null;
+    return s ? cal.seriesDraft(cal.startDayOf(s), ed.item.first, ed.event).day : ed.event.day;
+  }
+
+  const UNITS = [['day', 'days'], ['week', 'weeks'], ['month', 'months'], ['year', 'years']];
 
   function editorEl(ed, cals, lists) {
     const ev = ed.event;
@@ -928,6 +990,7 @@
       ? h('select', { class: 'text-input', id: id(name), onchange: e => set(e.target.value) },
         list.map(s => h('option', { value: s.id, selected: s.id === value, text: s.name })))
       : h('div', { class: 'cal-edit-where', id: id(name), text: sourceName(value) }));
+    const recurring = !!(ed.item && ed.item.recurring);
 
     const els2 = {};
     const sync = () => {
@@ -935,13 +998,24 @@
       els2.event.hidden = ed.kind !== 'event';
       els2.task.hidden = ed.kind !== 'task';
       for (const t of [els2.startTime, els2.endTime]) t.hidden = ev.allDay;
+      syncRepeat();
       els2.error.textContent = ed.error;
       // Busy, not disabled: a disabled button drops the focus out of the
       // dialog, and Esc would then close the whole board.
       els2.save.setAttribute('aria-disabled', String(ed.saving));
       els2.save.textContent = ed.saving ? 'Saving…' : ed.isNew ? 'Add' : 'Save';
+      const seriesReady = !!(ed.series && ed.series.state === 'ready');
+      for (const b of [els2.scopeAll, els2.deleteAll]) if (b) b.setAttribute('aria-disabled', String(!seriesReady));
+      if (els2.scopeOne) els2.scopeOne.hidden = !!ed.ruleChanged;
+      if (els2.scopeText) {
+        els2.scopeText.textContent = ed.stopping
+          ? 'It will stop repeating: the other events in the series go from Google Calendar too, once Undo has passed.'
+          : ed.ruleChanged ? 'A change to how it repeats is for all events in the series.'
+            : 'Save this change for this event only, or for all events in the series?';
+      }
       els2.confirm.hidden = !ed.confirming;
-      els2.foot.hidden = ed.confirming;
+      if (els2.scope) els2.scope.hidden = !ed.scope;
+      els2.foot.hidden = ed.confirming || ed.scope;
     };
     ed.sync = sync;
 
@@ -973,7 +1047,7 @@
       },
     });
 
-    // An event: where it goes, all day or when, and where.
+    // An event: where it goes, all day or when, how it repeats, and where.
     const timeInput = (name, key) => input(name, {
       class: 'text-input cal-time', value: ev[key], maxlength: '5', inputmode: 'numeric', placeholder: key === 'start' ? '09:30' : '10:30',
       'aria-label': key === 'start' ? 'Start time' : 'End time', dataset: { key: `cal-edit-${name}` },
@@ -989,17 +1063,114 @@
       type: 'checkbox', id: id('all-day'), checked: !!ev.allDay, dataset: { key: 'cal-edit-all-day' },
       onchange: e => { ev.allDay = e.target.checked; sync(); },
     });
+
+    // How it repeats: Google's menu for the day it starts, and Custom.
+    const touch = () => { ed.repeatTouched = true; };
+    els2.repeat = h('select', {
+      class: 'text-input', id: id('repeat'), dataset: { key: 'cal-edit-repeat' },
+      onchange: e => {
+        touch();
+        const v = e.target.value;
+        ed.repeat = v === 'other' ? copyRepeat(ed.repeatAt) : { id: v, rule: '', custom: v === 'custom' ? (ed.repeat.custom || cal.customFor(repeatDay(ed))) : undefined };
+        sync();
+      },
+    });
+    const c = () => ed.repeat.custom;
+    els2.every = h('input', {
+      class: 'text-input cal-every', type: 'number', min: '1', max: '999', id: id('every'), 'aria-label': 'Repeat every', dataset: { key: 'cal-edit-every' },
+      oninput: e => { touch(); c().every = Math.max(1, Number(e.target.value) || 1); sync(); },
+    });
+    els2.unit = h('select', {
+      class: 'text-input', 'aria-label': 'Unit', dataset: { key: 'cal-edit-unit' },
+      onchange: e => { touch(); c().unit = e.target.value; sync(); },
+    });
+    els2.days = h('div', { class: 'cal-days', role: 'group', 'aria-label': 'On' },
+      cal.WEEKDAY_CODES.map((code, i) => h('button', {
+        type: 'button', class: 'cal-day-pick', text: cal.WEEKDAY_NAMES[i][0], title: cal.WEEKDAY_NAMES[i],
+        'aria-label': cal.WEEKDAY_NAMES[i], dataset: { code, key: `cal-edit-day:${code}` },
+        onclick: () => {
+          touch();
+          const days = c().days;
+          c().days = days.includes(code) ? days.filter(d => d !== code) : days.concat(code);
+          sync();
+        },
+      })));
+    els2.monthBy = h('select', {
+      class: 'text-input', 'aria-label': 'Which day of the month', dataset: { key: 'cal-edit-month-by' },
+      onchange: e => { touch(); c().monthBy = e.target.value; },
+    });
+    const endsRadio = (value, label, ...more) => h('label', { class: 'cal-edit-check' },
+      h('input', {
+        type: 'radio', name: 'gkb-cal-ends', value, dataset: { key: `cal-edit-ends:${value}` },
+        onchange: () => { touch(); c().ends = value; sync(); },
+      }), label, ...more);
+    els2.until = h('input', {
+      class: 'text-input cal-date', type: 'date', 'aria-label': 'Ends on', dataset: { key: 'cal-edit-until' },
+      onchange: e => { touch(); c().until = e.target.value; },
+    });
+    els2.count = h('input', {
+      class: 'text-input cal-every', type: 'number', min: '1', max: '999', 'aria-label': 'Ends after so many times', dataset: { key: 'cal-edit-count' },
+      oninput: e => { touch(); c().count = Math.max(1, Number(e.target.value) || 1); },
+    });
+    els2.ends = h('div', { class: 'cal-ends', role: 'radiogroup', 'aria-label': 'Ends' },
+      endsRadio('never', 'Never'),
+      endsRadio('on', 'On', els2.until),
+      endsRadio('after', 'After', els2.count, ' times'));
+    els2.custom = h('div', { class: 'cal-repeat-custom' },
+      h('div', { class: 'cal-edit-row' }, h('span', { text: 'Every' }), els2.every, els2.unit),
+      els2.days, els2.monthBy,
+      h('span', { class: 'field-label', text: 'Ends' }), els2.ends);
+    els2.repeatNote = h('p', { class: 'note' });
+
+    const syncRepeat = () => {
+      const day = repeatDay(ed);
+      const loading = !!(ed.series && ed.series.state === 'loading');
+      const broken = !!(ed.series && ed.series.state === 'error');
+      const options = cal.repeatChoices(day).map(o => [o.id, o.label]).concat([['custom', 'Custom…']]);
+      if (ed.repeat.id === 'other' || (ed.repeatAt && ed.repeatAt.id === 'other')) options.push(['other', 'As set in Google Calendar']);
+      if (els2.repeat.dataset.day !== day || els2.repeat.options.length !== options.length) {
+        els2.repeat.replaceChildren(...options.map(([v, label]) => h('option', { value: v, text: label })));
+        els2.repeat.dataset.day = day;
+      }
+      els2.repeat.value = ed.repeat.id;
+      els2.repeat.disabled = loading;
+      els2.repeatField.hidden = broken;
+      els2.repeatNote.hidden = !(loading || broken);
+      els2.repeatNote.textContent = loading ? 'Reading how it repeats…'
+        : broken ? `It repeats, but the series could not be read (${ed.series.error}): a change here is to this event only.` : '';
+      const cu = ed.repeat.id === 'custom' ? ed.repeat.custom : null;
+      els2.custom.hidden = !cu;
+      if (!cu) return;
+      if (C.ctx.root.activeElement !== els2.every) els2.every.value = String(cu.every);
+      els2.unit.replaceChildren(...UNITS.map(([v, plural]) => h('option', { value: v, text: cu.every > 1 ? plural : v })));
+      els2.unit.value = cu.unit;
+      els2.days.hidden = cu.unit !== 'week';
+      for (const b of els2.days.children) b.setAttribute('aria-pressed', String(cu.days.includes(b.dataset.code)));
+      els2.monthBy.hidden = cu.unit !== 'month';
+      els2.monthBy.replaceChildren(
+        h('option', { value: 'date', text: `On day ${Number(day.slice(8))}` }),
+        h('option', { value: 'weekday', text: cal.repeatChoices(day)[3].label.replace(/^Monthly on /, 'On ') }));
+      els2.monthBy.value = cu.monthBy;
+      for (const r of els2.ends.querySelectorAll('input[type="radio"]')) r.checked = r.value === cu.ends;
+      els2.until.value = cu.until;
+      els2.until.disabled = cu.ends !== 'on';
+      if (C.ctx.root.activeElement !== els2.count) els2.count.value = String(cu.count);
+      els2.count.disabled = cu.ends !== 'after';
+    };
+
+    els2.repeatField = field('repeat', 'Repeats', els2.repeat, els2.custom);
     els2.event = h('div', { class: 'cal-edit-part' },
       field('calendar', 'Calendar', pick('calendar', cals, ev.source, v => { ev.source = v; })),
       h('label', { class: 'cal-edit-check' }, els2.allDay, 'All day'),
       field('start-day', 'Starts', h('div', { class: 'cal-edit-row' },
-        dateInput('start-day', () => ev.day, v => { ev.day = v; if (!ev.endDay || ev.endDay < v) { ev.endDay = v; els2.endDay.value = v; } }, 'Start day'),
+        dateInput('start-day', () => ev.day, v => { ev.day = v; if (!ev.endDay || ev.endDay < v) { ev.endDay = v; els2.endDay.value = v; } sync(); }, 'Start day'),
         els2.startTime)),
       field('end-day', 'Ends', h('div', { class: 'cal-edit-row' },
         els2.endDay = dateInput('end-day', () => ev.endDay, v => { ev.endDay = v; }, 'End day'),
         els2.endTime)),
-      field('where', 'Where', input('where', { value: ev.where || '', maxlength: '500', dataset: { key: 'cal-edit-where' }, oninput: e => { ev.where = e.target.value; } })),
-      ed.item && ed.item.recurring ? h('p', { class: 'note', text: 'It repeats: a change here is to this one only.' }) : null);
+      els2.repeatField,
+      els2.repeatNote,
+      field('where', 'Where', input('where', { value: ev.where || '', maxlength: '500', dataset: { key: 'cal-edit-where' }, oninput: e => { ev.where = e.target.value; } })));
 
     // A task: its list, its day (or none), and done.
     els2.task = h('div', { class: 'cal-edit-part' },
@@ -1029,20 +1200,51 @@
       h('span', { class: 'spacer' }),
       h('button', { class: 'btn btn-text', type: 'button', text: 'Cancel', onclick: () => C.ctx.dialog.close() }),
       els2.save);
-    // Deleting asks first, naming what and where.
+
+    // An occurrence: this event, or all events in the series?
+    const seriesReady = () => !!(ed.series && ed.series.state === 'ready');
+    if (recurring) {
+      els2.scopeText = h('span', { class: 'note' });
+      els2.scopeOne = h('button', {
+        class: 'btn btn-text', type: 'button', text: 'This event', dataset: { key: 'cal-edit-scope-one' },
+        onclick: () => saveEdit(ed, 'one'),
+      });
+      els2.scopeAll = h('button', {
+        class: 'btn btn-primary', type: 'button', text: 'All events', dataset: { key: 'cal-edit-scope-all' },
+        onclick: () => { if (seriesReady()) saveEdit(ed, 'all'); },
+      });
+      els2.scope = h('div', { class: 'dialog-foot cal-edit-confirm', role: 'alert' },
+        els2.scopeText,
+        h('button', {
+          class: 'btn btn-text', type: 'button', text: 'Back', dataset: { key: 'cal-edit-scope-no' },
+          onclick: () => { ed.scope = false; ed.ruleChanged = false; ed.stopping = false; sync(); focusIn('cal-edit-save'); },
+        }),
+        els2.scopeOne, els2.scopeAll);
+    }
+
+    // Deleting asks first, naming what and where; an occurrence, whether
+    // it is this event or every event in the series.
+    els2.deleteAll = recurring ? h('button', {
+      class: 'btn btn-danger', type: 'button', text: 'All events', dataset: { key: 'cal-edit-delete-all' },
+      onclick: () => { if (!seriesReady()) return; const it = ed.item; const s = ed.series.event; C.ctx.dialog.close(); deleteSeriesLater(s, it); },
+    }) : null;
     els2.confirm = h('div', { class: 'dialog-foot cal-edit-confirm', role: 'alert' },
       h('span', {
         class: 'note',
-        text: ed.item ? `Delete “${ed.item.title}”${where ? ` from ${where}` : ''}? It goes from ${google} too, once Undo has passed.` : '',
+        text: !ed.item ? '' : recurring
+          ? `Delete “${ed.item.title}”${where ? ` from ${where}` : ''}: this event only, or every event in the series? It goes from ${google} too, once Undo has passed.`
+          : `Delete “${ed.item.title}”${where ? ` from ${where}` : ''}? It goes from ${google} too, once Undo has passed.`,
       }),
       h('button', {
         class: 'btn btn-text', type: 'button', text: 'Keep it', dataset: { key: 'cal-edit-delete-no' },
         onclick: () => { ed.confirming = false; sync(); focusIn('cal-edit-delete'); },
       }),
       h('button', {
-        class: 'btn btn-danger', type: 'button', text: 'Delete', dataset: { key: 'cal-edit-delete-yes' },
+        class: recurring ? 'btn btn-text danger' : 'btn btn-danger', type: 'button', text: recurring ? 'This event' : 'Delete',
+        dataset: { key: 'cal-edit-delete-yes' },
         onclick: () => { const it = ed.item; C.ctx.dialog.close(); deleteLater(it); },
-      }));
+      }),
+      els2.deleteAll);
 
     const heading = ed.isNew ? 'Add' : ed.item.kind === 'task' ? 'Task' : 'Event';
     const dialog = h('div', { class: 'dialog cal-edit', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': id('heading') },
@@ -1056,6 +1258,7 @@
         els2.task),
       els2.error,
       els2.foot,
+      els2.scope,
       els2.confirm);
     sync();
     return dialog;
@@ -1066,8 +1269,10 @@
     if (el) el.focus();
   }
 
-  async function saveEdit(ed) {
-    if (ed.saving || ed.confirming) return;
+  // `scope`, for an occurrence of a series: 'one' or 'all', as chosen in
+  // the row Save brings up.
+  async function saveEdit(ed, scope = '') {
+    if (ed.saving || ed.confirming || (ed.scope && !scope)) return;
     const draft = Object.assign({}, ed.kind === 'event' ? ed.event : ed.task);
     let title = ed.title;
     // "Dentist 14:30": the time went into the times, not the title.
@@ -1076,18 +1281,47 @@
       if (q.start) title = q.title;
     }
     draft.title = title;
+    const isEvent = draft.kind === 'event';
+    const tz = timeZone();
+    const series = ed.series && ed.series.state === 'ready' ? ed.series.event : null;
+    const rule = isEvent ? cal.ruleFor(ed.repeat, repeatDay(ed), draft.allDay) : '';
     // Checked here first: what will not do never leaves the page.
-    const made = draft.kind === 'task' ? cal.taskBody(draft, { patch: !ed.isNew }) : cal.eventBody(draft, timeZone(), { patch: !ed.isNew });
+    const made = !isEvent ? cal.taskBody(draft, { patch: !ed.isNew })
+      : cal.eventBody(scope === 'all' && series ? cal.seriesDraft(cal.startDayOf(series), ed.item.first, draft) : draft, tz, { patch: !ed.isNew });
     if (made.error) {
       ed.error = made.error;
+      ed.scope = false;
       ed.sync();
       return;
     }
+    // An occurrence: which, first. A new rule can only be for all of them.
+    if (ed.item && ed.item.recurring && !scope) {
+      ed.ruleChanged = !!(series && ed.repeatTouched && rule !== cal.ruleFor(ed.repeatAt, repeatDay(ed), draft.allDay));
+      ed.stopping = ed.ruleChanged && !rule;
+      ed.scope = true;
+      ed.error = '';
+      ed.sync();
+      focusIn(ed.ruleChanged || !series ? 'cal-edit-scope-all' : 'cal-edit-scope-one');
+      return;
+    }
+    if (scope === 'all' && !series) return;
+    // Every event in a series bar the first gone: like a delete, after an Undo.
+    if (scope === 'all' && !rule) {
+      const item = ed.item;
+      C.ctx.dialog.close();
+      stopLater(series, item, draft);
+      return;
+    }
+    let run;
+    if (scope === 'all') run = () => store.saveSeries(series, ed.item, draft, rule, tz);
+    else if (scope === 'one') run = versioned(ed.item, it => store.save(it, draft, tz));
+    else if (ed.isNew) run = () => store.save(null, draft, tz, rule ? [rule] : undefined);
+    // An event that did not repeat: from now on it does, if a rule was chosen.
+    else run = versioned(ed.item, it => store.save(it, draft, tz, isEvent && rule ? cal.recurrenceWith([], rule) : undefined));
     ed.saving = true;
     ed.error = '';
     ed.sync();
     const what = ed.isNew ? `Couldn’t add “${title.trim()}”` : `Couldn’t save “${ed.item.title}”`;
-    const run = ed.isNew ? () => store.save(null, draft, timeZone()) : versioned(ed.item, it => store.save(it, draft, timeZone()));
     const err = await change(run, what, { quiet: true });
     if (C.edit !== ed) return; // closed meanwhile; the change stands
     ed.saving = false;
@@ -1095,6 +1329,7 @@
       C.ctx.dialog.close();
       return;
     }
+    ed.scope = false;
     if (err.code === 'calendar_scope') failed(err, what);
     ed.error = err.code === 'changed' ? 'This was changed in Google meanwhile, so nothing was saved. Close this and open it again to see the latest.'
       : err.code === 'calendar_scope' ? 'Changing your calendar needs your permission first: see the message at the bottom.'

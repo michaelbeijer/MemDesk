@@ -155,14 +155,29 @@ try {
     const labels = await ask({ type: 'gmail', account: 'test@example.com', method: 'GET', path: 'labels' });
     assert.equal(labels.error.code, 'not_configured', 'an allowed call gets as far as the missing client ID');
 
-    // The calendar: four reads, nothing else.
-    for (const [service, path] of [['calendar', 'calendars/primary/acl'], ['calendar', 'calendars/primary/events/ev1'],
+    // The calendar: its reads, and one event or task changed with its own
+    // fields - nothing else, refused before a token is asked for.
+    for (const [service, path] of [['calendar', 'calendars/primary/acl'], ['calendar', 'calendars/primary/events/ev1/instances'],
       ['tasks', 'lists/abc/tasks/clear'], ['gmail', 'profile'], ['calendar', 'calendars/../events']]) {
       const res = await ask({ type: 'google', account: 'test@example.com', service, path });
       assert.equal(res.error.code, 'not_allowed', `${service} ${path}`);
     }
+    for (const [service, method, path, body] of [
+      ['calendar', 'POST', 'calendars/primary/events', { summary: 'x', attendees: [{ email: 'someone@example.com' }] }],
+      ['calendar', 'PATCH', 'calendars/primary/events/ev1', { reminders: { useDefault: false } }],
+      ['calendar', 'PATCH', 'calendars/primary/events/ev1', { recurrence: ['RRULE:FREQ=DAILY', 'ATTENDEE:a@b.c'] }],
+      ['calendar', 'DELETE', 'calendars/primary', undefined],
+      ['calendar', 'DELETE', 'calendars/primary/events', undefined],
+      ['tasks', 'DELETE', 'lists/abc', undefined],
+      ['calendar', 'PUT', 'calendars/primary/events/ev1', { summary: 'x' }],
+    ]) {
+      const res = await ask({ type: 'google', account: 'test@example.com', service, method, path, body });
+      assert.equal(res.error.code, 'not_allowed', `${method} ${service} ${path}`);
+    }
     const events = await ask({ type: 'google', account: 'test@example.com', service: 'calendar', path: 'users/me/calendarList' });
     assert.equal(events.error.code, 'not_configured', 'an allowed calendar read gets as far as the missing client ID');
+    const change = await ask({ type: 'google', account: 'test@example.com', service: 'calendar', method: 'PATCH', path: 'calendars/primary/events/ev1', body: { summary: 'x' }, etag: '"1"' });
+    assert.equal(change.error.code, 'not_configured', 'and so does an allowed change');
   });
 
   let gmail;

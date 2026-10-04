@@ -32,14 +32,16 @@ address. With them, it:
 - **Reads** the list of your calendars and task lists, the events in the days
   on screen, and your tasks (title, due date, whether it is done, and the
   link to the email a task was made from), to show them.
-- **Changes what you change**, and nothing else: an event's title, times
-  and place, a task's title, day and whether it is done; and adds an event
+- **Changes what you change**, and nothing else: an event's title, times,
+  place and how it repeats, a task's title, day and whether it is done; and adds an event
   or a task when you add one. Never an event's guests (who would be sent
   invitations), never a calendar itself or who it is shared with.
 - **Deletes an event or a task only when you ask**: you choose Delete,
   confirm it, and it waits eight seconds with an Undo before Google is asked
-  at all. Only that one event (or one occurrence of a repeating one) or task,
-  and only if it has not been changed in Google since you saw it.
+  at all. Only that one event or task - or, for a repeating event, the one
+  occurrence or, if you choose "All events", that series - and only if it
+  has not been changed in Google since you saw it. Stopping a series
+  repeating, which takes its other events away, waits out the same Undo.
 - **Reads your email address**, to check that the calendar is the one of the
   account open in the tab.
 
