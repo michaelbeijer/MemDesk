@@ -96,7 +96,10 @@
   .notes-items { padding: 0 4px 12px; }
   .note-item { padding: 12px; }
 
-  .note-editor { flex: 1; border-radius: 0; box-shadow: none; }
+  /* min-height: 0, or a long note grows past the screen, cut off, with
+     nothing to scroll: its text box scrolls only if the editor stops at
+     the screen's foot. */
+  .note-editor { flex: 1; min-height: 0; border-radius: 0; box-shadow: none; }
   .ne-back { display: inline-flex; margin-right: 2px; }
   .ne-bar { padding: 6px 6px 0 4px; }
   .ne-title { padding: 6px 16px 4px; font-size: 22px; }
