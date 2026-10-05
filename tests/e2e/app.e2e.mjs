@@ -247,6 +247,36 @@ await r.step('editing: typing and formatting save by themselves, as a new versio
   assert.ok(plain(phone.fake.box.messageLabelNames(before)).includes('TRASH'));
 });
 
+await r.step('a long note opened from the list stops at the foot of the screen, and a finger scrolls it', async () => {
+  const d = await openApp();
+  await scratchReady(d.page);
+  await q(d.page, '[data-key="folders-toggle"]').tap();
+  await q(d.page, '[data-key="folder:all"]').tap();
+  await q(d.page, '.note-item').filter({ hasText: 'Launch checklist' }).tap();
+  const body = q(d.page, '.notes[data-view="note"] .ne-body');
+  await body.locator('.blk').first().waitFor();
+  await body.locator('.blk').last().tap();
+  await d.page.keyboard.press('End');
+  for (let i = 1; i <= 60; i++) {
+    await d.page.keyboard.press('Enter');
+    await d.page.keyboard.insertText(`Line ${i} of a long note`);
+  }
+  await body.evaluate(e => { e.blur(); e.scrollTop = 0; });
+  const size = await body.evaluate(e => ({ shown: e.clientHeight, all: e.scrollHeight, foot: e.getBoundingClientRect().bottom }));
+  assert.ok(size.all > size.shown * 1.5, `longer than the screen: ${JSON.stringify(size)}`);
+  assert.ok(size.foot <= d.page.viewportSize().height + 1, `its text box ends at the screen’s foot, not below it: ${JSON.stringify(size)}`);
+  // A finger's swipe up, as Android sends it.
+  const cdp = await d.page.context().newCDPSession(d.page);
+  const box = await body.boundingBox();
+  const x = Math.round(box.x + box.width / 2);
+  const y = Math.round(box.y + box.height * 0.7);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+  for (let i = 1; i <= 12; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - 30 * i }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await until(async () => (await body.evaluate(e => e.scrollTop)) > 100, 'scrolled down');
+  await d.page.close();
+});
+
 await r.step('ticking a box by tapping it; the back gesture saves and closes', async () => {
   const box = q(page, '.ne-body .blk[data-type="check"]').filter({ hasText: 'Send the invoice' });
   const at = await box.boundingBox();
