@@ -123,7 +123,7 @@ try {
     assert.equal(await options.locator('#ext-id').innerText(), EXPECTED_ID);
     assert.equal(await options.locator('#redirect-uri').innerText(), `https://${EXPECTED_ID}.chromiumapp.org/`);
     assert.equal(await options.locator('#shortcut').innerText(), 'Alt+Shift+K');
-    assert.equal(await options.locator('input[name="dock"]:checked').getAttribute('value'), 'left');
+    assert.equal(await options.locator('input[name="dock"]:checked').getAttribute('value'), 'top', 'the buttons in Gmail’s top bar unless chosen otherwise');
     await options.screenshot({ path: join(SCREENS, 'options.png'), fullPage: true, animations: 'disabled' });
   });
 
@@ -233,7 +233,7 @@ try {
     await gmail.locator('.overlay').waitFor({ state: 'hidden' });
   });
 
-  await r.step('client ID and dock position save to storage.sync', async () => {
+  await r.step('client ID and where the buttons sit save to storage.sync', async () => {
     await options.bringToFront();
     await options.locator('#client-id').fill('123456789012-abcdef.apps.googleusercontent.com');
     await options.locator('#client-form button[type="submit"]').click();
@@ -241,7 +241,7 @@ try {
     await options.locator('input[name="dock"][value="right"]').check();
     const stored = await until(async () => {
       const s = await sw.evaluate(() => chrome.storage.sync.get(null));
-      return s.dockPosition === 'right' && s;
+      return s.dockPlace === 'right' && s;
     }, 'sync storage');
     assert.equal(stored.clientId, '123456789012-abcdef.apps.googleusercontent.com');
     await until(() => gmail.locator('.dock').evaluate(e => e.classList.contains('right')), 'dock moved right live');

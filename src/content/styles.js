@@ -1930,6 +1930,18 @@ button.box { padding: 0; background: none; color: inherit; cursor: pointer; }
 .pill .caret { margin: 0 -6px 0 -2px; color: inherit; }
 .pill-compact { padding: 0 14px 0 10px; }
 .pill.busy { opacity: .7; }
+
+/* In Gmail's top bar: part of the bar's row, between the search box and
+   Gmail's icons. Their own background and a thin outline, rather than none,
+   so that they read the same on any theme of Gmail's; icons only when the
+   room is short (the open email's button keeps its words). */
+:host(.gkb-bar) { display: flex; align-items: center; flex: none; margin: 0 4px 0 12px; }
+.dock.top { position: static; gap: 6px; }
+.dock.top .pill { box-shadow: inset 0 0 0 1px var(--border); }
+.dock.top .pill:hover { box-shadow: inset 0 0 0 1px var(--border-strong); }
+.dock.top.compact .pill:not([data-action="thread-menu"]) { width: 40px; padding: 0; justify-content: center; }
+.dock.top.compact .pill:not([data-action="thread-menu"]) .pill-label { display: none; }
+.dock.top [data-action="thread-menu"] { max-width: 240px; }
 `;
 
   ns.styles = { board: BASE + BOARD + CALENDAR, dock: BASE + DOCK };

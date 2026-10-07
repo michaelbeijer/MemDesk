@@ -21,7 +21,7 @@ Google Cloud project? That is [SETUP.md](SETUP.md).)
    mail and never deletes mail for good. Click **Continue**.
 5. The page says **Connected as** your address. Open
    [Gmail](https://mail.google.com/): the **Board**, **Notes** and
-   **Calendar** buttons are at the bottom left.
+   **Calendar** buttons are in Gmail's top bar, beside the search box.
 
 The first time you open the board, it makes its columns (To do, Doing,
 Waiting, Done) as Gmail labels starting with `_Board`; the notes keep

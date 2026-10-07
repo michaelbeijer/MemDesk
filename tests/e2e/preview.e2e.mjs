@@ -416,6 +416,96 @@ try {
     await until(async () => !(await pill.isVisible()), 'pill hides with no open thread');
   });
 
+  await r.step('the buttons sit in Gmail’s top bar, between the search box and Gmail’s icons; their menu opens below, on top; back when Gmail redraws the bar', async () => {
+    const p = await openPage();
+    // Where the dock's floating layer is, and where the buttons are now.
+    const where = () => p.evaluate(() => {
+      const bar = document.getElementById('gkb-bar-host');
+      const inBar = !!(bar && bar.isConnected);
+      const dock = (inBar ? bar.shadowRoot : document.getElementById('gkb-dock-host').shadowRoot).querySelector('.dock');
+      const b = dock.getBoundingClientRect();
+      return {
+        inBar, compact: dock.classList.contains('compact'), right: dock.classList.contains('right'), hidden: dock.hidden,
+        before: inBar && !!bar.previousElementSibling.querySelector('form[role="search"]'),
+        after: inBar && bar.nextElementSibling.classList.contains('top-icons'),
+        inHeader: inBar && !!bar.closest('header#gb'),
+        top: Math.round(b.top), bottom: Math.round(b.bottom), left: Math.round(b.left), right2: Math.round(b.right),
+      };
+    });
+    await p.locator('[data-action="toggle-board"]').waitFor();
+    await until(async () => (await where()).inBar, 'in the bar');
+    const w = await where();
+    assert.deepEqual([w.before, w.after, w.inHeader, w.compact], [true, true, true, false], 'after the search box, before Gmail’s icons, with their words');
+    const header = await p.locator('header#gb').boundingBox();
+    assert.ok(w.top >= header.y && w.bottom <= header.y + header.height, 'within the bar');
+    assert.equal(await p.locator('[data-action="toggle-board"]').innerText(), 'Board');
+
+    // The open email's button joins them; its menu opens below it, on the
+    // floating layer, above the mail.
+    await p.locator('#dev-toggle-thread').click();
+    const pill = p.locator('[data-action="thread-menu"]');
+    await until(async () => /On board: Doing/.test(await pill.innerText()), 'the email’s button');
+    await pill.click();
+    const menu = p.locator('.menu');
+    await menu.waitFor();
+    assert.ok((await menu.boundingBox()).y >= (await pill.boundingBox()).y + (await pill.boundingBox()).height, 'below it');
+    assert.equal(await p.evaluate(() => !!document.getElementById('gkb-dock-host').shadowRoot.querySelector('.menu')), true, 'on the floating layer');
+    await p.screenshot({ path: join(SCREENS, 'preview-top-bar.png'), animations: 'disabled' });
+    await p.keyboard.press('Escape');
+    await menu.waitFor({ state: 'detached' });
+
+    // Gmail draws its bar afresh: the buttons go back in.
+    await p.evaluate(() => document.getElementById('gkb-bar-host').remove());
+    await until(async () => (await where()).inBar, 'back in the bar', 6000);
+
+    // Less room: icons only, with names for a screen reader; too little: the corner.
+    await p.setViewportSize({ width: 1100, height: 900 });
+    await until(async () => (await where()).compact, 'icons only');
+    assert.equal(await p.locator('[data-action="toggle-board"]').getAttribute('title'), 'Open the MemDesk board'.replace('MemDesk', await p.evaluate(() => window.gkb.APP_NAME)));
+    await p.setViewportSize({ width: 900, height: 900 });
+    await until(async () => !(await where()).inBar, 'floating');
+    let f = await where();
+    assert.ok(f.left === 16 && Math.abs(f.bottom - (900 - 16)) <= 1, `bottom left: ${JSON.stringify(f)}`);
+    await p.setViewportSize({ width: 1440, height: 900 });
+    await until(async () => (await where()).inBar && !(await where()).compact, 'in the bar again, with room');
+
+    // Gmail still laying its bar out: no room for a moment. Once the search
+    // box has its width, the buttons go in - without a resize.
+    await p.evaluate(() => { document.getElementById('gkb-bar-host').remove(); document.querySelector('.searchbar').style.maxWidth = '100px'; });
+    await until(async () => !(await where()).inBar, 'no room yet: floating', 6000);
+    await p.waitForTimeout(2500);
+    assert.equal((await where()).inBar, false, 'not tried again while there is still no room');
+    await p.evaluate(() => { document.querySelector('.searchbar').style.maxWidth = ''; });
+    await until(async () => (await where()).inBar, 'in the bar once there is room', 6000);
+
+    // No bar at all (Gmail changed it): the corner.
+    await p.evaluate(() => document.querySelector('header#gb').remove());
+    await until(async () => !(await where()).inBar, 'floating without a bar', 6000);
+    f = await where();
+    assert.ok(f.left === 16, 'bottom left');
+    await p.context().close();
+
+    // As chosen on the setup page.
+    const q = await openPage();
+    await q.locator('[data-action="toggle-board"]').waitFor();
+    for (const [place, check] of [
+      ['right', s => !s.inBar && s.right && s.right2 > 1200],
+      ['left', s => !s.inBar && !s.right && s.left === 16],
+      ['hidden', s => s.hidden],
+      ['top', s => s.inBar && !s.hidden],
+    ]) {
+      await q.evaluate(v => chrome.storage.sync.set({ dockPlace: v }), place);
+      await until(async () => check(await q.evaluate(() => {
+        const bar = document.getElementById('gkb-bar-host');
+        const inBar = !!(bar && bar.isConnected);
+        const dock = (inBar ? bar.shadowRoot : document.getElementById('gkb-dock-host').shadowRoot).querySelector('.dock');
+        const b = dock.getBoundingClientRect();
+        return { inBar, hidden: dock.hidden, right: dock.classList.contains('right'), left: Math.round(b.left), right2: Math.round(b.right) };
+      })), place);
+    }
+    await q.context().close();
+  });
+
   await r.step('clicking a card opens the thread in Gmail and closes the board', async () => {
     await openBoard(page);
     const id = (await ids(page, 'done'))[0];

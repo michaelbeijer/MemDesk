@@ -21,7 +21,7 @@
   const APP_NAME = 'MemDesk';
   // Shown in the logo's menu. The same as manifest.json's (a test says so),
   // for the phone app too, which has no manifest to read it from.
-  const APP_VERSION = '0.28.1';
+  const APP_VERSION = '0.29.0';
 
   // ── Storage keys ─────────────────────────────────────────────────────
   //
@@ -31,7 +31,7 @@
 
   const KEYS = {
     clientId: 'clientId',                        // storage.sync
-    dockPosition: 'dockPosition',                // storage.sync
+    dockPlace: 'dockPlace',                      // storage.sync: where the buttons sit in Gmail (dock.js)
     columns: email => `columns:${String(email).toLowerCase()}`, // storage.sync
     order: email => `order:${String(email).toLowerCase()}`,     // storage.local
     // Card edits get one key per card rather than one map per account:
@@ -53,6 +53,7 @@
   const HOST_IDS = {
     board: 'gkb-board-host',
     dock: 'gkb-dock-host',
+    bar: 'gkb-bar-host',     // the dock's buttons, in Gmail's top bar
   };
 
   // The publisher's own OAuth client, for the build that goes to the

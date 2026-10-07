@@ -128,17 +128,17 @@
     }
   }
 
-  // ── Dock position ────────────────────────────────────────────────────
+  // ── Where the buttons sit ────────────────────────────────────────────
 
-  chrome.storage.sync.get(KEYS.dockPosition).then(got => {
-    const v = got[KEYS.dockPosition] || 'left';
+  chrome.storage.sync.get(KEYS.dockPlace).then(got => {
+    const v = got[KEYS.dockPlace] || 'top';
     const input = document.querySelector(`input[name="dock"][value="${v}"]`);
     if (input) input.checked = true;
   });
 
   for (const input of document.querySelectorAll('input[name="dock"]')) {
     input.addEventListener('change', () => {
-      if (input.checked) chrome.storage.sync.set({ [KEYS.dockPosition]: input.value });
+      if (input.checked) chrome.storage.sync.set({ [KEYS.dockPlace]: input.value });
     });
   }
 

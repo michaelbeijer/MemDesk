@@ -33,12 +33,20 @@
   .devbar a { color: inherit; }
   .devbar .sep { opacity: .5; }
 
-  .top { display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 16px; flex: none; }
-  .logo { display: flex; align-items: center; gap: 8px; width: 220px; font-size: 22px; color: var(--fg2); }
+  /* Gmail's top bar, built as Gmail builds it: the banner, a row, and in
+     its middle the search form's column, then Gmail's icons - which is
+     what the dock looks for (src/content/dock.js). */
+  .top { height: 64px; flex: none; }
+  .top-row { display: flex; align-items: center; height: 100%; padding: 0 16px; }
+  .logo { display: flex; align-items: center; gap: 8px; width: 220px; flex: none; font-size: 22px; color: var(--fg2); }
   .logo .env { width: 32px; height: 24px; border-radius: 4px; background: linear-gradient(135deg,#ea4335 0 33%,#fbbc04 33% 66%,#34a853 66%); opacity: .85; }
-  .searchbar { flex: 1; max-width: 720px; height: 48px; border-radius: 24px; background: var(--chip);
+  .top-middle { display: flex; align-items: center; flex: 1 1 100%; min-width: 0; }
+  .search-col { flex: 1 1 auto; min-width: 0; }
+  .searchbar { max-width: 720px; height: 48px; margin: 0; border-radius: 24px; background: var(--chip);
                display: flex; align-items: center; padding: 0 20px; color: var(--fg3); }
-  .spacer { flex: 1; }
+  .top-icons { display: flex; gap: 8px; flex: none; padding: 0 8px; color: var(--fg2); }
+  .top-icon { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 18px; }
+  .top-account { flex: none; padding-left: 8px; }
   .avatar { width: 32px; height: 32px; border-radius: 50%; background: #7b5cd6; color: #fff; display: grid;
             place-items: center; text-decoration: none; font-weight: 500; }
 
@@ -126,11 +134,15 @@
       link('not_configured', 'state=not_configured'), link('fresh labels', 'fresh'),
       link('modify fails', 'fail=modify'), link('truncated', 'page=3'));
 
-    const top = el('header', { class: 'top' },
-      el('div', { class: 'logo' }, el('span', { class: 'env' }), 'Mail'),
-      el('div', { class: 'searchbar' }, 'Search mail'),
-      el('div', { class: 'spacer' }),
-      el('a', { class: 'avatar', href: '#', 'aria-label': `Google Account: Sam Test  \n(${account})` }, 'S'));
+    const top = el('header', { id: 'gb', role: 'banner', class: 'top' },
+      el('div', { class: 'top-row' },
+        el('div', { class: 'logo' }, el('span', { class: 'env' }), 'Mail'),
+        el('div', { class: 'top-middle' },
+          el('div', { class: 'search-col' },
+            el('form', { role: 'search', class: 'searchbar', onsubmit: e => e.preventDefault() }, 'Search mail')),
+          el('div', { class: 'top-icons', 'aria-hidden': 'true' }, el('span', { class: 'top-icon' }, '?'), el('span', { class: 'top-icon' }, '⚙'))),
+        el('div', { class: 'top-account' },
+          el('a', { class: 'avatar', href: '#', 'aria-label': `Google Account: Sam Test  \n(${account})` }, 'S'))));
 
     const nav = el('nav', {});
     const main = el('main', { role: 'main' });

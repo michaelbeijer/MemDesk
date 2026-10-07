@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.28.1" src="https://img.shields.io/badge/version-0.28.1-6D28D9">
+  <img alt="Version 0.29.0" src="https://img.shields.io/badge/version-0.29.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -44,7 +44,7 @@ dark, as Chrome is.
 
 ### ✉️ Right where you read
 
-While you read an email, one button at the bottom of Gmail says where it is on
+While you read an email, one button in Gmail's top bar says where it is on
 the board, and files it in a column without opening the board.
 
 <img src="images/gmail.jpg" width="100%" alt="An email open in Gmail, with the On board: Doing menu open below it">
@@ -139,7 +139,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.28.1 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.29.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -175,8 +175,9 @@ extension. It only matters if you ever pack a `.crx`.
 
 ## Usage
 
-- **Open the board** with the **Board** button at the bottom left of Gmail, the
-  toolbar icon, or **Alt+Shift+K**. Change the shortcut at
+- **Open the board** with the **Board** button in Gmail's top bar, beside the
+  search box (in a narrow window: icons only, and in a very narrow one at the
+  bottom left), the toolbar icon, or **Alt+Shift+K**. Change the shortcut at
   `chrome://extensions/shortcuts`. Press **Esc** to close it.
 - **The MemDesk logo** at the top left opens a small menu: the version you
   have, the website and the privacy page. In the phone app it also has
@@ -220,7 +221,10 @@ extension. It only matters if you ever pack a `.crx`.
 - The board refreshes when you open it if what it shows is more than a minute
   old, and whenever you press the refresh button. Each column loads up to 100
   threads and says so when there are more.
-- The setup page can move the buttons to the bottom right or hide them.
+- The setup page can move the buttons to a bottom corner, or hide them. In
+  the top bar they are part of the bar, so nothing of Gmail's slides under
+  them; in a corner, the last emails in the list can, and bottom right sits
+  over Gmail's compose windows.
 
 Card order within each column is stored in this browser (`storage.local`). The
 column layout and your card edits are stored in `storage.sync`, so they follow
@@ -229,7 +233,7 @@ your Chrome profile to other computers. All of it is kept per Gmail account.
 ### Notes
 
 - **Open the notes** with the **Notes** tab next to **Board** at the top of the
-  board, or the **Notes** button beside **Board** at the bottom left of Gmail.
+  board, or the **Notes** button beside **Board** in Gmail's top bar.
   The board reopens on whichever tab you used last.
 - **Folders** are in the column on the left: **All notes**, then your folders
   as a tree, each with how many notes it holds. Choose one to see only its
@@ -343,7 +347,7 @@ in Gmail and the notes follow.
 ### Calendar
 
 - **Open it** with the **Calendar** tab next to **Notes**, or the **Calendar**
-  button at the bottom left of Gmail.
+  button in Gmail's top bar.
 - **The first time**, it asks to connect: **Connect Google Calendar**, then
   allow it on Google's page. It asks to see your list of calendars, to change
   their events and your tasks, and for your address, to check that the
@@ -709,6 +713,11 @@ live in `src/content/gmail-hooks.js`, and each fails quietly.
   conversation's subject heading, polled once a second while the tab is visible.
   If Gmail drops the attribute, the "Add to board" button simply stops
   appearing. Everything else keeps working.
+- **The buttons' place in the top bar** is found by Gmail's banner
+  (`header#gb`, `role="banner"`) and its search form (`form[role="search"]`):
+  they go after the search box's column, before Gmail's own icons, and back
+  in within two seconds if Gmail draws the bar afresh. If Gmail changes
+  either, the buttons float at the bottom left instead, as they always could.
 - **Opening a thread** sets `location.hash` to `#all/<threadId>`, using the
   legacy hex id the API returns. Gmail currently accepts these and redirects to
   its newer ids.
