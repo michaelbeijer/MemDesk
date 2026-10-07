@@ -1,6 +1,6 @@
 # MemDesk privacy policy
 
-*Last updated: 4 October 2026*
+*Last updated: 7 October 2026*
 
 MemDesk is a Chrome extension, a phone panel in the Gmail app and a
 phone app, made by Michael Beijer. This policy says what they do with your
@@ -13,8 +13,10 @@ Google Tasks, and the publisher never receives any of your data.
 To work, MemDesk asks Google for permission to read and change your Gmail
 (the `gmail.modify` permission). With it, MemDesk:
 
-- **For the board:** reads the subject, sender, date, snippet and labels of
-  the conversations you put on the board, and adds or removes the board's
+- **For the board:** reads the subject, sender, recipients, date, snippet
+  and labels of the conversations you put on the board (the recipients only
+  to tell whether you are waiting on someone's reply), and the colours you
+  gave your labels in Gmail, and adds or removes the board's
   labels on them (`_Board/To do` and so on), including taking a conversation
   out of the Inbox when you drop it on a column set to archive.
 - **For the notes:** reads the messages under the `_Notes` label and its

@@ -166,7 +166,8 @@
     });
     const results = await api.gmailMany(need.map(t => ['GET', `threads/${t.id}`, {
       format: 'metadata',
-      metadataHeaders: ['Subject', 'From', 'Date'],
+      // To and Cc: whether a message of the user's own went to anyone else.
+      metadataHeaders: ['Subject', 'From', 'Date', 'To', 'Cc'],
     }]));
     results.forEach((full, i) => {
       // One thread deleted between list and get must not sink the board.

@@ -539,7 +539,8 @@ button:disabled { cursor: default; }
 [data-colour="blue"] { --stripe: var(--c-blue); }
 [data-colour="purple"] { --stripe: var(--c-purple); }
 [data-colour="grey"] { --stripe: var(--c-grey); }
-.card[data-colour]::before {
+.card[data-colour]::before,
+.card[data-tinted]::before {
   content: '';
   position: absolute;
   top: 0;
@@ -550,7 +551,43 @@ button:disabled { cursor: default; }
   background: var(--stripe);
   pointer-events: none;
 }
-.card[data-colour] .card-main { padding-left: 18px; }
+.card[data-colour] .card-main, .card[data-tinted] .card-main { padding-left: 18px; }
+
+/* A card's coloured Gmail labels, in their own colours. */
+.card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
+.label-tag {
+  max-width: 100%;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--tag-bg);
+  color: var(--tag-fg);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Waiting on them: the user wrote last. A click moves the card to Waiting. */
+.card-wait {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  max-width: calc(100% - 24px);
+  margin: -4px 12px 10px;
+  padding: 2px 9px 2px 7px;
+  border-radius: 11px;
+  background: var(--hover);
+  color: var(--fg-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.card[data-colour] .card-wait, .card[data-tinted] .card-wait { margin-left: 18px; }
+.card-wait .icon { flex: none; color: var(--fg-3); }
+.card-wait-move { display: none; align-items: center; gap: 2px; margin-left: 2px; color: var(--accent); font-weight: 500; }
+button.card-wait:hover, button.card-wait:focus-visible { background: var(--accent-soft); color: var(--on-accent-soft); }
+button.card-wait:hover .card-wait-move, button.card-wait:focus-visible .card-wait-move { display: inline-flex; color: inherit; }
 
 .card-menu {
   position: absolute;

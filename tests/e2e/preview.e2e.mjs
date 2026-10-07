@@ -506,6 +506,43 @@ try {
     await q.context().close();
   });
 
+  await r.step('“Waiting on them” where the user wrote last, a click moving it to Waiting; Gmail’s label colours on the cards, a colour set by hand winning', async () => {
+    const p = await openPage();
+    await openBoard(p);
+    const card = id => p.locator(`.card[data-id="${id}"]`);
+    const [proofing, glossary, ifu, invoice, po, quote, remittance] = await Promise.all([
+      'Proofreading feedback', 'Glossary for the stent', 'Updated IFU files', 'Invoice 2026-131', 'PO 88213', 'Quote request', 'Remittance advice',
+    ].map(s => findThread(p, s)));
+    // The user wrote last: in To do and Doing, the mark; in Waiting and Done, none.
+    assert.equal(await card(proofing).locator('.card-wait').count(), 1);
+    assert.equal(await card(glossary).locator('.card-wait').count(), 1);
+    for (const id of [ifu, invoice, po]) assert.equal(await card(id).locator('.card-wait').count(), 0, 'already waiting, or done');
+    assert.equal(await card(quote).locator('.card-wait').count(), 0, 'their move');
+    assert.equal(await p.locator('.card-wait').count(), 2);
+    assert.match(await card(proofing).locator('.card-wait').getAttribute('title'), /ball is in their court/);
+    // A click: to the top of Waiting, and its label in Gmail with it.
+    await card(proofing).locator('.card-wait').click();
+    await until(async () => (await ids(p, 'waiting'))[0] === proofing, 'moved to Waiting');
+    await waitForLabels(p, proofing, { has: ['_Board/Waiting'], lacks: ['_Board/To do'] }, 'labelled Waiting in Gmail');
+    assert.equal(await card(proofing).locator('.card-wait').count(), 0, 'no mark in Waiting');
+
+    // Gmail's label colours: a tag in the label's colour, and the stripe.
+    const tag = card(quote).locator('.label-tag');
+    assert.deepEqual(await tag.allInnerTexts(), ['Clients']);
+    assert.equal(await tag.evaluate(e => getComputedStyle(e).backgroundColor), 'rgb(74, 134, 232)');
+    assert.equal(await card(quote).getAttribute('data-tinted'), '');
+    assert.equal(await card(quote).evaluate(e => getComputedStyle(e, '::before').backgroundColor), 'rgb(74, 134, 232)');
+    assert.deepEqual(await card(invoice).locator('.label-tag').allInnerTexts(), ['Clients', 'Invoices']);
+    assert.ok(!(await p.locator('.label-tag').allInnerTexts()).some(t => /_Board|To do|Doing|Waiting|Done/.test(t)), 'never the board’s own labels, green as they are in Gmail');
+    // A colour set by hand wins; the tags stay.
+    await p.evaluate(id => chrome.storage.sync.set({ [`card:test@example.com:${id}`]: { colour: 'red' } }), remittance);
+    await until(async () => (await card(remittance).getAttribute('data-colour')) === 'red', 'red by hand');
+    assert.equal(await card(remittance).getAttribute('data-tinted'), null);
+    assert.deepEqual(await card(remittance).locator('.label-tag').allInnerTexts(), ['Invoices']);
+    await p.screenshot({ path: join(SCREENS, 'preview-waiting-and-colours.png'), animations: 'disabled' });
+    await p.context().close();
+  });
+
   await r.step('clicking a card opens the thread in Gmail and closes the board', async () => {
     await openBoard(page);
     const id = (await ids(page, 'done'))[0];

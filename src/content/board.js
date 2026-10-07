@@ -632,6 +632,7 @@
 
   function renderColumns() {
     const skeleton = S.status !== 'ready';
+    tagIndex = null; // the labels, looked up afresh for this drawing
     const wrap = h('div', { class: 'columns' });
     for (const col of S.columns) wrap.appendChild(renderColumn(col, skeleton));
     wrap.addEventListener('dragover', onDragOver);
@@ -689,6 +690,7 @@
     const date = util.relativeDate(t.ts);
     const edit = S.edits.get(id) || null;
     const title = logic.displayTitle(t, edit);
+    const tags = cardTags(t);
 
     const main = h('button', {
       class: 'card-main', type: 'button', dataset: { key: `card:${id}` },
@@ -710,7 +712,8 @@
         t.count > 1 ? h('span', { class: 'count', text: String(t.count), title: `${t.count} messages` }) : null),
       edit && edit.note
         ? h('span', { class: 'card-note' }, h('span', { class: 'sr-only', text: 'Note: ' }), edit.note)
-        : t.snippet ? h('span', { class: 'snippet', text: t.snippet }) : null);
+        : t.snippet ? h('span', { class: 'snippet', text: t.snippet }) : null,
+      labelTagsEl(tags));
 
     const more = h('button', {
       class: 'icon-btn card-menu', type: 'button',
@@ -720,13 +723,65 @@
       onclick: e => openCardMenu(e.currentTarget, id, col.id),
     }, icon('more', 20));
 
+    // Its colour: one set by hand, else its first coloured Gmail label's.
+    const tint = !(edit && edit.colour) && tags.length ? tags[0].background : '';
     const card = h('div', {
       class: ['card', t.unread && 'unread'], role: 'listitem', draggable: 'true',
-      dataset: edit && edit.colour ? { id, colour: edit.colour } : { id },
-    }, main, more);
+      dataset: edit && edit.colour ? { id, colour: edit.colour } : tint ? { id, tinted: '' } : { id },
+    }, main, waitingMark(t, id, col), more);
+    if (tint) card.style.setProperty('--stripe', tint);
     card.addEventListener('dragstart', e => onDragStart(e, id, col.id, card));
     card.addEventListener('dragend', onDragEnd);
     return card;
+  }
+
+  // ── What a card says besides ──
+  //
+  // Its Gmail labels that have a colour there, as small tags in it (see
+  // logic.labelTags): not the board's own labels, nor the notes'. The
+  // labels by id, and those to skip, once for each drawing of the board,
+  // not once for each card.
+  let tagIndex = null;
+  function cardTags(t) {
+    if (!tagIndex) {
+      const skip = S.columns.flatMap(c => [c.label, ...logic.labelAncestors(c.label)]);
+      if (ns.notesLogic) skip.push(ns.notesLogic.DEFAULT_LABEL);
+      tagIndex = { byId: new Map(store.allLabels().map(l => [l.id, l])), skip };
+    }
+    return logic.labelTags(t.labelIds, tagIndex.byId, tagIndex.skip);
+  }
+
+  function labelTagsEl(tags) {
+    if (!tags.length) return null;
+    return h('span', { class: 'card-tags' }, tags.map(tag => {
+      const el = h('span', { class: 'label-tag', text: tag.short, title: `Gmail label: ${tag.name}` });
+      el.style.setProperty('--tag-bg', tag.background);
+      el.style.setProperty('--tag-fg', tag.text);
+      return el;
+    }));
+  }
+
+  // The column a thread waits in: the board's own Waiting, or one called so.
+  function waitingColumn() {
+    return S.columns.find(c => c.id === 'waiting') || S.columns.find(c => /wait/i.test(c.title)) || null;
+  }
+
+  // "Waiting on them": the newest message is the user's own and nothing is
+  // being written back, so the ball is in the other court - on a card in
+  // any column but the waiting one and a done one. A click moves it to the
+  // waiting column, if there is one; it moves nowhere by itself.
+  function waitingMark(t, id, col) {
+    const wait = waitingColumn();
+    if (!t.waiting || col.archiveOnDrop || (wait && col.id === wait.id)) return null;
+    const why = 'Your message was the last one: the ball is in their court.';
+    const inner = [icon('hourglass', 14), h('span', { text: 'Waiting on them' })];
+    if (!wait) return h('span', { class: 'card-wait', title: why }, inner);
+    return h('button', {
+      class: 'card-wait', type: 'button', dataset: { key: `wait:${id}` },
+      title: `${why} Click to move it to ${wait.title}.`,
+      'aria-label': `Waiting on them. Move to ${wait.title}`,
+      onclick: () => moveThread(id, col.id, wait.id, 0),
+    }, inner, h('span', { class: 'card-wait-move', 'aria-hidden': 'true' }, icon('arrow', 14), wait.title));
   }
 
   function announce(msg) {

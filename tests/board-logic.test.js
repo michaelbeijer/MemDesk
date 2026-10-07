@@ -326,3 +326,47 @@ test('normaliseColumns keeps a stored label id', () => {
   assert.equal(c.labelId, 'Label_5');
   assert.equal('labelId' in logic.normaliseColumns([{ id: 'b', label: 'x', labelId: 7 }])[0], false);
 });
+
+// ── Waiting on them ──
+
+test('waiting on them: the user wrote last, to someone else, and is not writing back', () => {
+  const sent = (to, extra = {}) => ({
+    labelIds: ['SENT'], internalDate: '3000', snippet: 'mine',
+    payload: { headers: [{ name: 'From', value: 'Sam <test@example.com>' }, { name: 'Subject', value: 'Re: x' }, ...(to === null ? [] : [{ name: 'To', value: to }]), ...(extra.cc ? [{ name: 'Cc', value: extra.cc }] : [])] },
+  });
+  const theirs = msg('Priya <priya@kestrel.example>', 'x', 1000, ['INBOX']);
+  const summary = messages => logic.summariseThread({ id: 't', messages }, 'test@example.com');
+  assert.equal(summary([theirs, sent('Priya <priya@kestrel.example>')]).waiting, true);
+  assert.equal(summary([theirs]).waiting, false, 'their move: not waiting');
+  assert.equal(summary([theirs, sent('priya@kestrel.example'), msg('Me <test@example.com>', 'Re: x', 5000, ['DRAFT'])]).waiting, false, 'a reply being written: the ball is with the user');
+  assert.equal(summary([sent('Sam <TEST@example.com>')]).waiting, false, 'a note to self waits on no one');
+  assert.equal(summary([sent('Sam <test@example.com>', { cc: 'Bart <bart@example.org>' })]).waiting, true, 'copied to someone');
+  assert.equal(summary([sent(null)]).waiting, true, 'Bcc only: someone else, unseen');
+});
+
+// ── Labels as colours ──
+
+test('label colours: the conversation’s coloured labels of the user’s own, not the board’s, the notes’ or Gmail’s', () => {
+  const blue = { backgroundColor: '#4a86e8', textColor: '#ffffff' };
+  const labels = [
+    { id: 'INBOX', name: 'INBOX', type: 'system', color: blue },
+    { id: 'L1', name: '{{Supervertaler}}', type: 'user', color: blue },
+    { id: 'L2', name: 'Clients/Kestrel Medical', type: 'user', color: { backgroundColor: '#fad165', textColor: '#000000' } },
+    { id: 'L3', name: 'Plain', type: 'user' },
+    { id: 'L4', name: '_Board', type: 'user', color: blue },
+    { id: 'L5', name: '_Board/Doing', type: 'user', color: blue },
+    { id: 'L6', name: '_Notes/Work', type: 'user', color: blue },
+    { id: 'L7', name: 'Admin', type: 'user', color: { backgroundColor: 'red; content: url(x)', textColor: '#000000' } },
+    { id: 'L8', name: '.Tessa', type: 'user', color: { backgroundColor: '#b694e8', textColor: 'nonsense' } },
+  ];
+  const skip = ['_Board/Doing', '_Board', '_Notes'];
+  const tags = logic.labelTags(['INBOX', 'L5', 'L2', 'L1', 'L3', 'L4', 'L6', 'L7', 'L1'], labels, skip);
+  assert.deepEqual(tags.map(t => [t.name, t.short, t.background, t.text]), [
+    ['{{Supervertaler}}', '{{Supervertaler}}', '#4a86e8', '#ffffff'],
+    ['Clients/Kestrel Medical', 'Kestrel Medical', '#fad165', '#000000'],
+  ].sort((a, b) => a[0].localeCompare(b[0])), 'by name; no colour, no board, no notes, no Gmail, no made-up colour');
+  assert.equal(logic.labelTags(['L1', 'L2', 'L8'], labels, skip).length, logic.MAX_TAGS, 'at most two');
+  assert.equal(logic.labelTags(['L8'], labels, skip)[0].text, '#000000', 'a text colour that is not one: black');
+  assert.deepEqual(logic.labelTags(['L5', 'L4'], labels, skip), []);
+  assert.deepEqual(logic.labelTags(['L1'], [], skip), [], 'labels not read yet: none');
+});

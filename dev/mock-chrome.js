@@ -80,7 +80,7 @@
   const m = (from, hoursAgo, snippet, extra = []) => ({ from, hoursAgo, snippet, extra });
 
   const SEED = [
-    { cols: ['todo'], subject: 'Quote request: DE→EN patent, 14,200 words', msgs: [
+    { cols: ['todo'], tags: ['Clients'], subject: 'Quote request: DE→EN patent, 14,200 words', msgs: [
       m(P.ingrid, 26, 'Dear Sam, we&#39;d like a quote for the attached &quot;Verfahren zur Beschichtung&quot; application &amp; its 24 claims. The deadline is flexible.'),
       m(P.me, 25, 'Thanks Ingrid, I&#39;ll have a quote to you tomorrow morning.'),
       m(P.ingrid, 2, 'Great, thank you. One more thing: could you also quote for the two priority documents?', ['UNREAD']),
@@ -103,7 +103,7 @@
     { cols: ['todo'], subject: 'Availability for October?', msgs: [
       m(P.grace, 140, 'We have a 30k-word medical device manual landing mid-October. Any capacity in weeks 42&#x2013;43?'),
     ] },
-    { cols: ['doing'], subject: 'Glossary for the stent coating project', extra: ['IMPORTANT'], msgs: [
+    { cols: ['doing'], tags: ['Clients'], subject: 'Glossary for the stent coating project', extra: ['IMPORTANT'], msgs: [
       m(P.tomas, 220, 'Attached is our in-house glossary (EN/PT, 340 terms). Please flag anything that looks inconsistent.'),
       m(P.me, 196, 'Thanks Tomás. Three entries disagree with the IFU; notes attached.'),
       m(P.tomas, 170, 'Good catches. Our regulatory team agrees with 2 of 3.'),
@@ -121,10 +121,10 @@
       m(P.priya, 120, 'Could you update the IFU with the new sterilisation section?'),
       m(P.me, 96, 'Hi Priya, here are the updated IFU files with tracked changes. Let me know if the regulatory team has comments.'),
     ] },
-    { cols: ['waiting'], subject: 'Invoice 2026-131 – Lumenra Biotech', msgs: [
+    { cols: ['waiting'], tags: ['Clients', 'Invoices'], subject: 'Invoice 2026-131 – Lumenra Biotech', msgs: [
       m(P.me, 290, 'Please find attached invoice 2026-131 for the stent coating glossary (14 hours).', ['SENT']),
     ] },
-    { cols: ['done'], archived: true, subject: 'Remittance advice – invoice 2026-114', msgs: [
+    { cols: ['done'], archived: true, tags: ['Invoices'], subject: 'Remittance advice – invoice 2026-114', msgs: [
       m(P.brightwater, 360, 'Payment of &#8364;1,840.00 has been made to your account. Reference BW-2026-114.'),
     ] },
     { cols: ['done'], archived: true, subject: 'PO 88213 for the stability study', msgs: [
@@ -183,7 +183,8 @@
   const SYSTEM_LABELS = ['INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'STARRED', 'UNREAD', 'IMPORTANT', 'CATEGORY_PERSONAL'];
   const labels = SYSTEM_LABELS.map(id => ({ id, name: id, type: 'system' }));
 
-  function addUserLabel(name) {
+  // `color`: Gmail's own palette, as labels.list gives it.
+  function addUserLabel(name, color) {
     const label = {
       id: `Label_${labelCounter++}`,
       name,
@@ -191,16 +192,19 @@
       labelListVisibility: 'labelShow',
       messageListVisibility: 'show',
     };
+    if (color) label.color = color;
     labels.push(label);
     return label;
   }
 
   const COLUMN_LABELS = { todo: '_Board/To do', doing: '_Board/Doing', waiting: '_Board/Waiting', done: '_Board/Done' };
-  addUserLabel('Clients');
-  addUserLabel('Invoices');
+  addUserLabel('Clients', { backgroundColor: '#4a86e8', textColor: '#ffffff' });
+  addUserLabel('Invoices', { backgroundColor: '#16a766', textColor: '#ffffff' });
   if (!FRESH) {
-    addUserLabel('_Board');
-    for (const name of Object.values(COLUMN_LABELS)) addUserLabel(name);
+    // Green in Gmail, as the board's labels often are: never a card's colour.
+    const green = { backgroundColor: '#16a766', textColor: '#ffffff' };
+    addUserLabel('_Board', green);
+    for (const name of Object.values(COLUMN_LABELS)) addUserLabel(name, green);
   }
   const labelByName = name => labels.find(l => l.name.toLowerCase() === String(name).toLowerCase());
 
@@ -218,7 +222,7 @@
       return {
         id: `${threadId}${j}`,
         threadId,
-        labelIds: [...new Set([...base, ...colLabels, ...(seed.extra || []), ...mm.extra])],
+        labelIds: [...new Set([...base, ...colLabels, ...(seed.extra || []), ...(seed.tags || []).map(n => labelByName(n).id), ...mm.extra])],
         snippet: mm.snippet,
         historyId: String(historyCounter++),
         internalDate: String(ts),
