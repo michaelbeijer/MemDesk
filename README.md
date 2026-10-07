@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.29.0" src="https://img.shields.io/badge/version-0.29.0-6D28D9">
+  <img alt="Version 0.30.0" src="https://img.shields.io/badge/version-0.30.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -139,7 +139,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.29.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.30.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -218,6 +218,19 @@ extension. It only matters if you ever pack a `.crx`.
 - Cards show the subject, the latest sender ("me" if it was you), how long ago
   the latest message arrived, two lines of the snippet, a message count, a star
   for starred threads, and bold text with a dot for unread ones.
+- **Waiting on them**: a card whose latest message is yours (to someone else,
+  with no reply being drafted) says so, in any column but Waiting and Done:
+  the ball is in their court. Click it to move the card to the top of
+  **Waiting** (or whichever column has "wait" in its name). Nothing moves by
+  itself; "I'll start on it now" is yours to do, though you wrote last.
+- **Colours from your Gmail labels**: give a label a colour in Gmail (the
+  three dots beside it, **Label colour**), and every card whose conversation
+  carries it shows the label's name as a small tag in that colour, with a
+  stripe to match. A Gmail filter that labels mail (everything from
+  `@supervertaler.com`, say) so colours its cards too. The board's own
+  `_Board` labels, the notes' and Gmail's never count; with several coloured
+  labels, the first two by name show, and the first gives the stripe. A
+  colour you set with **Edit card…** wins over them.
 - The board refreshes when you open it if what it shows is more than a minute
   old, and whenever you press the refresh button. Each column loads up to 100
   threads and says so when there are more.
@@ -656,7 +669,8 @@ The privacy policy is [PRIVACY.md](PRIVACY.md). In detail:
   technically sending mail. It does **not** permit permanent deletion; that
   needs the full `https://mail.google.com/` scope.
 - **What this code does.** For the board, it reads thread metadata (subject,
-  sender, date, label ids and Gmail's snippet), creates and renames labels, and
+  sender, recipients, date, label ids and Gmail's snippet) and the labels'
+  colours, creates and renames labels, and
   adds or removes labels on threads, including `INBOX` when archiving. For the
   notes, it reads the messages under `_Notes` and its folders (bodies
   included), inserts new notes, moves notes between folders, moves its own old

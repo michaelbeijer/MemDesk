@@ -266,6 +266,8 @@
   // Reduces a threads.get(format=metadata) response to what a card shows.
   // Subject comes from the first message (replies prefix "Re:"), sender
   // and date from the latest real message (a pending draft is not news).
+  // `waiting`: that message is the user's own, to someone else, with no
+  // reply being written - the ball is in the other court.
   function summariseThread(thread, account) {
     const msgs = (thread && thread.messages) || [];
     const id = thread && thread.id;
@@ -288,6 +290,11 @@
     const from = util.parseAddress(latestHeaders.from);
     const me = !!account && from.email === String(account).toLowerCase();
     const labels = new Set(msgs.flatMap(m => m.labelIds || []));
+    const hasDraft = msgs.some(isDraft);
+    // Written to no one but the user (a reminder to self): nobody to wait on.
+    // No To or Cc at all (Bcc only) is someone else, unseen.
+    const to = `${latestHeaders.to || ''},${latestHeaders.cc || ''}`.match(/[^\s<>,;"']+@[^\s<>,;"']+/g) || [];
+    const toSelf = to.length > 0 && to.every(e => e.toLowerCase() === String(account).toLowerCase());
 
     return {
       id,
@@ -300,9 +307,38 @@
       count: basis.length,
       unread: labels.has('UNREAD'),
       starred: labels.has('STARRED'),
-      hasDraft: msgs.some(isDraft),
+      hasDraft,
+      waiting: me && !hasDraft && !toSelf,
       labelIds: [...labels],
     };
+  }
+
+  // ── Labels as colours ──
+  //
+  // A card shows its conversation's Gmail labels that have a colour in
+  // Gmail - as the user set them there, so they mean what the user means
+  // by them, and Gmail's filters colour cards by themselves - and takes
+  // its stripe from the first. Not Gmail's own labels, and not those named
+  // in `skip` or under them (the board's, the notes'). Sorted by name, at
+  // most MAX_TAGS. `labels`: Gmail's label resources.
+  // [{ id, name, short, background, text }]
+  const MAX_TAGS = 2;
+  const HEX = /^#[0-9a-f]{6}$/i;
+  function labelTags(labelIds, labels, skip) {
+    const byId = new Map((labels || []).map(l => [l.id, l]));
+    const skipped = (skip || []).map(s => String(s).toLowerCase()).filter(Boolean);
+    const out = [];
+    for (const id of new Set(labelIds || [])) {
+      const l = byId.get(id);
+      const c = l && l.color;
+      if (!l || l.type === 'system' || !c || !HEX.test(c.backgroundColor || '')) continue;
+      const name = String(l.name || '');
+      const lower = name.toLowerCase();
+      if (!name || skipped.some(s => lower === s || lower.startsWith(`${s}/`))) continue;
+      out.push({ id, name, short: name.split('/').pop(), background: c.backgroundColor, text: HEX.test(c.textColor || '') ? c.textColor : '#000000' });
+    }
+    out.sort((a, b) => a.name.localeCompare(b.name));
+    return out.slice(0, MAX_TAGS);
   }
 
   function searchQuery(text) {
@@ -367,7 +403,7 @@
     newColumnId, validateColumns,
     labelAncestors, assignColumns, mergeOrder, placeId, pruneOrder,
     moveLabelDiff, removeLabelDiff, columnForLabels, summariseThread, searchQuery,
-    CARD_COLOURS, MAX_TITLE, MAX_NOTE, normaliseCardEdit, displayTitle, cardEditsFrom,
+    CARD_COLOURS, MAX_TITLE, MAX_NOTE, normaliseCardEdit, displayTitle, cardEditsFrom, MAX_TAGS, labelTags,
   };
 
   ns.logic = api;
