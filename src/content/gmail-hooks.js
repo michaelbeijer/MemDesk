@@ -90,5 +90,22 @@
     };
   }
 
-  ns.hooks = { getAccount, getAccountIndex, openThread, threadUrl, getOpenThreadId, watchOpenThread };
+  // ── The top bar ──────────────────────────────────────────────────────
+
+  // Where the dock's buttons go in Gmail's top bar: after the search box's
+  // column - the first of the search form's ancestors laid out in a row
+  // with something after it, Gmail's own icons. Found by the banner and
+  // its search form, which have stayed put for years; null while there is
+  // no bar (Gmail has not drawn it yet, or has changed it). { after, form }.
+  function topBarSlot() {
+    const header = document.querySelector('header#gb, header[role="banner"]');
+    const form = header && header.querySelector('form[role="search"]');
+    for (let n = form; n && n !== header; n = n.parentElement) {
+      const row = n.parentElement;
+      if (row && n.nextElementSibling && /flex/.test(getComputedStyle(row).display)) return { after: n, form };
+    }
+    return null;
+  }
+
+  ns.hooks = { getAccount, getAccountIndex, openThread, threadUrl, getOpenThreadId, watchOpenThread, topBarSlot };
 })();

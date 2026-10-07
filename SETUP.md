@@ -100,8 +100,8 @@ address.
 
 ### 4. Use it
 
-Reload Gmail. **Board**, **Notes** and **Calendar** buttons appear at the
-bottom left. The first time you open the board, it creates its labels
+Reload Gmail. **Board**, **Notes** and **Calendar** buttons appear in Gmail's
+top bar, beside the search box. The first time you open the board, it creates its labels
 (`_Board/To do`, `_Board/Doing`, `_Board/Waiting`, `_Board/Done`); the notes
 create `_Notes`. The first time you open the calendar, it asks to connect:
 click **Connect Google Calendar** and allow it (to see your list of

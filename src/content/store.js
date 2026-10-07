@@ -79,10 +79,11 @@
     }
   }
 
-  async function loadDockPosition() {
-    const got = await chrome.storage.sync.get(KEYS.dockPosition);
-    const v = got[KEYS.dockPosition];
-    return v === 'right' || v === 'hidden' ? v : 'left';
+  // Gmail's top bar unless a corner, or none, was chosen.
+  async function loadDockPlace() {
+    const got = await chrome.storage.sync.get(KEYS.dockPlace);
+    const v = got[KEYS.dockPlace];
+    return v === 'left' || v === 'right' || v === 'hidden' ? v : 'top';
   }
 
   // ── Labels ───────────────────────────────────────────────────────────
@@ -278,7 +279,7 @@
   }
 
   ns.store = {
-    bus, loadColumns, saveColumns, loadOrder, saveOrder, loadCardEdits, saveCardEdit, loadDockPosition,
+    bus, loadColumns, saveColumns, loadOrder, saveOrder, loadCardEdits, saveCardEdit, loadDockPlace,
     refreshLabels, ensureLabels, renameLabel, labelId, allLabels,
     thread, loadBoard, moveToColumn, removeFromBoard, search, threadColumn,
   };

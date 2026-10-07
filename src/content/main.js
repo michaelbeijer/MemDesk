@@ -37,7 +37,7 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'sync') return;
-    if (changes[KEYS.dockPosition]) ns.dock.setPosition(changes[KEYS.dockPosition].newValue);
+    if (changes[KEYS.dockPlace]) ns.dock.setPlace(changes[KEYS.dockPlace].newValue);
     const account = ns.hooks.getAccount();
     if (account && changes[KEYS.columns(account)]) {
       ns.board.columnsChanged(changes[KEYS.columns(account)].newValue);

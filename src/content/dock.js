@@ -1,10 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────
 // The dock
 //
-// Small pills in a corner of Gmail: one opens the board, one the notes,
-// and a third appears only while a conversation is open and says whether
-// it is on the board. Filing the thread you are reading is the most common thing
-// a board gets used for, and it should not mean opening the board.
+// The buttons in Gmail: one opens the board, one the notes, one the
+// calendar, and a fourth appears only while a conversation is open and
+// says whether it is on the board. Filing the thread you are reading is
+// the most common thing a board gets used for, and it should not mean
+// opening the board. They sit in Gmail's top bar, or float in a bottom
+// corner (see "Where it sits").
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -19,9 +21,15 @@
     column: null,   // the column the open thread is in, or null
     columns: [],
     seq: 0,         // discards lookups overtaken by a newer thread
+    place: 'top',   // as chosen: 'top' (Gmail's bar), 'left', 'right' or 'hidden'
+    inBar: false,   // in Gmail's bar now, rather than floating
+    noRoom: null,   // when the bar had no room for them: the search box's width then, without them
   };
 
+  // `root`: the floating layer, on top of everything - the buttons when
+  // they float, and their menus and messages always.
   let root = null;
+  let bar = null;   // { host, root }: their place in Gmail's bar, made when first needed
   const els = {};
 
   // ── Mounting ─────────────────────────────────────────────────────────
@@ -60,9 +68,12 @@
 
   async function init() {
     mount();
+    let chosen = 'top';
     try {
-      setPosition(await store.loadDockPosition());
+      chosen = await store.loadDockPlace();
     } catch { /* extension reloaded under us; leave the default */ }
+    setPlace(chosen);
+    watchBar();
 
     hooks.watchOpenThread(onThreadChange);
 
@@ -75,11 +86,90 @@
     });
   }
 
-  function setPosition(pos) {
+  // ── Where it sits ────────────────────────────────────────────────────
+  //
+  // By default in Gmail's top bar, between the search box and Gmail's own
+  // icons: part of the bar, so that nothing of Gmail's can slide under the
+  // buttons, as it can under buttons floating in a corner. The bar is
+  // found by what has stayed put in Gmail for years - the banner and its
+  // search form - and the buttons go back in whenever Gmail draws the bar
+  // afresh. With less room they are icons only. With too little, or no
+  // bar to be found, they float in the bottom left corner, as they do
+  // when that corner (or the right) is chosen on the setup page. Menus and
+  // messages open on the floating layer whichever it is: in the bar they
+  // would be in Gmail's lower layers, under the mail.
+
+  // How wide Gmail's search box stays beside the buttons with their words;
+  // failing that, beside their icons; failing that, they float.
+  const ROOM_WORDS = 400;
+  const ROOM_ICONS = 240;
+  // Gmail may draw its bar after this starts, or afresh later.
+  const RECHECK_MS = 2000;
+
+  function setPlace(place) {
+    S.place = ['top', 'left', 'right', 'hidden'].includes(place) ? place : 'top';
+    S.noRoom = null;
+    placeDock();
+  }
+
+  function placeDock() {
     if (!els.dock) return;
-    els.dock.hidden = pos === 'hidden';
-    els.dock.classList.toggle('right', pos === 'right');
-    if (pos === 'hidden') closeMenu(root);
+    els.dock.hidden = S.place === 'hidden';
+    if (S.place === 'hidden') closeMenu(root);
+    let slot = S.place === 'top' ? hooks.topBarSlot() : null;
+    let short = null; // the search form, when there was no room beside it
+    if (slot) {
+      if (!bar) {
+        bar = mountShadow(HOST_IDS.bar, ns.styles.dock);
+        bar.host.classList.add('gkb-bar');
+      }
+      if (bar.host.previousElementSibling !== slot.after) slot.after.after(bar.host);
+      if (els.dock.parentNode !== bar.root) bar.root.appendChild(els.dock);
+      els.dock.classList.add('top');
+      els.dock.classList.remove('compact');
+      const room = () => slot.form.getBoundingClientRect().width;
+      if (room() < ROOM_WORDS) els.dock.classList.add('compact');
+      if (room() < ROOM_ICONS) {
+        short = slot.form;
+        slot = null;
+      }
+    }
+    if (!slot) {
+      if (els.dock.parentNode !== root) root.appendChild(els.dock);
+      els.dock.classList.remove('top', 'compact');
+      if (bar && bar.host.isConnected) bar.host.remove();
+    }
+    els.dock.classList.toggle('right', !slot && S.place === 'right');
+    S.inBar = !!slot;
+    S.noRoom = short ? short.getBoundingClientRect().width : null;
+  }
+
+  // Looked at again when the window changes size (the room may have), and
+  // every couple of seconds while the buttons belong in the bar but are
+  // not in it: Gmail had not drawn it yet, or has drawn it afresh - or had
+  // not yet given its search box its width, when there seemed to be no
+  // room. That is tried again only once the box has grown, so a bar with
+  // truly no room is not tried, and given up, over and over. The look is
+  // a query or two; the buttons only move when they must.
+  function watchBar() {
+    let frame = 0;
+    window.addEventListener('resize', () => {
+      if (S.place !== 'top') return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        S.noRoom = null;
+        placeDock();
+      });
+    });
+    setInterval(() => {
+      if (S.place !== 'top') return;
+      if (S.inBar) {
+        if (!bar.host.isConnected) placeDock();
+        return;
+      }
+      const slot = hooks.topBarSlot();
+      if (slot && (S.noRoom === null || slot.form.getBoundingClientRect().width > S.noRoom + 40)) placeDock();
+    }, RECHECK_MS);
   }
 
   // ── Open thread ──────────────────────────────────────────────────────
@@ -118,6 +208,7 @@
     const b = els.thread;
     if (!S.threadId) {
       b.hidden = true;
+      if (S.inBar) placeDock();
       return;
     }
     const on = !!S.column;
@@ -132,6 +223,7 @@
     b.setAttribute('aria-label', on
       ? `On the board in ${S.column.title}. Change column`
       : 'Add this conversation to the board');
+    if (S.inBar) placeDock();
   }
 
   async function toggleThreadMenu() {
@@ -170,7 +262,7 @@
         onSelect: removeOpenThread,
       });
     }
-    openMenu(root, els.thread, items, { label: 'Board column', placement: 'above' });
+    openMenu(root, els.thread, items, { label: 'Board column', placement: S.inBar ? 'below' : 'above' });
   }
 
   async function moveOpenThread(col) {
@@ -241,5 +333,5 @@
     if (S.threadId) lookup();
   }
 
-  ns.dock = { init, setPosition, columnsChanged };
+  ns.dock = { init, setPlace, columnsChanged };
 })();
