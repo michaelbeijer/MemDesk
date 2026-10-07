@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.30.0" src="https://img.shields.io/badge/version-0.30.0-6D28D9">
+  <img alt="Version 0.31.0" src="https://img.shields.io/badge/version-0.31.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -139,7 +139,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.30.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.31.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -208,6 +208,10 @@ extension. It only matters if you ever pack a `.crx`.
   add it to that column.
 - **Done** archives on drop: moving a thread there also takes it out of the
   Inbox. You can switch this on or off for any column.
+- **Done** chimes, too: a short, soft two-note sound when a card lands there,
+  by drag, menu, search or the button in Gmail's top bar (not when you only
+  reorder it). The column settings switch it on or off for any column;
+  ticking the box plays it.
 - The **columns button** in the header adds, renames, reorders and removes
   columns. Renaming a label there renames the Gmail label itself, so the mail
   filed under it stays put. Removing a column only takes it off the board. The

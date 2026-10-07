@@ -23,11 +23,12 @@
 
   // Done archives on drop because that is what finishing something in
   // Gmail usually means: out of the Inbox, still findable under its label.
+  // And it chimes, a small reward for finishing something.
   const DEFAULT_COLUMNS = [
-    { id: 'todo', title: 'To do', label: `${DEFAULT_ROOT}/To do`, archiveOnDrop: false },
-    { id: 'doing', title: 'Doing', label: `${DEFAULT_ROOT}/Doing`, archiveOnDrop: false },
-    { id: 'waiting', title: 'Waiting', label: `${DEFAULT_ROOT}/Waiting`, archiveOnDrop: false },
-    { id: 'done', title: 'Done', label: `${DEFAULT_ROOT}/Done`, archiveOnDrop: true },
+    { id: 'todo', title: 'To do', label: `${DEFAULT_ROOT}/To do`, archiveOnDrop: false, chime: false },
+    { id: 'doing', title: 'Doing', label: `${DEFAULT_ROOT}/Doing`, archiveOnDrop: false, chime: false },
+    { id: 'waiting', title: 'Waiting', label: `${DEFAULT_ROOT}/Waiting`, archiveOnDrop: false, chime: false },
+    { id: 'done', title: 'Done', label: `${DEFAULT_ROOT}/Done`, archiveOnDrop: true, chime: true },
   ];
 
   function defaultColumns() {
@@ -52,6 +53,9 @@
         title: String(c.title || '').trim() || label.split('/').pop(),
         label,
         archiveOnDrop: !!c.archiveOnDrop,
+        // Saved before columns could chime: the one that archives is where
+        // finished work goes, so that one does.
+        chime: typeof c.chime === 'boolean' ? c.chime : !!c.archiveOnDrop,
       };
       if (c.labelId && typeof c.labelId === 'string') col.labelId = c.labelId;
       out.push(col);

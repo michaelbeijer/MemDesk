@@ -13,7 +13,7 @@
   'use strict';
 
   const ns = (globalThis.gkb = globalThis.gkb || {});
-  const { h, icon, mountShadow, toast, openMenu, closeMenu, isMenuOpen } = ns.ui;
+  const { h, icon, mountShadow, toast, openMenu, closeMenu, isMenuOpen, chime } = ns.ui;
   const { store, hooks, api, APP_NAME, HOST_IDS } = ns;
 
   const S = {
@@ -271,6 +271,7 @@
     S.seq++; // a lookup still in flight predates this and must not win
     S.column = col;
     renderPill();
+    if (col.chime) chime();
     try {
       await store.moveToColumn(id, await columns(), col.id, 'dock');
       toast(root, `${was ? 'Moved' : 'Added'} to ${col.title}${col.archiveOnDrop ? ' and archived' : ''}.`);

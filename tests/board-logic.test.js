@@ -124,8 +124,24 @@ test('stored columns are normalised, with defaults as the fallback', () => {
     { id: 'a', title: 'Duplicate id', label: 'Dup' },
     { id: 'b', label: 'Work/Later' },
   ]), [
-    { id: 'a', title: 'Clients', label: 'Work/Clients', archiveOnDrop: true },
-    { id: 'b', title: 'Later', label: 'Work/Later', archiveOnDrop: false },
+    { id: 'a', title: 'Clients', label: 'Work/Clients', archiveOnDrop: true, chime: true },
+    { id: 'b', title: 'Later', label: 'Work/Later', archiveOnDrop: false, chime: false },
+  ]);
+});
+
+test('Done chimes; a column saved before chimes existed chimes if it archives; a choice made is kept', () => {
+  assert.deepEqual(COLUMNS.map(c => [c.title, c.chime]), [
+    ['To do', false], ['Doing', false], ['Waiting', false], ['Done', true],
+  ]);
+  const cols = logic.normaliseColumns([
+    { id: 'old-done', label: 'B/Done', archiveOnDrop: true },
+    { id: 'old-doing', label: 'B/Doing', archiveOnDrop: false },
+    { id: 'quiet-done', label: 'B/Quiet', archiveOnDrop: true, chime: false },
+    { id: 'loud', label: 'B/Loud', archiveOnDrop: false, chime: true },
+    { id: 'odd', label: 'B/Odd', archiveOnDrop: true, chime: 'yes' },
+  ]);
+  assert.deepEqual(cols.map(c => [c.id, c.chime]), [
+    ['old-done', true], ['old-doing', false], ['quiet-done', false], ['loud', true], ['odd', true],
   ]);
 });
 
