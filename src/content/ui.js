@@ -312,5 +312,53 @@
     return close;
   }
 
-  ns.ui = { h, append, icon, logo, LOGO, mountShadow, toast, openMenu, closeMenu, isMenuOpen };
+  // ── Sound ────────────────────────────────────────────────────────────
+
+  // A short, soft chime: two rising notes, each a bell-like sine with a
+  // quieter octave above, quick to strike and slow to fade. Made on the
+  // spot with Web Audio rather than played from a file, so there is
+  // nothing to load or fetch. Each chime has its own audio context, closed
+  // once it has rung, so nothing keeps the computer's sound open in
+  // between. If the browser has no sound, or will not play one yet, it
+  // stays quiet: a chime is never worth an error.
+  const CHIME_NOTES = [[784, 0], [1047, 0.09]]; // G5, then C6: Hz, seconds in
+  const CHIME_FADE = 0.6;                       // seconds each note rings
+  const CHIME_VOLUME = 0.18;
+
+  function chime() {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    let ctx = null;
+    try {
+      ctx = new Ctx();
+      const start = ctx.currentTime + 0.01;
+      const out = ctx.createGain();
+      out.gain.value = CHIME_VOLUME;
+      out.connect(ctx.destination);
+      for (const [freq, at] of CHIME_NOTES) {
+        const t = start + at;
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(0.0001, t);
+        env.gain.exponentialRampToValueAtTime(1, t + 0.008);
+        env.gain.exponentialRampToValueAtTime(0.0001, t + CHIME_FADE);
+        env.connect(out);
+        for (const [times, level] of [[1, 1], [2, 0.25]]) {
+          const osc = ctx.createOscillator();
+          osc.frequency.value = freq * times;
+          const g = ctx.createGain();
+          g.gain.value = level;
+          osc.connect(g).connect(env);
+          osc.start(t);
+          osc.stop(t + CHIME_FADE + 0.05);
+        }
+      }
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      const done = ctx;
+      setTimeout(() => done.close().catch(() => {}), 1000);
+    } catch (_) {
+      if (ctx) ctx.close().catch(() => {});
+    }
+  }
+
+  ns.ui = { h, append, icon, logo, LOGO, mountShadow, toast, openMenu, closeMenu, isMenuOpen, chime };
 })();

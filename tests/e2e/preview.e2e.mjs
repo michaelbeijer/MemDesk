@@ -1454,6 +1454,107 @@ try {
     await p.context().close();
   });
 
+  await r.step('a card landing in Done chimes - by drag, menu or the top bar - once, its sound closed after; not within Done, nor elsewhere; the column setting turns it off; no sound is no trouble', async () => {
+    const p = await openPage();
+    // Every chime, by its audio context: the notes struck, and whether it
+    // was closed afterwards.
+    const spy = () => p.evaluate(() => {
+      window.__chimes = [];
+      const Real = window.__RealAudioContext || (window.__RealAudioContext = window.AudioContext);
+      window.AudioContext = class extends Real {
+        constructor() {
+          super();
+          this.rec = { notes: [], closed: false };
+          window.__chimes.push(this.rec);
+        }
+        createOscillator() {
+          const o = super.createOscillator();
+          const start = o.start.bind(o);
+          o.start = (...a) => { this.rec.notes.push(Math.round(o.frequency.value)); return start(...a); };
+          return o;
+        }
+        close() { this.rec.closed = true; return super.close(); }
+      };
+    });
+    const chimes = () => p.evaluate(() => window.__chimes);
+    await spy();
+    await openBoard(p);
+
+    const first = await findThread(p, 'Office action');
+    await drag(p, first, p.locator('section[data-col="done"] .list'));
+    await p.locator(`section[data-col="done"] .card[data-id="${first}"]`).waitFor();
+    await until(async () => (await chimes()).length === 1, 'one chime for the drag to Done');
+    assert.deepEqual((await chimes())[0].notes, [784, 1568, 1047, 2094], 'two notes, each with its octave');
+    await until(async () => (await chimes())[0].closed, 'its sound closed once it has rung', 3000);
+
+    // Within Done, and out of it again: quiet.
+    const done = await ids(p, 'done');
+    await p.locator(`.card[data-id="${done[0]}"]`).hover();
+    await p.locator(`.card[data-id="${done[0]}"] .card-menu`).click();
+    await p.locator('.menu [data-key="down"]').click();
+    await until(async () => (await ids(p, 'done'))[1] === done[0], 'reordered within Done');
+    await drag(p, first, p.locator('section[data-col="doing"] .list'));
+    await waitForLabels(p, first, { has: ['_Board/Doing'], lacks: ['_Board/Done'] }, 'back to Doing');
+    await p.waitForTimeout(300);
+    assert.equal((await chimes()).length, 1, 'no chime within Done, or into Doing');
+
+    // The ⋯ menu's "Move to" chimes too.
+    await p.locator(`.card[data-id="${first}"]`).hover();
+    await p.locator(`.card[data-id="${first}"] .card-menu`).click();
+    await p.locator('.menu [data-key="move:done"]').click();
+    await until(async () => (await chimes()).length === 2, 'a chime for the menu’s move');
+
+    // The column settings: ticked for Done only; unticked and saved, quiet.
+    await p.locator('[data-key="settings"]').click();
+    const drawer = p.locator('.drawer');
+    await drawer.waitFor();
+    const ticks = await drawer.locator('[data-key^="chime:"]').evaluateAll(els => els.map(e => e.checked));
+    assert.deepEqual(ticks, [false, false, false, true], 'Done chimes, the others not');
+    await drawer.locator('[data-key="chime:1"]').check();
+    await until(async () => (await chimes()).length === 3, 'ticking the box plays it');
+    await drawer.locator('[data-key="chime:1"]').uncheck();
+    await drawer.locator('[data-key="chime:3"]').uncheck();
+    assert.equal((await chimes()).length, 3, 'unticking is quiet');
+    await drawer.locator('[data-key="save"]').click();
+    await drawer.waitFor({ state: 'detached' });
+    const stored = await p.evaluate(() => window.chrome.storage.sync.dump()['columns:test@example.com']);
+    assert.deepEqual(stored.map(c => c.chime), [false, false, false, false], 'kept as chosen');
+    const next = await findThread(p, 'Deadline moved');
+    await drag(p, next, p.locator('section[data-col="done"] .list'));
+    await waitForLabels(p, next, { has: ['_Board/Done'] }, 'moved to a quiet Done');
+    await p.waitForTimeout(300);
+    assert.equal((await chimes()).length, 3, 'Done is quiet now');
+
+    // On again; the button in Gmail's top bar chimes as well.
+    await p.locator('[data-key="settings"]').click();
+    await drawer.waitFor();
+    await drawer.locator('[data-key="chime:3"]').check();
+    await drawer.locator('[data-key="save"]').click();
+    await drawer.waitFor({ state: 'detached' });
+    await p.keyboard.press('Escape');
+    await p.locator('.overlay').waitFor({ state: 'hidden' });
+    const termbase = await findThread(p, 'Termbase export');
+    await p.locator('#dev-toggle-thread').click();
+    const pill = p.locator('[data-action="thread-menu"]');
+    await until(async () => /On board: Doing/.test(await pill.innerText()), 'pill shows Doing');
+    const before = (await chimes()).length;
+    await pill.click();
+    await p.locator('.menu [data-key="col:done"]').click();
+    await waitForLabels(p, termbase, { has: ['_Board/Done'], lacks: ['INBOX'] }, 'filed in Done from the top bar');
+    assert.equal((await chimes()).length, before + 1, 'a chime from the top bar');
+    await p.locator('#dev-toggle-thread').click();
+
+    // A browser that cannot make a sound: the card still moves, and nothing
+    // is said about it.
+    await p.evaluate(() => { window.AudioContext = function () { throw new Error('no sound here'); }; });
+    await openBoard(p);
+    const last = (await ids(p, 'todo'))[0];
+    await drag(p, last, p.locator('section[data-col="done"] .list'));
+    await waitForLabels(p, last, { has: ['_Board/Done'], lacks: ['INBOX'] }, 'moved with no sound to be had');
+    assert.equal(await p.locator('.toast-error').count(), 0, 'no error shown');
+    await p.context().close();
+  });
+
   await r.step('a move made while a refresh is in flight is not undone by it', async () => {
     const p = await openPage('latency=400');
     await openBoard(p);

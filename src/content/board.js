@@ -17,7 +17,7 @@
   'use strict';
 
   const ns = (globalThis.gkb = globalThis.gkb || {});
-  const { h, icon, logo, mountShadow, toast, openMenu, closeMenu, isMenuOpen } = ns.ui;
+  const { h, icon, logo, mountShadow, toast, openMenu, closeMenu, isMenuOpen, chime } = ns.ui;
   const { util, logic, store, hooks, api, APP_NAME, HOST_IDS, KEYS } = ns;
 
   // States with a panel of their own, shown whichever tab is open: they
@@ -852,6 +852,9 @@
     persistOrder();
     render();
     announce(`Moved to ${target.title}${target.archiveOnDrop ? ' and archived' : ''}.`);
+    // With the card's move, not Gmail's answer, so the two go together. If
+    // Gmail refuses, the card going back and the toast say so.
+    if (target.chime) chime();
 
     try {
       await store.moveToColumn(id, S.columns, toCol, 'board');
@@ -1106,6 +1109,7 @@
     persistOrder();
     render();
     announce(`Added to ${target.title}.`);
+    if (target.chime) chime();
     try {
       await store.moveToColumn(id, S.columns, colId, 'board');
     } catch (err) {
@@ -1236,7 +1240,17 @@
           type: 'checkbox', checked: !!c.archiveOnDrop, dataset: { key: `archive:${i}` },
           onchange: e => { c.archiveOnDrop = e.target.checked; },
         }),
-        'Archive threads moved here (take them out of the Inbox)'));
+        'Archive threads moved here (take them out of the Inbox)'),
+      h('label', { class: 'check' },
+        h('input', {
+          type: 'checkbox', checked: !!c.chime, dataset: { key: `chime:${i}` },
+          // Ticked, it plays, so the box says what it does.
+          onchange: e => {
+            c.chime = e.target.checked;
+            if (c.chime) chime();
+          },
+        }),
+        'Play a short chime when a card is moved here'));
   }
 
   function moveDraft(i, delta) {
@@ -1267,6 +1281,7 @@
       label: `${root}/New column`,
       root,
       archiveOnDrop: false,
+      chime: false,
       origLabel: '',
       isNew: true,
       labelTouched: false,
@@ -1284,6 +1299,7 @@
       title: String(c.title || '').trim(),
       label: tidy(c.label),
       archiveOnDrop: !!c.archiveOnDrop,
+      chime: !!c.chime,
     }));
 
     const problem = logic.validateColumns(cols);
