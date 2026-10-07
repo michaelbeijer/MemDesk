@@ -320,12 +320,12 @@
   // by them, and Gmail's filters colour cards by themselves - and takes
   // its stripe from the first. Not Gmail's own labels, and not those named
   // in `skip` or under them (the board's, the notes'). Sorted by name, at
-  // most MAX_TAGS. `labels`: Gmail's label resources.
-  // [{ id, name, short, background, text }]
+  // most MAX_TAGS. `labels`: Gmail's label resources, or a Map of them by
+  // id (made once for a whole board). [{ id, name, short, background, text }]
   const MAX_TAGS = 2;
   const HEX = /^#[0-9a-f]{6}$/i;
   function labelTags(labelIds, labels, skip) {
-    const byId = new Map((labels || []).map(l => [l.id, l]));
+    const byId = labels instanceof Map ? labels : new Map((labels || []).map(l => [l.id, l]));
     const skipped = (skip || []).map(s => String(s).toLowerCase()).filter(Boolean);
     const out = [];
     for (const id of new Set(labelIds || [])) {

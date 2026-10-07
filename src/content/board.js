@@ -632,6 +632,7 @@
 
   function renderColumns() {
     const skeleton = S.status !== 'ready';
+    tagIndex = null; // the labels, looked up afresh for this drawing
     const wrap = h('div', { class: 'columns' });
     for (const col of S.columns) wrap.appendChild(renderColumn(col, skeleton));
     wrap.addEventListener('dragover', onDragOver);
@@ -689,6 +690,7 @@
     const date = util.relativeDate(t.ts);
     const edit = S.edits.get(id) || null;
     const title = logic.displayTitle(t, edit);
+    const tags = cardTags(t);
 
     const main = h('button', {
       class: 'card-main', type: 'button', dataset: { key: `card:${id}` },
@@ -711,7 +713,7 @@
       edit && edit.note
         ? h('span', { class: 'card-note' }, h('span', { class: 'sr-only', text: 'Note: ' }), edit.note)
         : t.snippet ? h('span', { class: 'snippet', text: t.snippet }) : null,
-      labelTagsEl(t));
+      labelTagsEl(tags));
 
     const more = h('button', {
       class: 'icon-btn card-menu', type: 'button',
@@ -722,7 +724,6 @@
     }, icon('more', 20));
 
     // Its colour: one set by hand, else its first coloured Gmail label's.
-    const tags = cardTags(t);
     const tint = !(edit && edit.colour) && tags.length ? tags[0].background : '';
     const card = h('div', {
       class: ['card', t.unread && 'unread'], role: 'listitem', draggable: 'true',
@@ -737,15 +738,20 @@
   // ── What a card says besides ──
   //
   // Its Gmail labels that have a colour there, as small tags in it (see
-  // logic.labelTags): not the board's own labels, nor the notes'.
+  // logic.labelTags): not the board's own labels, nor the notes'. The
+  // labels by id, and those to skip, once for each drawing of the board,
+  // not once for each card.
+  let tagIndex = null;
   function cardTags(t) {
-    const skip = S.columns.flatMap(c => [c.label, ...logic.labelAncestors(c.label)]);
-    if (ns.notesLogic) skip.push(ns.notesLogic.DEFAULT_LABEL);
-    return logic.labelTags(t.labelIds, store.allLabels(), skip);
+    if (!tagIndex) {
+      const skip = S.columns.flatMap(c => [c.label, ...logic.labelAncestors(c.label)]);
+      if (ns.notesLogic) skip.push(ns.notesLogic.DEFAULT_LABEL);
+      tagIndex = { byId: new Map(store.allLabels().map(l => [l.id, l])), skip };
+    }
+    return logic.labelTags(t.labelIds, tagIndex.byId, tagIndex.skip);
   }
 
-  function labelTagsEl(t) {
-    const tags = cardTags(t);
+  function labelTagsEl(tags) {
     if (!tags.length) return null;
     return h('span', { class: 'card-tags' }, tags.map(tag => {
       const el = h('span', { class: 'label-tag', text: tag.short, title: `Gmail label: ${tag.name}` });
