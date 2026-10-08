@@ -129,16 +129,17 @@ The **column settings** button at the top right of the board opens the
 Click **Save** when you are done. If you rename a board label in Gmail
 itself, the board follows it, rather than making a new, empty one.
 
-## On other computers
+## The same columns everywhere
 
-Your columns and your card edits follow your Chrome profile to your other
-computers. The order of the cards within each column is kept on each
-computer.
+Your columns are the same on every computer and in the phone app: their
+titles, their order, and which ones archive and chime. They are kept in
+Gmail, as one message called **Board layout** under `_Board`. Saving the
+columns replaces it, and the old one goes to Trash. Please leave it where
+it is: it is how your other computers and phones know your columns.
 
-## Columns on your phone
+A change made on one shows on the others the next time their board
+refreshes. If Gmail cannot be reached, each one uses the copy it keeps.
 
-**The phone app keeps a layout of its own.** For now, the extension in
-Chrome and the phone app each keep their own columns and card edits: a
-column you add, rename or remove in one does not show in the other. The
-cards themselves are the same everywhere, because they are your Gmail
-labels.
+Your card edits (titles, notes and colours) follow your Chrome profile to
+your other computers; the phone app keeps its own. The order of the cards
+within each column is kept on each computer.

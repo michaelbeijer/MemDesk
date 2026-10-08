@@ -77,6 +77,21 @@ has a long note. Taking a card off the board deletes its edit; moving it to
 Done keeps it. Clear the notes on cards you no longer need, or take
 finished cards off the board.
 
+## My phone shows different columns from Chrome
+
+Open the board in Gmail on your computer, then refresh the board in the
+phone app. Since version 0.32.0 your columns are kept in Gmail, the same for
+every computer and phone; the first computer to open the board after the
+update puts its columns there. Before that, the phone app had columns of its
+own.
+
+## What is the "Board layout" message under _Board?
+
+That is where MemDesk keeps your columns, so that every computer and phone
+shows the same board. It is never sent, and never in your Inbox. Please
+leave it. If it goes, the next computer to open the board puts its own
+columns back.
+
 ## I deleted a note by mistake
 
 Click **Undo** straight away. Later, the note is in Gmail's Trash for 30

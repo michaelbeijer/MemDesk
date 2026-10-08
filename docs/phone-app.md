@@ -53,8 +53,8 @@ opens it in Gmail, moves it to another column, edits its title, note and
 colour, or takes it off the board. The **+** on a column finds an email and
 adds it, and the settings button changes the columns.
 
-How the app's columns relate to the ones in Chrome:
-see [Columns on your phone](board.md#columns-on-your-phone).
+The columns are the same as in Chrome: see
+[The same columns everywhere](board.md#the-same-columns-everywhere).
 
 ## The calendar
 
