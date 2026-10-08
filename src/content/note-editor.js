@@ -40,6 +40,7 @@
 
   const STYLES = [['p', 'Normal text'], ['h1', 'Heading 1'], ['h2', 'Heading 2'], ['h3', 'Heading 3']];
   const STYLE_LABEL = Object.fromEntries(STYLES);
+  const HEADINGS = new Set(['h1', 'h2', 'h3']);
   const INDENT_PX = 24;
 
   // Typed at the start of a paragraph and followed by a space, these turn
@@ -260,7 +261,10 @@
 
   // ── Selection ────────────────────────────────────────────────────────
 
-  function create({ root, onChange }) {
+  // `contents`: { shown, onToggle(shown) } where the host has room for
+  // the note's headings beside it (the notes view, not the calendar's
+  // tile): a button for them on the toolbar, and `outline` to place.
+  function create({ root, onChange, contents = null }) {
     const els = {};
     let saved = null;     // the last selection inside the editor
     let editable = false;
@@ -499,6 +503,7 @@
       tidy();
       onChange();
       refreshToolbar();
+      scheduleOutline();
     }
 
     // ── Commands ─────────────────────────────────────────────────────────
@@ -957,6 +962,10 @@
       sep(),
       tbButton('link', 'Link (Ctrl+K)', 'link', () => openLink()),
       tbButton('clear', 'Clear formatting', 'clear', () => clearFormatting(), false));
+    if (contents) {
+      els.toolbar.append(h('span', { class: 'tb-sep tb-contents-sep', 'aria-hidden': 'true' }),
+        tbButton('contents', 'Contents: the note’s headings, beside it', 'contents', () => toggleContents()));
+    }
 
     els.linkInput = h('input', {
       class: 'text-input', type: 'text', placeholder: 'Web address or email', 'aria-label': 'Link address',
@@ -1453,6 +1462,109 @@
       CSS.highlights.delete('gkb-match-current');
     }
 
+    // ── Contents ─────────────────────────────────────────────────────────
+    //
+    // The note's headings, beside it, when the host has room and the
+    // toolbar's button has them shown: each one goes to its heading, and
+    // the one whose part is being read is marked as the text scrolls.
+    // Drawn again a moment after the text changes, and only if the
+    // headings did. Off, it costs nothing.
+
+    let contentsShown = !!(contents && contents.shown);
+    let outlineSig = null;
+    let outlineTimer = 0;
+    let outlineFrame = 0;
+    els.outline = contents ? h('nav', {
+      class: 'ne-outline', 'aria-label': 'Contents', hidden: !contentsShown, dataset: { key: 'note-contents' },
+    }) : null;
+    if (buttons.contents) buttons.contents.setAttribute('aria-pressed', String(contentsShown));
+
+    // The headings with words in them, in order.
+    const headings = () => [...els.editor.children].filter(el => HEADINGS.has(el.dataset.type) && el.textContent.trim());
+
+    function drawOutline() {
+      clearTimeout(outlineTimer);
+      if (!els.outline || !contentsShown) return;
+      const list = headings();
+      const sig = list.map(el => `${el.dataset.type} ${el.textContent}`).join('\n');
+      if (sig !== outlineSig) {
+        outlineSig = sig;
+        // The highest level there is sits at the left, so a note that
+        // starts at Heading 2 is not indented for nothing.
+        const top = Math.min(3, ...list.map(el => Number(el.dataset.type[1])));
+        els.outline.replaceChildren(
+          h('div', { class: 'ol-head', text: 'Contents' }),
+          list.length ? h('div', { class: 'ol-list' }, list.map((el, i) => h('button', {
+            class: 'ol-item', type: 'button', text: el.textContent.trim(), title: el.textContent.trim(),
+            dataset: { key: `contents:${i}`, depth: String(Number(el.dataset.type[1]) - top) },
+            onclick: () => goToHeading(i),
+          }))) : h('p', {
+            class: 'ol-empty',
+            text: 'No headings yet. Make a line a heading with the text style menu, or start it with # and a space.',
+          }));
+      }
+      markReading();
+    }
+
+    function scheduleOutline() {
+      if (!els.outline || !contentsShown) return;
+      clearTimeout(outlineTimer);
+      outlineTimer = setTimeout(drawOutline, 250);
+    }
+
+    // The heading of the part at the top of the text: the last one above
+    // it, or at the very end, the last of all.
+    function markReading() {
+      if (!els.outline || !contentsShown) return;
+      const list = headings();
+      const box = els.editor;
+      let at = -1;
+      if (box.scrollTop + box.clientHeight >= box.scrollHeight - 2) at = list.length - 1;
+      else {
+        const line = box.scrollTop + 24;
+        for (let i = 0; i < list.length && list[i].offsetTop <= line; i++) at = i;
+      }
+      els.outline.querySelectorAll('.ol-item').forEach((b, i) => {
+        if (i === at) b.setAttribute('aria-current', 'location');
+        else b.removeAttribute('aria-current');
+      });
+    }
+
+    els.editor.addEventListener('scroll', () => {
+      if (!contentsShown || outlineFrame) return;
+      outlineFrame = requestAnimationFrame(() => { outlineFrame = 0; markReading(); });
+    }, { passive: true });
+
+    // To a heading: at the top of the text, with the cursor at its start.
+    function goToHeading(i) {
+      const el = headings()[i];
+      if (!el) return;
+      if (editable) {
+        els.editor.focus({ preventScroll: true });
+        placeCaret(el, 0);
+      }
+      const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      els.editor.scrollTo({ top: Math.max(0, el.offsetTop - 12), behavior: still ? 'auto' : 'smooth' });
+    }
+
+    function setContentsShown(on) {
+      if (!els.outline) return;
+      contentsShown = !!on;
+      els.outline.hidden = !contentsShown;
+      buttons.contents.setAttribute('aria-pressed', String(contentsShown));
+      outlineSig = null;
+      if (contentsShown) drawOutline();
+      else {
+        clearTimeout(outlineTimer);
+        els.outline.replaceChildren();
+      }
+    }
+
+    function toggleContents() {
+      setContentsShown(!contentsShown);
+      if (contents.onToggle) contents.onToggle(contentsShown);
+    }
+
     // ── API ──────────────────────────────────────────────────────────────
 
     function setDoc(doc) {
@@ -1461,6 +1573,7 @@
       els.editor.replaceChildren(...fmt.normaliseDoc(doc).map(blockEl));
       for (const td of els.editor.querySelectorAll('td')) td.contentEditable = editable ? 'true' : 'false';
       updateEmpty();
+      drawOutline();
     }
 
     // New text under someone who may be typing - a newer version merged
@@ -1498,6 +1611,8 @@
       els.editor.dataset.placeholder = placeholder || 'Write here…';
       els.editor.setAttribute('aria-disabled', String(!editable));
       for (const b of [...els.toolbar.querySelectorAll('button')]) b.disabled = !editable;
+      // The contents only go somewhere in the text: they work regardless.
+      if (buttons.contents) buttons.contents.disabled = false;
       for (const td of els.editor.querySelectorAll('td')) td.contentEditable = editable ? 'true' : 'false';
       if (!editable) els.tablebar.hidden = true;
     }
@@ -1509,6 +1624,8 @@
     }
 
     function destroy() {
+      clearTimeout(outlineTimer);
+      cancelAnimationFrame(outlineFrame);
       document.removeEventListener('selectionchange', onSelection);
       clearHighlights();
       closeMenu(root);
@@ -1519,6 +1636,8 @@
       toolbar: els.toolbar,
       linkbar: els.linkbar,
       tablebar: els.tablebar,
+      outline: els.outline,
+      setContentsShown,
       setDoc,
       replaceDoc,
       getDoc: () => readDoc(els.editor),

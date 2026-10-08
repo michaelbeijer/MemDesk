@@ -67,7 +67,8 @@
     folder: '',         // the folder shown; '' for all notes
     folderEdit: null,   // { mode: 'new' | 'rename', parentId, folderId, value, error, busy }
     folded: new Set(),  // folders whose subfolders are folded away
-    foldedRead: false,  // the saved set has been asked for
+    foldedRead: false,  // the saved set (and `contents`) has been asked for
+    contents: false,    // the note's headings shown beside it (the toolbar's Contents)
     dragKey: '',        // the note being dragged onto a folder
     terms: [],          // searchLogic.queryTerms() of the search that is showing
     hits: new Map(),    // `${messageId}|${terms}` → { count, excerpts }
@@ -657,6 +658,20 @@
       const ids = await prefs.get('foldedFolders');
       if (Array.isArray(ids)) N.folded = new Set(ids.filter(id => typeof id === 'string'));
     } catch (err) { /* every folder open */ }
+    try {
+      N.contents = (await prefs.get('noteContents')) === true;
+      if (els.ed) els.ed.setContentsShown(N.contents);
+    } catch (err) { /* no contents, as at first */ }
+  }
+
+  // The toolbar's Contents, shown or not, remembered as the folded folders are.
+  function saveContents(on) {
+    N.contents = on;
+    const prefs = N.ctx && N.ctx.prefs;
+    if (!prefs) return;
+    try {
+      Promise.resolve(prefs.set('noteContents', on)).catch(() => {});
+    } catch (err) { /* not remembered, that is all */ }
   }
 
   function saveFolded() {
@@ -1152,6 +1167,7 @@
         edited(c, { doc: ed.getDoc() });
         if (c === N.scratch) T.stale = true;
       },
+      contents: { shown: N.contents, onToggle: saveContents },
     });
     els.ed = ed;
     els.edStale = false;
@@ -1161,7 +1177,8 @@
         : c.scratch ? `Jot anything down. It saves as you type, as a note in Gmail under “${notesStore.labelName()}”.` : 'Write here…');
 
     els.findSlot = h('div', { class: 'ne-find-slot' });
-    els.editor.replaceChildren(els.bar, els.bannerSlot, els.findSlot, title, ed.toolbar, ed.linkbar, ed.tablebar, ed.element);
+    els.editor.replaceChildren(els.bar, els.bannerSlot, els.findSlot, title, ed.toolbar, ed.linkbar, ed.tablebar,
+      h('div', { class: 'ne-main' }, ed.element, ed.outline));
     drawBar();
     drawFind();
   }
