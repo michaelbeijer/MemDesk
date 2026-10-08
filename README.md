@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.33.0" src="https://img.shields.io/badge/version-0.33.0-6D28D9">
+  <img alt="Version 0.33.1" src="https://img.shields.io/badge/version-0.33.1-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -140,7 +140,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.33.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.33.1 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -328,7 +328,8 @@ computers. All of it is kept per Gmail account.
   out of the table. While the cursor is in a cell, the **table bar** under the
   toolbar inserts and deletes rows and columns, turns the heading row on and
   off, aligns the column left, centred or right, sorts the rows by the column
-  (numbers as numbers, the heading row staying on top), and deletes the table.
+  (numbers as numbers, the heading row staying on top), and deletes the table:
+  **Delete table** at its right, or in its Row and Column menus.
   **Ctrl+Z** straight after one of those takes it back. Cells hold text with
   bold, italic, strike-through and links; a wide table scrolls sideways,
   which is how it fits on a phone. Cells copied from a spreadsheet and pasted

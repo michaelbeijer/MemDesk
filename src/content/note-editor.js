@@ -1000,17 +1000,21 @@
     }, 'Heading row');
     els.tablebar = h('div', { class: 'ne-tablebar', role: 'toolbar', 'aria-label': 'Table', hidden: true },
       h('span', { class: 'tb-label' }, icon('table', 18)),
+      // Delete table is in both menus too, beneath Delete row and Delete
+      // column, where anyone looking for it looks first.
       menuButton('table-row', 'Row', () => [
         { label: 'Insert row above', key: 'row-above', onSelect: () => addRow(false) },
         { label: 'Insert row below', key: 'row-below', onSelect: () => addRow(true) },
         { separator: true },
         { label: 'Delete row', key: 'row-delete', danger: true, onSelect: () => deleteRow() },
+        { label: 'Delete table', key: 'delete-table', danger: true, onSelect: () => deleteTable() },
       ]),
       menuButton('table-column', 'Column', () => [
         { label: 'Insert column left', key: 'col-left', onSelect: () => addColumn(false) },
         { label: 'Insert column right', key: 'col-right', onSelect: () => addColumn(true) },
         { separator: true },
         { label: 'Delete column', key: 'col-delete', danger: true, onSelect: () => deleteColumn() },
+        { label: 'Delete table', key: 'delete-table', danger: true, onSelect: () => deleteTable() },
       ]),
       els.tableHead,
       sep(),
@@ -1023,7 +1027,12 @@
         { label: 'Sort by this column, Z to A', key: 'sort-desc', onSelect: () => sortRows(true) },
       ]),
       h('span', { class: 'spacer' }),
-      tbButton('table-delete', 'Delete table', 'delete', () => deleteTable(), false));
+      // In words: a bare bin here looked like the note's own Delete above it.
+      h('button', {
+        class: 'tb-text tb-danger', type: 'button', title: 'Delete the table (Ctrl+Z brings it back)',
+        dataset: { key: 'fmt-table-delete' }, onmousedown: keepFocus,
+        onclick: () => { if (editable && cellNow()) deleteTable(); },
+      }, icon('delete', 18), 'Delete table'));
 
     function deleteTable() {
       tableEdit((td, el) => removeTable(el));

@@ -80,8 +80,10 @@ cell.
 
 While the cursor is in a table, the **table bar** under the toolbar adds
 and deletes rows and columns, turns the heading row on or off, aligns a
-column, sorts the rows by a column, and deletes the table. **Ctrl+Z**
-straight after one of these takes it back.
+column, and sorts the rows by a column. To remove the whole table, click
+**Delete table** at the right of the table bar, or choose **Delete table**
+in its **Row** or **Column** menu. **Ctrl+Z** straight after any of these
+takes it back.
 
 A wide table scrolls sideways, which is how it fits on a phone.
 
