@@ -4,10 +4,11 @@
 // Shared by the board and the dock, so a move made from either is seen by
 // both. Gmail is the source of truth for which column a thread is in;
 // what lives here is a cache of label ids and thread summaries, plus the
-// small things Gmail cannot hold - the column layout and the user's own
-// card titles, notes and colours (storage.sync, so they follow the user
-// between computers) and card order within each column (storage.local,
-// because it changes on every drag and sync has a tight write quota).
+// small things kept apart: the user's own card titles, notes and colours
+// (storage.sync, so they follow the user between computers) and card
+// order within each column (storage.local, because it changes on every
+// drag and sync has a tight write quota). The column layout is kept in
+// Gmail, the same for every computer and phone, with a copy here.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -33,14 +34,69 @@
   }
 
   // ── Settings ─────────────────────────────────────────────────────────
+  //
+  // The column layout: Gmail's (logic.layoutReadFlow), one for every
+  // computer and phone, with a copy in storage.sync for when Gmail cannot
+  // be reached. `layout` is the version in Gmail this board is showing -
+  // its id and columns, and the versions a save replaces - or null while
+  // Gmail has none, or it could not be read.
 
-  async function loadColumns(account) {
-    const key = KEYS.columns(account);
-    const got = await chrome.storage.sync.get(key);
-    return logic.normaliseColumns(got[key]);
+  let layout = null;
+
+  async function readLayout(columns) {
+    if (!S.labelsAt) await refreshLabels();
+    const rootId = labelId(logic.labelRoot(columns));
+    const found = rootId ? await api.layoutRead(rootId, layout ? layout.id : '') : null;
+    if (!found) {
+      layout = null;
+      return null;
+    }
+    const cols = found.same && layout ? layout.columns : found.columns;
+    layout = { id: found.id, columns: cols, replaces: [found.id, ...(found.older || [])] };
+    return cols;
   }
 
-  async function saveColumns(account, columns) {
+  // Into Gmail, under the board's own parent label, made if need be.
+  async function shareColumns(columns) {
+    const root = logic.labelRoot(columns);
+    await ensureLabels([root]);
+    const rootId = labelId(root);
+    if (!rootId) throw new Error(`The label “${root}” could not be found.`);
+    const made = await api.layoutWrite(rootId, columns, layout ? layout.replaces : []);
+    layout = { id: made.id, columns: made.columns, replaces: [made.id] };
+  }
+
+  // Gmail's layout when it has one; else this browser's own copy, which
+  // then becomes Gmail's - if `firstWrite` (the phone app's copy never
+  // does: see remote-board.js); else `fallback()`, or the defaults. With
+  // Gmail out of reach, the copy. `shared: false` asks for the copy alone,
+  // without asking Gmail: for opening at once, and for the notes and the
+  // calendar, which work without the board (or Gmail) at all.
+  async function loadColumns(account, { firstWrite = true, fallback = null, shared: ask = true } = {}) {
+    const key = KEYS.columns(account);
+    const own = (await chrome.storage.sync.get(key))[key];
+    const copy = own ? logic.normaliseColumns(own) : fallback ? await fallback() : logic.defaultColumns();
+    if (!ask) return copy;
+    let shared;
+    try {
+      shared = await readLayout(copy);
+    } catch (err) {
+      if (isFatal(err)) throw err;
+      return copy;
+    }
+    if (shared) {
+      if (!own || !logic.sameColumns(shared, copy)) await chrome.storage.sync.set({ [key]: shared });
+      return shared;
+    }
+    if (own && firstWrite) await shareColumns(copy).catch(() => {});
+    return copy;
+  }
+
+  // Gmail's layout first, so a save it refuses changes nothing here (the
+  // next load would bring Gmail's back anyway); then the copy.
+  // `share: false` keeps a step to the copy alone.
+  async function saveColumns(account, columns, { share = true } = {}) {
+    if (share) await shareColumns(columns);
     await chrome.storage.sync.set({ [KEYS.columns(account)]: columns });
     emit('columns-changed', { columns });
   }
@@ -184,7 +240,16 @@
   // them. Saved only when something changed.
   async function syncColumnLabels(account, columns) {
     const { columns: next, changed } = logic.resolveColumnLabels(columns, [...S.labels.values()]);
-    if (changed) await saveColumns(account, next);
+    if (!changed) return next;
+    // Into Gmail's layout too, when there is one, so the other devices
+    // need not do the same; if Gmail will not take it now, the copy here
+    // follows all the same, and the next load tries again.
+    try {
+      await saveColumns(account, next, { share: !!layout });
+    } catch (err) {
+      if (isFatal(err)) throw err;
+      await saveColumns(account, next, { share: false });
+    }
     return next;
   }
 

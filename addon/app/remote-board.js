@@ -1,12 +1,18 @@
 // ─────────────────────────────────────────────────────────────────────
-// The phone app's first column layout
+// The phone app's column layout
 //
-// The board keeps its column layout in its synced settings, which here
-// are the app's own. Until it has one, the extension's default columns
-// would bring back "_Board/Waiting" as a fresh, empty label for someone
-// whose column is "_Board/Waiting on others"; so the first layout is
-// the board's labels as Gmail has them - as the phone panel reads them.
-// With no board labels at all, the usual columns, made as in Chrome.
+// The board's layout is Gmail's (store.loadColumns), the same as the
+// extension's. The app's own copy, in its settings, is never the first
+// layout put into Gmail: it may be one from before the layout was shared,
+// older than the one in Chrome - so until Gmail has one, the app goes on
+// with its copy, and the first comes from the extension or from saving
+// the columns here.
+//
+// With no copy either, the extension's default columns would bring back
+// "_Board/Waiting" as a fresh, empty label for someone whose column is
+// "_Board/Waiting on others"; so the first columns are the board's labels
+// as Gmail has them - as the phone panel reads them. With no board labels
+// at all, the usual columns, made as in Chrome.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -16,10 +22,9 @@
   const { store, logic, KEYS } = ns;
   const saved = store.loadColumns;
 
-  store.loadColumns = async account => {
-    const key = KEYS.columns(account);
-    if ((await chrome.storage.sync.get(key))[key]) return saved(account);
-    const fromLabels = await ns.appRemote.firstColumns();
-    return logic.normaliseColumns(fromLabels || undefined);
-  };
+  store.loadColumns = (account, options = {}) => saved(account, {
+    firstWrite: false,
+    fallback: async () => logic.normaliseColumns((await ns.appRemote.firstColumns()) || undefined),
+    ...options,
+  });
 })();

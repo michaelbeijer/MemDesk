@@ -635,3 +635,44 @@ test('the phone panel once the trial is over: a card that says where to enter a 
   p.openMessage(messageId);
   assert.equal(p.card.header.title, 'On the board: To do');
 });
+
+// ── The board's layout ───────────────────────────────────────────────
+
+test('the board’s layout in Gmail: saved and read by the app; a new one replaces the old; Trash only for an old layout', () => {
+  const p = new Phone();
+  const box = p.fake.box;
+  const root = plain(box.labelByName('_Board')).id;
+  const msg = id => box.allMessages().find(m => m.id === id);
+  const cols = [
+    { id: 'todo', title: 'To do', label: '_Board/To do', archiveOnDrop: false, chime: false },
+    { id: 'inv', title: 'To invoice', label: '_Board/To invoice', archiveOnDrop: false, chime: false },
+    { id: 'done', title: 'Done', label: '_Board/Done', archiveOnDrop: true, chime: true },
+  ];
+  assert.equal(p.server('appLayout', root, ''), null, 'none yet');
+
+  const first = p.server('appSaveLayout', root, cols, []);
+  assert.deepEqual(plain(msg(first.id).labelIds), [root], 'under _Board, and nothing else: not the Inbox, not unread');
+  const read = p.server('appLayout', root, '');
+  assert.deepEqual(plain(read), { id: first.id, same: false, columns: plain(first.columns), older: [] });
+  assert.deepEqual(plain(read.columns).map(c => c.title), ['To do', 'To invoice', 'Done']);
+  assert.equal(p.server('appLayout', root, first.id).same, true);
+
+  // A second phone on the same mailbox sees it; its save replaces it.
+  const other = new Phone({ fake: p.fake });
+  const second = other.server('appSaveLayout', root, cols.slice(0, 2), [first.id]);
+  assert.ok(msg(first.id).labelIds.includes('TRASH'), 'the old one in Trash');
+  assert.deepEqual(plain(p.server('appLayout', root, first.id).columns).map(c => c.id), ['todo', 'inv']);
+
+  // Asked to replace mail, or a note, it leaves them be.
+  const mail = box.threadsInInbox()[0].messages[0].id;
+  const note = box.allMessages().find(m => m.labelIds.includes(plain(box.labelByName('_Notes')).id) && !m.labelIds.includes('TRASH')).id;
+  const third = p.server('appSaveLayout', root, cols, [second.id, mail, note]);
+  assert.ok(msg(second.id).labelIds.includes('TRASH'));
+  assert.ok(!msg(mail).labelIds.includes('TRASH'), 'mail never goes to Trash');
+  assert.ok(!msg(note).labelIds.includes('TRASH'), 'nor a note');
+  assert.equal(p.server('appLayout', root, '').id, third.id);
+
+  // Never into the Inbox, nor without the board's label.
+  assert.throws(() => p.server('appSaveLayout', 'INBOX', cols, []), /Only notes/);
+  assert.throws(() => p.server('appSaveLayout', '', cols, []), /not_allowed/);
+});

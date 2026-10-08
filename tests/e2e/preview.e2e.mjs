@@ -1555,6 +1555,78 @@ try {
     await p.context().close();
   });
 
+  await r.step('columns: one layout in Gmail for every computer and phone - this browser’s the first there; another’s change shows on refresh, the version it replaced in Trash; saved there first; out of reach, the copy', async () => {
+    const p = await openPage();
+    const root = await p.evaluate(() => window.__fakeGmail.labelByName('_Board').id);
+    const inGmail = () => p.evaluate(r => window.gkb.api.layoutRead(r, ''), root);
+    const stored = () => p.evaluate(() => window.chrome.storage.sync.dump()['columns:test@example.com']);
+    const titles = () => p.locator('section.column .col-title').allInnerTexts();
+    const trashed = id => p.evaluate(i => window.__fakeGmail.allMessages().find(m => m.id === i).labelIds.includes('TRASH'), id);
+    const live = () => p.evaluate(r => window.__fakeGmail.allMessages().filter(m => m.labelIds.includes(r) && !m.labelIds.includes('TRASH')).length, root);
+
+    // Gmail has none yet; this browser's own layout becomes Gmail's.
+    assert.equal(await inGmail(), null, 'none in Gmail yet');
+    const mine = await p.evaluate(() => window.gkb.logic.defaultColumns().map(c => (c.id === 'waiting' ? { ...c, title: 'Waiting on them' } : c)));
+    await p.evaluate(cols => window.chrome.storage.sync.set({ 'columns:test@example.com': cols }), mine);
+    await openBoard(p);
+    await until(async () => (await titles()).includes('Waiting on them'), 'this browser’s columns');
+    await until(async () => !!(await inGmail()), 'put into Gmail');
+    const first = await inGmail();
+    assert.deepEqual(first.columns.map(c => c.title), ['To do', 'Doing', 'Waiting on them', 'Done']);
+    assert.equal(await live(), 1, 'one message under _Board');
+
+    // Another computer, or the phone app, saves one: To invoice added, Done renamed.
+    const theirs = [...first.columns.slice(0, 3),
+      { id: 'inv', title: 'To invoice', label: '_Board/To invoice', archiveOnDrop: false, chime: false },
+      { ...first.columns[3], title: 'Finished' }];
+    await p.evaluate(([r, cols, old]) => window.gkb.api.layoutWrite(r, cols, [old]), [root, theirs, first.id]);
+    assert.ok(await trashed(first.id), 'the version it replaced, in Trash');
+    await p.locator('button[aria-label="Refresh"]').click();
+    const now = ['To do', 'Doing', 'Waiting on them', 'To invoice', 'Finished'];
+    await until(async () => JSON.stringify(await titles()) === JSON.stringify(now), 'their columns, on refresh');
+    assert.ok(await p.evaluate(() => !!window.__fakeGmail.labelByName('_Board/To invoice')), 'its label made in Gmail');
+    await until(async () => JSON.stringify((await stored()).map(c => c.title)) === JSON.stringify(now), 'this browser’s copy follows');
+    assert.equal(await live(), 1, 'still one layout in Gmail');
+
+    // Saved here: into Gmail, then the copy; the version it replaces in Trash.
+    const before = await inGmail();
+    await p.locator('[data-key="settings"]').click();
+    const drawer = p.locator('.drawer');
+    await drawer.waitFor();
+    await drawer.locator('[data-key="title:3"]').fill('Invoicing');
+    await drawer.locator('[data-key="save"]').click();
+    await drawer.waitFor({ state: 'detached' });
+    await until(async () => ((await inGmail()).columns[3] || {}).title === 'Invoicing', 'saved in Gmail');
+    assert.ok(await trashed(before.id), 'the old one in Trash');
+    assert.equal((await stored())[3].title, 'Invoicing');
+    assert.equal(await live(), 1, 'one layout in Gmail, the rest in Trash');
+
+    // Gmail out of reach: this browser's copy, and no error.
+    await p.evaluate(() => { window.gkb.api.layoutRead = () => Promise.reject(new Error('Failed to fetch')); });
+    await p.locator('button[aria-label="Refresh"]').click();
+    await p.waitForTimeout(600);
+    assert.deepEqual(await titles(), ['To do', 'Doing', 'Waiting on them', 'Invoicing', 'Finished']);
+    assert.equal(await p.locator('.toast-error').count(), 0);
+    await p.context().close();
+
+    // Gmail refusing the save: it says so, and nothing changes here.
+    const f = await openPage('fail=insert');
+    await openBoard(f);
+    const copy = () => f.evaluate(() => window.chrome.storage.sync.dump()['columns:test@example.com']);
+    const kept = await copy();
+    await f.locator('[data-key="settings"]').click();
+    const d2 = f.locator('.drawer');
+    await d2.waitFor();
+    await d2.locator('[data-key="title:0"]').fill('Inbox zero');
+    await d2.locator('[data-key="save"]').click();
+    await until(async () => /Couldn’t save/.test(await d2.locator('.form-error').innerText()), 'it says so');
+    assert.deepEqual(await copy(), kept, 'the copy here as it was');
+    await f.keyboard.press('Escape');
+    await d2.waitFor({ state: 'detached' });
+    assert.equal(await f.locator('section.column .col-title').first().innerText(), 'To do');
+    await f.context().close();
+  });
+
   await r.step('a move made while a refresh is in flight is not undone by it', async () => {
     const p = await openPage('latency=400');
     await openBoard(p);

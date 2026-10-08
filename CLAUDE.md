@@ -48,7 +48,11 @@ when it changes) into their Apps Script project.
 
 - Never send mail, never delete mail for good, never touch Spam; only a
   note of ours goes to Trash; only an empty notes folder is deleted; the board
-  never adds Trash, Spam or Inbox.
+  never adds Trash, Spam or Inbox. The board's column layout is kept in
+  Gmail as a note-shaped message (fixed id, under `_Board`;
+  `logic.layoutReadFlow`/`layoutWriteFlow`), one for every device: only its
+  older versions go to Trash, and the phone app's own copy is never the
+  first one put there.
 - The calendar writes only one event or one task at a time, with only the
   fields the editor edits (`calendarLogic.isAllowedRequest`, the same rules in
   the worker and the app's script): never guests, a calendar, a task list or

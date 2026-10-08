@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.31.0" src="https://img.shields.io/badge/version-0.31.0-6D28D9">
+  <img alt="Version 0.32.0" src="https://img.shields.io/badge/version-0.32.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -139,7 +139,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.31.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.32.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -189,6 +189,15 @@ extension. It only matters if you ever pack a `.crx`.
   Gmail itself (say `Board` to `_Board`, which renames every column label under
   it) is followed rather than answered with a fresh, empty label. New columns
   go under whatever parent the existing ones share.
+- **Your columns are the same everywhere.** The column layout (titles,
+  labels, order, which column archives and which chimes) is kept in Gmail,
+  as one message called **Board layout** under `_Board`, so every computer
+  and the phone app show the same board. Saving the columns replaces that
+  message; the old one goes to Trash, like an old version of a note. Each
+  computer and phone also keeps a copy, used when Gmail cannot be reached.
+  The first time a computer with columns of its own opens the board, its
+  layout becomes the one in Gmail. The phone app's own copy never does, as
+  it may be older; save the columns on the phone to make its layout the one.
 - **Drag** a card to another column, or within a column to reorder it. A
   placeholder shows where it will land.
 - Each card's **⋯** menu offers the same actions without a mouse: Open in Gmail,
@@ -244,8 +253,9 @@ extension. It only matters if you ever pack a `.crx`.
   over Gmail's compose windows.
 
 Card order within each column is stored in this browser (`storage.local`). The
-column layout and your card edits are stored in `storage.sync`, so they follow
-your Chrome profile to other computers. All of it is kept per Gmail account.
+column layout is kept in Gmail (above), with a copy in `storage.sync`; your card
+edits are stored in `storage.sync`, so they follow your Chrome profile to other
+computers. All of it is kept per Gmail account.
 
 ### Notes
 
@@ -527,8 +537,8 @@ editor, and the calendar are in the [phone app](#the-phone-app).)
 - **It reads as little as it can**: the list of your labels and the labels of
   the open conversation, side by side in one round trip to Gmail. No
   subjects, no message text, nothing of the notes.
-- The board's column settings live in Chrome, where the panel cannot see
-  them, so it reads the columns from your labels: every label directly under
+- The panel does not read the board's layout (one more read on every email
+  opened), so it takes the columns from your labels: every label directly under
   `_Board` is a column, To do, Doing, Waiting and Done first in that order,
   any others after them alphabetically, and only Done archives. If you change
   which column archives in the extension, the panel will not know. With no
@@ -578,10 +588,10 @@ notes as in Gmail, in a tab of their own.)
   card's **⋯** opens it in Gmail, moves it to another column, edits its
   title, note and colour, or takes it off the board; the **+** on a column
   finds an email and adds it; the settings button changes the columns.
-  The first time, the columns are your `_Board` labels as Gmail has them;
-  after that the app keeps its own column layout and card edits, the same
-  on every phone and computer you open it on (but separate from the
-  extension's, which Chrome keeps).
+  The columns are the same as in Chrome: the layout kept in Gmail. Until
+  there is one, they are your `_Board` labels as Gmail has them. Card edits
+  are the app's own, the same on every phone and computer you open it on
+  (but separate from the extension's, which Chrome keeps).
 - **The notes open on the Scratchpad.** The search box and **New** at the top, and
   the Scratchpad below them, filling the screen: tap it and type.
 - **One thing at a time.** Above the search box, one button says which folder
@@ -624,8 +634,8 @@ scripts out and runs them itself, and an app made of many plain scripts did
 not survive that (it came up blank). With them come `addon/app/remote.js`, which gives the notes a store, and
 the board its Gmail and its settings, that ask the script through
 `google.script.run` instead of the extension's background worker (a board's
-worth of cards in one round trip); `addon/app/remote-board.js`, the first
-column layout from the labels; and `addon/app/shell.js`, which hands the
+worth of cards in one round trip); `addon/app/remote-board.js`, the column
+layout (Gmail's, or until there is one, the labels); and `addon/app/shell.js`, which hands the
 page to the board (`ns.boardFrame`) and adds the phone layout and the back
 gesture.
 On the script's side, `addon/src/app-server.js` keeps the worker's rules: it
@@ -639,8 +649,10 @@ the extension (the calendar list, a calendar's events, the task lists, a
 list's tasks), and the same changes - one event or one task added, changed
 or deleted, with only the fields the editor edits, and an event's version
 named so that one changed in Google meanwhile is refused - and nothing else.
-The app's column layout and card edits are kept in the script's user
-properties. It runs as you, under the phone panel's permissions, which since
+The app's card edits, and its copy of the column layout, are kept in the
+script's user properties; the layout itself it reads and saves in Gmail
+(`appLayout`, `appSaveLayout`), moving to Trash only an older version of the
+layout. It runs as you, under the phone panel's permissions, which since
 0.17.0 include the calendar, and since 0.24.0 changing it. Google does not
 ask for new permissions by itself once a script has been allowed some, so if
 the calendar (or changing it) has not been allowed yet, it says so with an

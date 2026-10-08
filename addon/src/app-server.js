@@ -324,6 +324,46 @@
     return cols.length ? cols : null;
   }
 
+  // ── The board's layout ───────────────────────────────────────────────
+  //
+  // Kept in Gmail for every computer and phone (logic.layoutReadFlow and
+  // layoutWriteFlow), read and written here within the script's own
+  // limits: reads, an insert only of a note (gmail.insertNote), and Trash
+  // only for an older version of the layout itself.
+
+  function trashLayout(id) {
+    try {
+      const msg = gmail.call('GET', `messages/${encodeURIComponent(id)}`, { format: 'metadata', metadataHeaders: [notesLogic.NOTE_HEADER] });
+      if (notesLogic.noteFromMessage(msg).noteId !== ns.logic.LAYOUT_ID) return null;
+      return gmail.trashNote(id);
+    } catch (err) {
+      return null; // left behind: the newest still wins, and the next save replaces it
+    }
+  }
+
+  const layoutIo = {
+    read: ([method, path, query]) => {
+      if (String(method).toUpperCase() !== 'GET') throw new Error('not_allowed: the layout is only read here.');
+      return gmail.call('GET', path, query || null);
+    },
+    readMany: list => gmail.callAll(list.map(([, path, query]) => ['GET', path, query || null])),
+    insert: body => gmail.insertNote(body),
+    trash: trashLayout,
+  };
+
+  function layout(rootLabelId, knownId) {
+    if (!rootLabelId) return null;
+    return ns.util.runSync(ns.logic.layoutReadFlow(String(rootLabelId), String(knownId || '')), layoutIo);
+  }
+
+  function saveLayout(rootLabelId, columns, replaces) {
+    if (!rootLabelId) throw new Error('not_allowed: the layout is filed under the board’s label.');
+    const flow = ns.logic.layoutWriteFlow({
+      rootLabelId: String(rootLabelId), columns, replaces: [].concat(replaces || []).map(String), account: account(),
+    });
+    return ns.util.runSync(flow, layoutIo);
+  }
+
   // ── The calendar ─────────────────────────────────────────────────────
   //
   // Google Calendar and Google Tasks: the same short list of reads the
@@ -487,7 +527,7 @@
 
   ns.app = {
     page, start, list, body, save, retire, restore, move, createFolder, renameFolder, deleteFolder,
-    account, boardGmail, boardGmailMany, boardColumns, googleMany, googleWrite, allowCalendar, prefsGet, prefsSet, prefsRemove,
-    licence,
+    account, boardGmail, boardGmailMany, boardColumns, layout, saveLayout, googleMany, googleWrite, allowCalendar,
+    prefsGet, prefsSet, prefsRemove, licence,
   };
 })();

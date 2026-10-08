@@ -304,7 +304,12 @@
     return call('appLicence', action, key || '');
   }
 
-  ns.api = { STATE_CODES: new Set(), gmail, gmailMany, googleMany, googleWrite, licence };
+  // The board's layout in Gmail: the script reads and writes it
+  // (app-server.js), with the same flows as the extension.
+  const layoutRead = (rootLabelId, knownId) => call('appLayout', rootLabelId, knownId || '');
+  const layoutWrite = (rootLabelId, columns, replaces) => call('appSaveLayout', rootLabelId, columns, replaces || []);
+
+  ns.api = { STATE_CODES: new Set(), gmail, gmailMany, googleMany, googleWrite, licence, layoutRead, layoutWrite };
   ns.appRemote = { call, start, hasCopy, firstColumns };
 
   // ── chrome.storage, as the board uses it ─────────────────────────────

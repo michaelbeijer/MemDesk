@@ -584,6 +584,34 @@ await r.step('a card’s own title is kept by the script, for every phone and co
   await other.page.context().close();
 });
 
+await r.step('the columns are Gmail’s layout, as in the extension: a column made there shows here; one saved here is saved there', async () => {
+  const { phone: p2, page: pg } = await openApp();
+  const root = plain(p2.fake.box.labelByName('_Board')).id;
+  const msg = id => p2.fake.box.allMessages().find(m => m.id === id);
+  // The extension saves its layout: To invoice added, Done renamed.
+  const first = p2.server('appSaveLayout', root, [
+    { id: 'todo', title: 'To do', label: '_Board/To do', archiveOnDrop: false, chime: false },
+    { id: 'doing', title: 'Doing', label: '_Board/Doing', archiveOnDrop: false, chime: false },
+    { id: 'inv', title: 'To invoice', label: '_Board/To invoice', archiveOnDrop: false, chime: false },
+    { id: 'done', title: 'Finished', label: '_Board/Done', archiveOnDrop: true, chime: true },
+  ], []);
+  await scratchReady(pg);
+  await q(pg, '[data-key="view:board"]').tap();
+  const heads = () => q(pg, '.col-head .col-title').allInnerTexts();
+  await until(async () => JSON.stringify(await heads()) === JSON.stringify(['To do', 'Doing', 'To invoice', 'Finished']), 'Gmail’s columns, not the labels’', 8000);
+  await until(() => !!p2.fake.box.labelByName('_Board/To invoice'), 'its label made in Gmail', 8000);
+
+  // Saved here: a new version in Gmail, the old one in Trash.
+  await q(pg, '[data-key="settings"]').tap();
+  await q(pg, '[data-key="title:2"]').fill('Invoicing');
+  await q(pg, '[data-key="save"]').tap();
+  await until(async () => (await heads()).includes('Invoicing'), 'renamed here', 8000);
+  await settled(pg);
+  assert.deepEqual(plain(p2.server('appLayout', root, '').columns).map(c => c.title), ['To do', 'Doing', 'Invoicing', 'Finished'], 'and in Gmail');
+  assert.ok(msg(first.id).labelIds.includes('TRASH'), 'the old one in Trash');
+  await pg.context().close();
+});
+
 await r.step('tapping a card opens the conversation in Gmail; the app remembers the board tab', async () => {
   await page.evaluate(() => { window.__opened = []; window.open = url => { window.__opened.push(url); return null; }; });
   const id = phone.fake.box.findThread('3,000-word NDA');

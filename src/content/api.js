@@ -90,5 +90,27 @@
     return send({ type: 'hello' }).catch(() => {});
   }
 
-  ns.api = { ApiError, STATE_CODES, gmail, gmailMany, connect, google, googleMany, googleWrite, connectCalendar, licence, openOptions, hello };
+  // The board's layout in Gmail (logic.layoutReadFlow, layoutWriteFlow),
+  // through the worker like everything else - which allows only a note's
+  // insert, and Trash only for a note of ours.
+  const layoutIo = {
+    read: ([method, path, query]) => gmail(method, path, query),
+    readMany: list => gmailMany(list),
+    insert: body => gmail('POST', 'messages', null, body),
+    trash: id => gmail('POST', `messages/${encodeURIComponent(id)}/trash`).catch(() => null),
+  };
+
+  function layoutRead(rootLabelId, knownId) {
+    return ns.util.runAsync(ns.logic.layoutReadFlow(rootLabelId, knownId || ''), layoutIo);
+  }
+
+  function layoutWrite(rootLabelId, columns, replaces) {
+    const flow = ns.logic.layoutWriteFlow({ rootLabelId, columns, replaces, account: ns.hooks.getAccount() });
+    return ns.util.runAsync(flow, layoutIo);
+  }
+
+  ns.api = {
+    ApiError, STATE_CODES, gmail, gmailMany, connect, google, googleMany, googleWrite, connectCalendar, licence, openOptions, hello,
+    layoutRead, layoutWrite,
+  };
 })();

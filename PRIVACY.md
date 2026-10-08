@@ -1,6 +1,6 @@
 # MemDesk privacy policy
 
-*Last updated: 7 October 2026*
+*Last updated: 8 October 2026*
 
 MemDesk is a Chrome extension, a phone panel in the Gmail app and a
 phone app, made by Michael Beijer. This policy says what they do with your
@@ -18,7 +18,11 @@ To work, MemDesk asks Google for permission to read and change your Gmail
   to tell whether you are waiting on someone's reply), and the colours you
   gave your labels in Gmail, and adds or removes the board's
   labels on them (`_Board/To do` and so on), including taking a conversation
-  out of the Inbox when you drop it on a column set to archive.
+  out of the Inbox when you drop it on a column set to archive. It keeps the
+  board's column layout as one message, **Board layout**, under `_Board`
+  (never in your Inbox, and never sent), so that every computer and phone
+  shows the same columns; changing the columns replaces it, and moves the
+  old one to Gmail's Trash.
 - **For the notes:** reads the messages under the `_Notes` label and its
   folders, saves each note as a new message there (never in your Inbox, and
   never sent), moves its own older versions and the notes you delete to
@@ -60,9 +64,10 @@ Google.
 
 ## Where your data is kept
 
-- **In your Gmail:** your board (as labels on your conversations) and your
-  notes (as messages under `_Notes`).
-- **In Chrome:** the board's column layout and your own card titles, notes
+- **In your Gmail:** your board (as labels on your conversations, and its
+  column layout as one message under `_Board`) and your notes (as messages
+  under `_Notes`).
+- **In Chrome:** a copy of the board's column layout, and your own card titles, notes
   and colours, in Chrome's sync storage (so they follow your Chrome profile);
   card order and a few view settings (including which calendars to show) in
   this browser only.
@@ -79,8 +84,9 @@ Google.
   show, and, so that it opens at once, a copy of your Scratchpad, of the
   list of your notes (titles and first lines) and of the app's settings,
   plus any Scratchpad text not saved yet. That copy never leaves the phone,
-  and is replaced each time the app hears from Gmail. The board's layout and
-  card edits are kept in the script's settings for your account.
+  and is replaced each time the app hears from Gmail. The app's copy of the
+  board's layout, and its card edits, are kept in the script's settings for
+  your account.
 
 ## Your licence
 
