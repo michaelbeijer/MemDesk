@@ -28,6 +28,8 @@ function appAccount() { return gkb.app.account(); }
 function appBoardGmail(method, path, query, body) { return gkb.app.boardGmail(method, path, query, body); }
 function appBoardGmailMany(list) { return gkb.app.boardGmailMany(list); }
 function appBoardColumns() { return gkb.app.boardColumns(); }
+function appLayout(rootLabelId, knownId) { return gkb.app.layout(rootLabelId, knownId); }
+function appSaveLayout(rootLabelId, columns, replaces) { return gkb.app.saveLayout(rootLabelId, columns, replaces); }
 function appGoogleMany(list) { return gkb.app.googleMany(list); }
 function appGoogleWrite(service, method, path, body, etag) { return gkb.app.googleWrite(service, method, path, body, etag); }
 

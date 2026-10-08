@@ -195,10 +195,34 @@
     return results;
   }
 
+  // ── Flows ────────────────────────────────────────────────────────────
+
+  // A flow is a generator that says what it needs - [op, arg] - and gets
+  // the answer back. Written once, it runs where the answers come later
+  // (the extension: runAsync) and where they come at once (the phone
+  // app's script: runSync), each with its own `io`: { op: arg => answer }.
+  async function runAsync(f, io) {
+    let step = f.next();
+    while (!step.done) {
+      const [op, arg] = step.value;
+      step = f.next(await io[op](arg));
+    }
+    return step.value;
+  }
+
+  function runSync(f, io) {
+    let step = f.next();
+    while (!step.done) {
+      const [op, arg] = step.value;
+      step = f.next(io[op](arg));
+    }
+    return step.value;
+  }
+
   const api = {
     headerMap, parseAddress, displayName, decodeEntities,
     accountFromTitle, accountFromAriaLabel, accountIndexFromPath,
-    relativeDate, fullDate, agoText, mapPool,
+    relativeDate, fullDate, agoText, mapPool, runAsync, runSync,
   };
 
   ns.util = api;

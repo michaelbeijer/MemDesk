@@ -319,23 +319,11 @@
     }
   }
 
-  async function runAsync(f, io) {
-    let step = f.next();
-    while (!step.done) {
-      const [op, arg] = step.value;
-      step = f.next(await io[op](arg));
-    }
-    return step.value;
-  }
-
-  function runSync(f, io) {
-    let step = f.next();
-    while (!step.done) {
-      const [op, arg] = step.value;
-      step = f.next(io[op](arg));
-    }
-    return step.value;
-  }
+  // The runners are util's (shared with the board's layout), looked up
+  // when used: util loads before this everywhere, but not always first.
+  const util = () => ns.util || require('./util.js');
+  const runAsync = (f, io) => util().runAsync(f, io);
+  const runSync = (f, io) => util().runSync(f, io);
 
   const api = {
     TRIAL_DAYS, OFFLINE_DAYS, CHECK_HOURS, SUPERVERTALER_STORE_ID, API,

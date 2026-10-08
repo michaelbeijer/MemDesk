@@ -216,7 +216,8 @@
       return;
     }
     try {
-      if (!S.columns.length) S.columns = await store.loadColumns(S.account);
+      // The copy kept here: Gmail's layout is read when the board loads.
+      if (!S.columns.length) S.columns = await store.loadColumns(S.account, { shared: false });
     } catch {
       // chrome.storage throws once the extension has been reloaded under
       // this tab; nothing else will work until Gmail is reloaded either.
@@ -1326,7 +1327,8 @@
         const result = await store.renameLabel(row.origLabel, next.label);
         if (result === 'repointed') notes.push(`“${next.title}” now uses the existing label “${next.label}”.`);
         persisted = persisted.map(c => (c.id === next.id ? { ...c, label: next.label } : c));
-        await store.saveColumns(S.account, persisted);
+        // This browser's copy only: Gmail's layout gets the finished one.
+        await store.saveColumns(S.account, persisted, { share: false });
         S.columns = persisted;
       }
 

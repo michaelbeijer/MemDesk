@@ -402,8 +402,102 @@
     return out;
   }
 
+  // ── The layout, kept in Gmail ────────────────────────────────────────
+  //
+  // The columns - their titles, labels and order, and which archive and
+  // which chime - are one layout for every computer and phone. It is kept
+  // in Gmail the way notes are: a message of ours, carrying the note
+  // header with a fixed id, here filed under the board's own parent label
+  // ("_Board"). Gmail messages cannot be changed, so a new layout is a new
+  // message, and the one it replaces goes to Trash. The newest wins; an
+  // older one still about (a save that could not tidy up, two devices at
+  // once) is replaced by the next save. Each computer and phone keeps a
+  // copy, for when Gmail cannot be reached.
+
+  const LAYOUT_ID = 'boardlayout0000';
+  const LAYOUT_TITLE = 'Board layout';
+  const LAYOUT_FIELDS = ['id', 'title', 'label', 'labelId', 'archiveOnDrop', 'chime'];
+  // The board's parent label holds little else: a handful covers the
+  // layout and any older versions left behind.
+  const LAYOUT_LIST_MAX = 20;
+  const LAYOUT_NOTE = 'The board\u2019s columns, kept here so that every computer and phone shows ' +
+    'the same board. Saving the columns replaces this message; please leave it where it is.';
+
+  const notesLogic = () => ns.notesLogic || require('./notes-logic.js');
+
+  function layoutColumns(columns) {
+    return (columns || []).map(c => {
+      const out = {};
+      for (const k of LAYOUT_FIELDS) if (c[k] !== undefined) out[k] = c[k];
+      return out;
+    });
+  }
+
+  // The message's text: a line for anyone who finds it in Gmail, then the
+  // columns.
+  function layoutText(columns) {
+    return `${LAYOUT_NOTE}\n\n${JSON.stringify({ v: 1, columns: layoutColumns(columns) }, null, 2)}`;
+  }
+
+  // The columns a layout's text holds, or null if it holds none that can
+  // be used: an unreadable layout is no layout, never the defaults
+  // dressed up as one.
+  function layoutFromText(text) {
+    const s = String(text || '');
+    const start = s.indexOf('{');
+    const end = s.lastIndexOf('}');
+    if (start < 0 || end < start) return null;
+    let parsed;
+    try { parsed = JSON.parse(s.slice(start, end + 1)); } catch (_) { return null; }
+    const raw = parsed && Array.isArray(parsed.columns) ? parsed.columns : [];
+    const usable = c => c && typeof c === 'object' && String(c.id || '').trim() && String(c.label || '').trim();
+    return raw.some(usable) ? normaliseColumns(raw) : null;
+  }
+
+  function sameColumns(a, b) {
+    return JSON.stringify(layoutColumns(a)) === JSON.stringify(layoutColumns(b));
+  }
+
+  // Reading, as a flow (util.runAsync / runSync): the layout's versions
+  // under the board's label, newest first. io.read answers one Gmail read,
+  // io.readMany several (each the answer, or { error }). Answers null when
+  // Gmail holds no layout, or { id, same, columns, older }: `same` when the
+  // newest is the version `knownId` names (its text is not read again);
+  // columns null when it cannot be read; `older`, the versions it replaced.
+  function* layoutReadFlow(rootLabelId, knownId) {
+    const list = yield ['read', ['GET', 'messages', { labelIds: rootLabelId, maxResults: LAYOUT_LIST_MAX }]];
+    const refs = (list && list.messages) || [];
+    if (!refs.length) return null;
+    const notes = notesLogic();
+    const metas = yield ['readMany', refs.map(r => ['GET', `messages/${r.id}`, { format: 'metadata', metadataHeaders: [notes.NOTE_HEADER] }])];
+    const versions = (metas || [])
+      .filter(m => m && !m.error && notes.noteFromMessage(m).noteId === LAYOUT_ID)
+      .sort((a, b) => Number(b.internalDate || 0) - Number(a.internalDate || 0));
+    if (!versions.length) return null;
+    const [newest, ...older] = versions;
+    const found = { id: newest.id, same: newest.id === knownId, columns: null, older: older.map(m => m.id) };
+    if (found.same) return found;
+    const full = yield ['read', ['GET', `messages/${newest.id}`, { format: 'full' }]];
+    found.columns = full && full.payload ? layoutFromText(notes.extractText(full.payload)) : null;
+    return found;
+  }
+
+  // Saving, as a flow: the new layout in (io.insert, a note's insert), then
+  // the versions it replaces to Trash (io.trash, which never throws: one
+  // left behind is harmless, as the newest wins). { id, columns }.
+  function* layoutWriteFlow({ rootLabelId, columns, replaces, account }) {
+    const cols = normaliseColumns(columns);
+    const raw = notesLogic().buildNoteRaw({ noteId: LAYOUT_ID, title: LAYOUT_TITLE, body: layoutText(cols), account });
+    const made = yield ['insert', { raw, labelIds: [rootLabelId] }];
+    for (const id of replaces || []) {
+      if (id && id !== made.id) yield ['trash', id];
+    }
+    return { id: made.id, columns: cols };
+  }
+
   const api = {
     DEFAULT_ROOT, DEFAULT_COLUMNS, defaultColumns, normaliseColumns, labelRoot, resolveColumnLabels,
+    LAYOUT_ID, LAYOUT_TITLE, layoutText, layoutFromText, sameColumns, layoutReadFlow, layoutWriteFlow,
     newColumnId, validateColumns,
     labelAncestors, assignColumns, mergeOrder, placeId, pruneOrder,
     moveLabelDiff, removeLabelDiff, columnForLabels, summariseThread, searchQuery,

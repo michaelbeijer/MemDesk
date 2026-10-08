@@ -386,3 +386,82 @@ test('label colours: the conversation’s coloured labels of the user’s own, n
   assert.deepEqual(logic.labelTags(['L5', 'L4'], labels, skip), []);
   assert.deepEqual(logic.labelTags(['L1'], [], skip), [], 'labels not read yet: none');
 });
+
+// ── The layout in Gmail ──────────────────────────────────────────────
+
+const util = require('../src/lib/util.js');
+const notes = require('../src/lib/notes-logic.js');
+const auth = require('../src/lib/auth.js');
+
+const LAYOUT = logic.normaliseColumns([
+  { id: 'todo', title: 'To do', label: '_Board/To do', labelId: 'Label_1', archiveOnDrop: false, chime: false },
+  { id: 'inv', title: 'To invoice', label: '_Board/To invoice', archiveOnDrop: false, chime: false },
+  { id: 'done', title: 'Done', label: '_Board/Done', labelId: 'Label_4', archiveOnDrop: true, chime: true },
+]);
+
+// A mailbox with messages under the board's label: { id, at, noteId, text }.
+function layoutBox(messages) {
+  const reads = [];
+  const read = ([method, path, query]) => {
+    reads.push(`${method} ${path}${query && query.format ? ` ${query.format}` : ''}`);
+    assert.equal(method, 'GET', 'reading only reads');
+    if (path === 'messages') return { messages: messages.map(m => ({ id: m.id })) };
+    const m = messages.find(x => x.id === path.split('/')[1]);
+    const headers = m.noteId ? [{ name: 'X-Gkb-Note', value: m.noteId }] : [{ name: 'Subject', value: 'mail' }];
+    if (query.format === 'metadata') return { id: m.id, internalDate: String(m.at), payload: { headers } };
+    return { id: m.id, internalDate: String(m.at), payload: { mimeType: 'text/plain', headers, body: { data: Buffer.from(m.text, 'utf8').toString('base64url') } } };
+  };
+  return { reads, io: { read, readMany: list => list.map(read) } };
+}
+
+test('the layout: written as a note of ours under the board’s label, the versions it replaces then to Trash', () => {
+  const done = [];
+  const io = {
+    insert: body => { done.push(['insert', body]); return { id: 'm3' }; },
+    trash: id => { done.push(['trash', id]); return null; },
+  };
+  const out = util.runSync(logic.layoutWriteFlow({ rootLabelId: 'Label_0', columns: LAYOUT, replaces: ['m2', 'm1'], account: 'sam@example.com' }), io);
+  assert.deepEqual(out, { id: 'm3', columns: LAYOUT });
+  const [[op, body]] = done;
+  assert.equal(op, 'insert');
+  assert.deepEqual(body.labelIds, ['Label_0'], 'under the board’s label, and nothing else');
+  assert.ok(notes.isNoteInsert(body), 'a note, as the worker and the script require');
+  assert.ok(auth.isAllowedRequest('POST', 'messages', body));
+  assert.equal(notes.noteIdOfRaw(body.raw), logic.LAYOUT_ID);
+  assert.deepEqual(done.slice(1), [['trash', 'm2'], ['trash', 'm1']], 'then the versions it replaces');
+  // What is in it: a line for whoever finds it in Gmail, and the columns.
+  const text = logic.layoutText(LAYOUT);
+  assert.match(text, /^The board’s columns, kept here/);
+  assert.deepEqual(logic.layoutFromText(text), LAYOUT, 'titles, labels, ids, archive and chime, in order');
+});
+
+test('the layout read back: the newest of its versions, mail under the label ignored; the text read only when it is new', () => {
+  const text = logic.layoutText(LAYOUT);
+  const older = logic.layoutText(LAYOUT.slice(0, 2));
+  const box = layoutBox([
+    { id: 'mail', at: 900, text: '{"columns":[{"id":"x","label":"Mine"}]}' },
+    { id: 'm1', at: 100, noteId: logic.LAYOUT_ID, text: older },
+    { id: 'note', at: 800, noteId: 'abcdefabcdef12', text: older },
+    { id: 'm2', at: 200, noteId: logic.LAYOUT_ID, text },
+  ]);
+  const found = util.runSync(logic.layoutReadFlow('Label_0', ''), box.io);
+  assert.deepEqual(found, { id: 'm2', same: false, columns: LAYOUT, older: ['m1'] });
+  assert.equal(box.reads.filter(r => / full$/.test(r)).length, 1, 'one version’s text read');
+
+  box.reads.length = 0;
+  assert.deepEqual(util.runSync(logic.layoutReadFlow('Label_0', 'm2'), box.io), { id: 'm2', same: true, columns: null, older: ['m1'] });
+  assert.ok(!box.reads.some(r => / full$/.test(r)), 'the version already known is not read again');
+
+  assert.equal(util.runSync(logic.layoutReadFlow('Label_0', ''), layoutBox([]).io), null, 'none yet');
+  assert.equal(util.runSync(logic.layoutReadFlow('Label_0', ''), layoutBox([{ id: 'mail', at: 1, text: '{}' }]).io), null, 'only mail: none');
+});
+
+test('a layout that cannot be read is no layout - never the default columns in its place', () => {
+  for (const junk of ['', 'no braces', '{ not json', '{"columns":[]}', '{"columns":[{"title":"No id or label"}]}', '{"v":1}']) {
+    assert.equal(logic.layoutFromText(junk), null, junk);
+  }
+  const box = layoutBox([{ id: 'm1', at: 1, noteId: logic.LAYOUT_ID, text: 'garbled' }]);
+  assert.deepEqual(util.runSync(logic.layoutReadFlow('Label_0', ''), box.io), { id: 'm1', same: false, columns: null, older: [] });
+  assert.ok(logic.sameColumns(LAYOUT, logic.normaliseColumns(JSON.parse(JSON.stringify(LAYOUT)))));
+  assert.ok(!logic.sameColumns(LAYOUT, LAYOUT.slice().reverse()), 'the order counts');
+});
