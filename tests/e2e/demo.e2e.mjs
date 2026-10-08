@@ -78,7 +78,11 @@ try {
     await p.locator('.note-item').first().waitFor();
     await p.locator('.tab', { hasText: 'Calendar' }).click();
     await p.locator('.cal .ev').first().waitFor();
-    assert.equal(await p.locator('.cal-week.hours').count(), 1, 'the week by the hour');
+    assert.equal(await p.locator('.cal').getAttribute('data-layout'), 'rows', 'the week as two rows, with the Scratchpad');
+    assert.equal(await p.locator('.cal-week.hours').count(), 0, 'not by the hour, as Google Calendar has it');
+    await p.screenshot({ path: join(SCREENS, 'demo-week.png'), animations: 'disabled' });
+    await p.locator('[data-key="cal-layout"]').click();
+    await until(async () => (await p.locator('.cal-week.hours').count()) === 1, 'the week by the hour, a click away');
     await p.context().close();
   });
 
