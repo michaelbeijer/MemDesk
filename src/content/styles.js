@@ -918,6 +918,45 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
   border-radius: 16px;
   background: var(--surface);
   box-shadow: var(--shadow-1);
+  container: note-editor / inline-size;
+}
+/* The text and, when the toolbar's Contents has them shown, its headings
+   at its right: the edge the lines start from stays where it was. */
+.ne-main { flex: 1; min-height: 0; display: flex; }
+.ne-main > .ne-body { min-width: 0; }
+.ne-outline {
+  flex: none;
+  width: 220px;
+  overflow-y: auto;
+  margin: 10px 0 16px;
+  padding: 2px 12px 8px 10px;
+  border-left: 1px solid var(--border);
+  font-size: 13px;
+}
+.ne-outline[hidden] { display: none; }
+.ol-head { padding: 4px 8px 8px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); }
+.ol-item {
+  display: block;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: 8px;
+  text-align: left;
+  line-height: 1.35;
+  color: var(--fg-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ol-item[data-depth="1"] { padding-left: 22px; }
+.ol-item[data-depth="2"] { padding-left: 36px; }
+.ol-item[data-depth="0"] { font-weight: 500; }
+.ol-item:hover { background: var(--hover); color: var(--fg); }
+.ol-item[aria-current="location"] { background: var(--accent-soft); color: var(--on-accent-soft); }
+.ol-empty { margin: 0; padding: 0 8px; line-height: 1.45; color: var(--fg-3); }
+/* No room beside the text (a phone, a narrow window): no contents, nor
+   the button for them. */
+@container note-editor (max-width: 699px) {
+  .ne-outline, .tb-contents-sep, .tb-btn[data-key="fmt-contents"] { display: none; }
 }
 .ne-bar { display: flex; align-items: center; gap: 4px; padding: 8px 10px 0 28px; flex: none; min-height: 48px; }
 .ne-status { font-size: 12px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

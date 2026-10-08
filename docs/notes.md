@@ -59,6 +59,18 @@ Or type at the start of a line, then a space: `-` for a bulleted list,
 at the start of a list item or heading turns it back into plain text.
 Ctrl-click a link to open it.
 
+## Contents
+
+For a long note with headings, the **Contents** button at the right end of
+the toolbar lists the headings beside the text, indented by level. Click
+one to go to it; the cursor goes there too. As you scroll, the heading of
+the part you are reading is marked. The list follows as you add, change or
+remove headings.
+
+Click **Contents** again to hide it. MemDesk remembers whether it is shown
+on this computer. It needs room beside the text, so a narrow window or a
+phone does not offer it.
+
 ## Tables
 
 The table button puts a table where the cursor is: three columns, a heading

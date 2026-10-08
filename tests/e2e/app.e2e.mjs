@@ -247,6 +247,12 @@ await r.step('editing: typing and formatting save by themselves, as a new versio
   assert.ok(plain(phone.fake.box.messageLabelNames(before)).includes('TRASH'));
 });
 
+await r.step('no Contents on a phone: no room beside the text for the headings', async () => {
+  assert.equal(await q(page, '[data-key="fmt-bold"]').first().isVisible(), true, 'the toolbar is there');
+  assert.equal(await q(page, '[data-key="fmt-contents"]').first().isVisible(), false);
+  assert.equal(await q(page, '[data-key="note-contents"]').first().isVisible(), false);
+});
+
 await r.step('a long note opened from the list stops at the foot of the screen, and a finger scrolls it', async () => {
   const d = await openApp();
   await scratchReady(d.page);

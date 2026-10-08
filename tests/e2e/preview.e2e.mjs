@@ -1409,6 +1409,88 @@ try {
     await p.context().close();
   });
 
+  await r.step('notes: Contents on the toolbar - the headings beside the text, to go to one, the one being read marked, kept up to date; off again, remembered; no room, no button', async () => {
+    const cp = await openPage();
+    await cp.locator('[data-action="toggle-notes"]').click();
+    await cp.locator('.note-item').first().waitFor();
+    const btn = cp.locator('[data-key="fmt-contents"]');
+    const outline = cp.locator('[data-key="note-contents"]');
+    const items = () => outline.locator('.ol-item').allInnerTexts();
+    const marked = () => outline.locator('.ol-item[aria-current="location"]').allInnerTexts();
+    const pref = () => cp.evaluate(() => window.chrome.storage.local.dump()['pref:test@example.com:noteContents']);
+    const body = bodyOf(cp);
+
+    await cp.locator('[data-key="note-new"]').click();
+    await cp.locator('[data-key="note-title"]').fill('Contents');
+    await cp.locator('[data-key="note-title"]').press('Enter');
+    const para = 'Words to read, and more words to read after them. '.repeat(12);
+    for (const [mark, text] of [['# ', 'Plans'], ['## ', 'Week 42'], ['## ', 'Week 43'], ['# ', 'Clients'], ['### ', 'Kestrel']]) {
+      await cp.keyboard.type(mark + text);
+      await cp.keyboard.press('Enter');
+      for (let i = 0; i < 4; i++) {
+        await cp.keyboard.insertText(para);
+        await cp.keyboard.press('Enter');
+      }
+    }
+    assert.equal(await btn.getAttribute('aria-pressed'), 'false');
+    assert.equal(await outline.isVisible(), false, 'off at first');
+
+    await btn.click();
+    await until(async () => (await outline.isVisible()) && (await items()).length === 5, 'the headings, beside the text');
+    assert.deepEqual(await items(), ['Plans', 'Week 42', 'Week 43', 'Clients', 'Kestrel']);
+    assert.deepEqual(await outline.locator('.ol-item').evaluateAll(els => els.map(e => e.dataset.depth)), ['0', '1', '1', '0', '2'], 'indented by level');
+    assert.equal(await btn.getAttribute('aria-pressed'), 'true');
+    assert.equal(await pref(), true, 'remembered');
+    const textBox = await body.boundingBox();
+    const listBox = await outline.boundingBox();
+    assert.ok(listBox.x >= textBox.x + textBox.width - 1, 'at the right of the text');
+
+    // Kept up to date as headings are typed (the cursor stayed in the text).
+    await cp.keyboard.type('## Week 44');
+    await until(async () => (await items()).at(-1) === 'Week 44', 'a new heading listed');
+    assert.equal((await outline.locator('.ol-item').last().getAttribute('data-depth')), '1');
+
+    // To a heading: it comes to the top, with the cursor at it, and is marked.
+    await outline.locator('.ol-item', { hasText: 'Clients' }).click();
+    const fromTop = () => body.evaluate(el => {
+      const hd = [...el.children].find(c => c.textContent === 'Clients');
+      return Math.round(hd.getBoundingClientRect().top - el.getBoundingClientRect().top);
+    });
+    await until(async () => { const t = await fromTop(); return t >= 0 && t < 40; }, 'Clients at the top of the text');
+    await until(async () => JSON.stringify(await marked()) === '["Clients"]', 'and marked as the part being read');
+    const caretIn = await cp.evaluate(() => {
+      const root = document.getElementById('gkb-board-host').shadowRoot;
+      const sel = root.getSelection ? root.getSelection() : document.getSelection();
+      let n = sel.anchorNode;
+      while (n && !(n.classList && n.classList.contains('blk'))) n = n.parentNode;
+      return n ? n.textContent : '';
+    });
+    assert.equal(caretIn, 'Clients', 'the cursor at the heading');
+    await cp.mouse.move(0, 0);
+    await cp.screenshot({ path: join(SCREENS, 'notes-contents.png'), animations: 'disabled' });
+    // Scrolled back up, the first part is the one being read.
+    await body.evaluate(el => el.scrollTo(0, 0));
+    await until(async () => JSON.stringify(await marked()) === '["Plans"]', 'Plans, at the top');
+
+    // Another note keeps them shown: its own headings.
+    await cp.locator('.note-item[data-note="n:launchchecklist0004"]').click();
+    await bodyReady(cp, /Proofread the IFU/, 'loaded');
+    await until(async () => JSON.stringify(await items()) === '["Before Friday"]', 'its headings');
+
+    // No room beside the text: no contents, nor the button.
+    await cp.setViewportSize({ width: 1000, height: 900 });
+    await until(async () => !(await btn.isVisible()) && !(await outline.isVisible()), 'none when narrow');
+    await cp.setViewportSize({ width: 1440, height: 900 });
+    await until(async () => (await btn.isVisible()) && (await outline.isVisible()), 'back when wide');
+
+    // Off again, and remembered.
+    await btn.click();
+    await until(async () => !(await outline.isVisible()), 'hidden');
+    assert.equal(await btn.getAttribute('aria-pressed'), 'false');
+    assert.equal(await pref(), false);
+    await cp.context().close();
+  });
+
   await r.step('notes in dark mode', async () => {
     const p = await openPage('', { colorScheme: 'dark' });
     await p.locator('[data-action="toggle-notes"]').click();
