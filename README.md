@@ -21,6 +21,7 @@
 <p align="center">
   <a href="https://memdesk.app">memdesk.app</a> ·
   <a href="https://memdesk.app/demo/">Try the demo</a> ·
+  <a href="https://memdesk.app/docs/">Help</a> ·
   <a href="#what-it-does">What it does</a> ·
   <a href="SETUP.md">Set it up</a> ·
   <a href="#usage">How to use it</a> ·
@@ -765,7 +766,7 @@ The display name appears in exactly these places:
    `src/content/ui.js` (a test says if they differ).
 
 The licence (`LICENSE`), the guides (`INSTALL.md`, `SETUP.md`, `PUBLISHING.md`, `PRIVACY.md`),
-`store/listing.md` and the website (`site/index.html`, and the demo's `site/demo/`) use the name in their
+the help pages (`docs/`), `store/listing.md` and the website (`site/index.html`, and the demo's `site/demo/`) use the name in their
 text, and link to the repository by its address. The pictures take the name from `APP_NAME`: run
 `tools/readme-shots.mjs` again.
 
@@ -940,13 +941,15 @@ tests/                     unit tests; tests/e2e/ browser checks;
                            helpers/apps-script.js, a stand-in Apps Script
                            (its services in dev/apps-script-services.js)
 site/                      the website, memdesk.app; site/demo/ the demo's bar and glue
+docs/                      the help pages, memdesk.app/docs/: the manual for the person
+                           using it, one Markdown file a page (README.md the overview)
 icons/icon.svg             the icon; icon-*.png are rendered from it
 images/                    the README's pictures
 tools/icon-svg.py          draws icons/icon.svg
 tools/make-icons.mjs       renders the icon PNGs
 tools/readme-shots.mjs     takes the README's pictures
 tools/build-addon.mjs      builds addon/Code.gs
-tools/build-site.mjs       builds the website and its demo
+tools/build-site.mjs       builds the website, its help pages and its demo
 SETUP.md                   step-by-step setup of your own copy
 INSTALL.md                 installing from the store and a shared phone app
 PUBLISHING.md              for the publisher: the store build, the shared sign-in
