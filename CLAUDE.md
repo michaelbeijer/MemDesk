@@ -120,10 +120,15 @@ existing install. Steps stop at the first failure; screenshots go to
    date); the website's privacy page is built from it.
 4. The user's update package: the extension as `git archive --format=zip
    --prefix=MemDesk/ -o MemDesk-x.y.z.zip origin/main` (unzipped over their
-   unpacked extension folder, then reloaded in `chrome://extensions`), plus
-   `addon/Code.gs` (and `addon/appsscript.json` if it changed). Put every zip
-   for the user, previews of a branch included, in **both** their Downloads
-   folder and the repo's `dist/` (gitignored), and say where.
+   unpacked extension folder, then reloaded in `chrome://extensions`). Put
+   every zip for the user, previews of a branch included, in **both** their
+   Downloads folder and the repo's `dist/` (gitignored), and say where.
+5. The script: once merged, `node tools/push-addon.mjs` puts `addon/Code.gs`
+   and `addon/appsscript.json` from origin/main into the user's Apps Script
+   project with clasp (signed in as the user; the project's id in
+   `dist/clasp/push/.clasp.json`). It refuses if the project holds other
+   files, and reads it back. The project runs its test deployment (@HEAD),
+   so the phone app and the Gmail panel have it at once: nothing to paste.
 
 ## Style
 
