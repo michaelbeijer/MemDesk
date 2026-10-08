@@ -90,6 +90,12 @@
     fit();
   }
 
+  // The week as two rows, Monday to Thursday above Friday to Sunday, with
+  // the Scratchpad beside them: the view Google Calendar has nothing like,
+  // so the demo's week opens on it. The button beside Week turns it back
+  // into the week by the hour, as in MemDesk itself.
+  chrome.storage.local.set({ [window.gkb.KEYS.pref(window.__mockChrome.account, 'calendarWeekLayout')]: 'rows' });
+
   // Open on the board, once the content scripts are in.
   const start = () => setTimeout(() => window.__mockChrome.dispatchToTab({ type: 'toggle-board' }), 300);
   if (document.readyState === 'complete') start();
