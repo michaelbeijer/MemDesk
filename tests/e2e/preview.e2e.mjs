@@ -528,11 +528,11 @@ try {
 
     // Gmail's label colours: a tag in the label's colour, and the stripe.
     const tag = card(quote).locator('.label-tag');
-    assert.deepEqual(await tag.allInnerTexts(), ['Clients']);
+    assert.deepEqual(await tag.allInnerTexts(), ['Halverson & Vos']);
     assert.equal(await tag.evaluate(e => getComputedStyle(e).backgroundColor), 'rgb(74, 134, 232)');
     assert.equal(await card(quote).getAttribute('data-tinted'), '');
     assert.equal(await card(quote).evaluate(e => getComputedStyle(e, '::before').backgroundColor), 'rgb(74, 134, 232)');
-    assert.deepEqual(await card(invoice).locator('.label-tag').allInnerTexts(), ['Clients', 'Invoices']);
+    assert.deepEqual(await card(invoice).locator('.label-tag').allInnerTexts(), ['Invoices', 'Lumenra Bio'], 'by name, at most two');
     assert.ok(!(await p.locator('.label-tag').allInnerTexts()).some(t => /_Board|To do|Doing|Waiting|Done/.test(t)), 'never the board’s own labels, green as they are in Gmail');
     // A colour set by hand wins; the tags stay.
     await p.evaluate(id => chrome.storage.sync.set({ [`card:test@example.com:${id}`]: { colour: 'red' } }), remittance);

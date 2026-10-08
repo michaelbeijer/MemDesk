@@ -533,7 +533,7 @@ test('appMove and the folder functions, with the extension\'s rules', () => {
   assert.throws(() => p.server('appDeleteFolder', idFor('Jobs/Clients')), /^Error: not_allowed: only an empty notes folder/);
   const after = p.server('appDeleteFolder', idFor('Empty')).folders;
   assert.ok(!after.some(f => f.path === 'Empty'));
-  const notNotes = plain(p.fake.box.labelByName('Clients')).id;
+  const notNotes = plain(p.fake.box.labelByName('Invoices')).id;
   assert.throws(() => p.server('appDeleteFolder', notNotes), /not_allowed/, 'never a label outside the notes');
 });
 

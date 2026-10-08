@@ -80,58 +80,58 @@
   const m = (from, hoursAgo, snippet, extra = []) => ({ from, hoursAgo, snippet, extra });
 
   const SEED = [
-    { cols: ['todo'], tags: ['Clients'], subject: 'Quote request: DE→EN patent, 14,200 words', msgs: [
+    { cols: ['todo'], tags: ['Halverson & Vos'], subject: 'Quote request: DE→EN patent, 14,200 words', msgs: [
       m(P.ingrid, 26, 'Dear Sam, we&#39;d like a quote for the attached &quot;Verfahren zur Beschichtung&quot; application &amp; its 24 claims. The deadline is flexible.'),
       m(P.me, 25, 'Thanks Ingrid, I&#39;ll have a quote to you tomorrow morning.'),
       m(P.ingrid, 2, 'Great, thank you. One more thing: could you also quote for the two priority documents?', ['UNREAD']),
     ] },
-    { cols: ['todo'], subject: 'Urgent: certified translation of a birth certificate', extra: ['STARRED'], msgs: [
+    { cols: ['todo'], tags: ['Larkspur Legal'], subject: 'Urgent: certified translation of a birth certificate', extra: ['STARRED'], msgs: [
       m(P.olivia, 0.7, 'Hi Sam, a client needs a certified PL&gt;EN translation by Friday. The scan is attached. Is that doable?', ['UNREAD']),
     ] },
     { cols: ['todo'], subject: 'Deadline moved to Thursday 10:00', extra: ['STARRED'], msgs: [
       m(P.jonas, 5, 'Quick heads-up: the client has moved the filing deadline to Thursday 10:00 CET. Sorry for the squeeze!'),
     ] },
-    { cols: ['todo'], subject: 'Proofreading feedback – chapter 4', msgs: [
+    { cols: ['todo'], tags: ['Fernhill Books'], subject: 'Proofreading feedback – chapter 4', msgs: [
       m(P.elena, 74, 'I&#39;ve gone through chapter 4. Mostly small things, see the tracked changes. Two terminology questions at the end.'),
       m(P.me, 50, 'Thanks Elena, looking now.'),
     ] },
-    { cols: ['todo', 'waiting'], subject: 'Drawing labels – query 7', msgs: [
+    { cols: ['todo', 'waiting'], tags: ['Pinecrest'], subject: 'Drawing labels – query 7', msgs: [
       m(P.daniel, 98, 'Query 7: should &lt;Abb. 3&gt; be &quot;Fig. 3&quot; or &quot;Figure 3&quot; in the claims?'),
       m(P.me, 75, 'Fig. 3 in the claims, Figure 3 in the description, as agreed.'),
       m(P.daniel, 20, 'Perfect, that matches our style sheet. Updating now.'),
     ] },
-    { cols: ['todo'], subject: 'Availability for October?', msgs: [
+    { cols: ['todo'], tags: ['Quillmark'], subject: 'Availability for October?', msgs: [
       m(P.grace, 140, 'We have a 30k-word medical device manual landing mid-October. Any capacity in weeks 42&#x2013;43?'),
     ] },
-    { cols: ['doing'], tags: ['Clients'], subject: 'Glossary for the stent coating project', extra: ['IMPORTANT'], msgs: [
+    { cols: ['doing'], tags: ['Lumenra Bio'], subject: 'Glossary for the stent coating project', extra: ['IMPORTANT'], msgs: [
       m(P.tomas, 220, 'Attached is our in-house glossary (EN/PT, 340 terms). Please flag anything that looks inconsistent.'),
       m(P.me, 196, 'Thanks Tomás. Three entries disagree with the IFU; notes attached.'),
       m(P.tomas, 170, 'Good catches. Our regulatory team agrees with 2 of 3.'),
       m(P.me, 1, 'Updated glossary attached &amp; locked. I&#39;ll start on the coating spec today.'),
     ] },
-    { cols: ['doing'], subject: 'Termbase export won’t open', msgs: [
+    { cols: ['doing'], tags: ['De Graaf Vertalingen'], subject: 'Termbase export won’t open', msgs: [
       m(P.hendrik, 50, 'The .tbx you sent opens as an empty glossary on my side. Could it be the encoding?'),
       m(P.me, 48, 'Odd! Re-exporting as UTF-8 now.'),
       m(P.hendrik, 3, 'That worked: all 1,284 entries are there. Thanks!', ['UNREAD']),
     ] },
-    { cols: ['doing'], subject: 'Office action response – claims 1–12', msgs: [
+    { cols: ['doing'], tags: ['Dijkstra & Partners'], subject: 'Office action response – claims 1–12', msgs: [
       m(P.bram, 7, 'Attached is the examiner&#39;s report. We need the amended claims in English by the 9th.', ['UNREAD']),
     ] },
-    { cols: ['waiting'], subject: 'Updated IFU files & tracked changes', msgs: [
+    { cols: ['waiting'], tags: ['Kestrel Medical'], subject: 'Updated IFU files & tracked changes', msgs: [
       m(P.priya, 120, 'Could you update the IFU with the new sterilisation section?'),
       m(P.me, 96, 'Hi Priya, here are the updated IFU files with tracked changes. Let me know if the regulatory team has comments.'),
     ] },
-    { cols: ['waiting'], tags: ['Clients', 'Invoices'], subject: 'Invoice 2026-131 – Lumenra Biotech', msgs: [
+    { cols: ['waiting'], tags: ['Lumenra Bio', 'Invoices'], subject: 'Invoice 2026-131 – Lumenra Biotech', msgs: [
       m(P.me, 290, 'Please find attached invoice 2026-131 for the stent coating glossary (14 hours).', ['SENT']),
     ] },
     { cols: ['done'], archived: true, tags: ['Invoices'], subject: 'Remittance advice – invoice 2026-114', msgs: [
       m(P.brightwater, 360, 'Payment of &#8364;1,840.00 has been made to your account. Reference BW-2026-114.'),
     ] },
-    { cols: ['done'], archived: true, subject: 'PO 88213 for the stability study', msgs: [
+    { cols: ['done'], archived: true, tags: ['Solvia Pharma'], subject: 'PO 88213 for the stability study', msgs: [
       m(P.rafael, 480, 'Please find PO 88213 attached for the stability study translation (DE/FR/IT).'),
       m(P.me, 460, 'Received, thank you Rafael. Delivery as discussed on the 30th.'),
     ] },
-    { cols: ['done'], archived: true, subject: 'Batch 3 delivered ✔', msgs: [
+    { cols: ['done'], archived: true, tags: ['Cedar Localisation'], subject: 'Batch 3 delivered ✔', msgs: [
       m(P.noor, 720, 'All 46 files of batch 3 are in the portal. QA report attached &#x2014; zero major errors.'),
     ] },
     { cols: [], subject: 'Can you take a 3,000-word NDA this week?', msgs: [
@@ -198,8 +198,22 @@
   }
 
   const COLUMN_LABELS = { todo: '_Board/To do', doing: '_Board/Doing', waiting: '_Board/Waiting', done: '_Board/Done' };
-  addUserLabel('Clients', { backgroundColor: '#4a86e8', textColor: '#ffffff' });
-  addUserLabel('Invoices', { backgroundColor: '#16a766', textColor: '#ffffff' });
+  // A label for each client, in Gmail's own colours, as a translator's
+  // mailbox often has - and one for what is to do with money.
+  for (const [name, backgroundColor, textColor] of [
+    ['Halverson & Vos', '#4a86e8', '#ffffff'],
+    ['Larkspur Legal', '#fb4c2f', '#ffffff'],
+    ['Dijkstra & Partners', '#cc3a21', '#ffffff'],
+    ['Fernhill Books', '#f691b3', '#ffffff'],
+    ['Kestrel Medical', '#e07798', '#ffffff'],
+    ['Solvia Pharma', '#fbc8d9', '#83334c'],
+    ['Pinecrest', '#000000', '#ffffff'],
+    ['Quillmark', '#a479e2', '#ffffff'],
+    ['Lumenra Bio', '#ffad47', '#ffffff'],
+    ['De Graaf Vertalingen', '#fad165', '#594c05'],
+    ['Cedar Localisation', '#44b984', '#ffffff'],
+    ['Invoices', '#16a766', '#ffffff'],
+  ]) addUserLabel(name, { backgroundColor, textColor });
   if (!FRESH) {
     // Green in Gmail, as the board's labels often are: never a card's colour.
     const green = { backgroundColor: '#16a766', textColor: '#ffffff' };
