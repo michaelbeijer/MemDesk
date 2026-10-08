@@ -118,11 +118,12 @@ existing install. Steps stop at the first failure; screenshots go to
 2. `node tools/build-addon.mjs`, then `npm test` and the four browser suites.
 3. Privacy: if what is stored or read changes, update `PRIVACY.md` (and its
    date); the website's privacy page is built from it.
-4. The user's update package: the extension as `git archive --format=zip
-   --prefix=MemDesk/ -o MemDesk-x.y.z.zip origin/main` (unzipped over their
-   unpacked extension folder, then reloaded in `chrome://extensions`). Put
-   every zip for the user, previews of a branch included, in **both** their
-   Downloads folder and the repo's `dist/` (gitignored), and say where.
+4. The user's update package: once merged, `node tools/release-local.mjs`
+   makes the zip from origin/main (`git archive --prefix=MemDesk/`) in both
+   `dist/` (gitignored) and their Downloads folder, and unpacks it into
+   `dist/MemDesk`, the folder their Chrome loads: they only click reload in
+   `chrome://extensions`. A preview of a branch: `--ref=origin/<branch>`
+   (it replaces what is in `dist/MemDesk` - say so). Say where things are.
 5. The script: once merged, `node tools/push-addon.mjs` puts `addon/Code.gs`
    and `addon/appsscript.json` from origin/main into the user's Apps Script
    project with clasp (signed in as the user; the project's id in
