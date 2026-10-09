@@ -1145,6 +1145,27 @@ try {
     await np.locator('[data-key="table-row"]').click();
     await np.locator('[data-key="row-delete"]').click();
     assert.deepEqual((await tableGrid(np)).map(r => r[0]), ['Language', 'NL', 'DE']);
+    // The whole table: from the bar's Delete table, in words, and from the
+    // Row and Column menus; Ctrl+Z brings it back each time.
+    const grid = await tableGrid(np);
+    const tables = () => np.locator('.ne-body .blk[data-type="table"]').count();
+    const bar = np.locator('[data-key="fmt-table-delete"]');
+    assert.equal(await bar.innerText(), 'Delete table');
+    await bar.click();
+    await until(async () => (await tables()) === 0, 'deleted from the bar');
+    assert.equal(await np.locator('.ne-tablebar').isVisible(), false, 'no table bar without a table');
+    await np.keyboard.press('Control+z');
+    await until(async () => (await tables()) === 1, 'back with Ctrl+Z');
+    assert.deepEqual(await tableGrid(np), grid, 'as it was');
+    for (const menu of ['table-row', 'table-column']) {
+      await cellText('NL').click();
+      await np.locator(`[data-key="${menu}"]`).click();
+      await np.locator('.menu [data-key="delete-table"]').click();
+      await until(async () => (await tables()) === 0, `deleted from the ${menu} menu`);
+      await np.keyboard.press('Control+z');
+      await until(async () => (await tables()) === 1, 'and back');
+    }
+    assert.deepEqual(await tableGrid(np), grid);
     await np.keyboard.press('Control+s');
     await savedSoon();
     const html = await gm('messageHtml', await gm('findMessageBySubject', 'Rates table'));

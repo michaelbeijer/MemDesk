@@ -1184,6 +1184,8 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .tb-text:not([aria-haspopup]) { padding-right: 10px; }
 .tb-text:hover { background: var(--hover); }
 .tb-text[aria-pressed="true"] { background: var(--accent-soft); color: var(--on-accent-soft); }
+.tb-text.tb-danger { gap: 4px; color: var(--danger); }
+.tb-text.tb-danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
 
 /* ── Column settings drawer ── */
 
