@@ -69,6 +69,7 @@
     folded: new Set(),  // folders whose subfolders are folded away
     foldedRead: false,  // the saved set (and `contents`) has been asked for
     contents: false,    // the note's headings shown beside it (the toolbar's Contents)
+    panes: new Set(),   // on a computer, the columns folded to a rail: 'folders', 'list'
     dragKey: '',        // the note being dragged onto a folder
     terms: [],          // searchLogic.queryTerms() of the search that is showing
     hits: new Map(),    // `${messageId}|${terms}` → { count, excerpts }
@@ -135,10 +136,12 @@
         h('button', {
           class: 'btn btn-tonal', type: 'button', dataset: { key: 'note-new' },
           title: 'New note', onclick: () => newNote(),
-        }, icon('add', 18), 'New')),
+        }, icon('add', 18), 'New'),
+        foldButton('list', 'Hide the list of notes')),
       els.scope,
       els.items,
-      els.foot);
+      els.foot,
+      listRail());
 
     els.folderItems = h('div', { class: 'folder-items', role: 'list', 'aria-label': 'Folders' });
     // On a phone the tree folds away behind one button that says where
@@ -154,11 +157,18 @@
         h('button', {
           class: 'icon-btn', type: 'button', title: 'New folder', 'aria-label': 'New folder',
           dataset: { key: 'folder-new' }, onclick: () => startFolderEdit({ mode: 'new', parentId: '' }),
-        }, icon('add', 20))),
-      els.folderItems);
+        }, icon('add', 20)),
+        foldButton('folders', 'Hide the folders')),
+      els.folderItems,
+      h('div', { class: 'pane-rail' },
+        h('button', {
+          class: 'rail-open', type: 'button', title: 'Show the folders', 'aria-label': 'Show the folders',
+          dataset: { key: 'unfold-folders' }, onclick: () => foldPane('folders', false),
+        }, icon('paneOpen', 20), icon('folder', 20), h('span', { class: 'rail-label', text: 'Folders' }))));
 
     els.editor = h('section', { class: 'note-editor', 'aria-label': 'Note' });
     els.wrap = h('div', { class: 'notes', dataset: { folders: 'closed' } }, els.foldersPane, els.list, els.editor);
+    drawPanes();
     if (!N.current) N.current = scratchState();
     drawFolders();
     drawList();
@@ -413,6 +423,8 @@
       els.scope.textContent = N.status === 'ready'
         ? `${where} \u00b7 ${shown.length} ${searching ? (shown.length === 1 ? 'match' : 'matches') : (shown.length === 1 ? 'note' : 'notes')}`
         : where;
+      // Folded, the list's rail still says where you are.
+      if (els.listLabel) els.listLabel.textContent = els.scope.textContent;
     }
     if (els.search) els.search.placeholder = N.folder ? `Search in ${folderById(N.folder) ? folderById(N.folder).title : 'this folder'}` : 'Search notes';
 
@@ -662,6 +674,69 @@
       N.contents = (await prefs.get('noteContents')) === true;
       if (els.ed) els.ed.setContentsShown(N.contents);
     } catch (err) { /* no contents, as at first */ }
+    try {
+      const panes = await prefs.get('notePanes');
+      if (Array.isArray(panes)) N.panes = new Set(panes.filter(p => p === 'folders' || p === 'list'));
+      drawPanes();
+    } catch (err) { /* every column shown, as at first */ }
+  }
+
+  // ── Room for the note ────────────────────────────────────────────────
+  //
+  // On a computer, the folders and the list of notes each fold to a slim
+  // rail and back, for more room for the note: the rail says what is
+  // folded there (the list's, which folder and how many notes), and opens
+  // it again with a click; the list's also has New and Search. Remembered
+  // on this computer, as the folded folders are. A phone shows one thing
+  // at a time anyway: its stylesheet shows neither the buttons nor the
+  // rails.
+
+  function foldButton(pane, label) {
+    return h('button', {
+      class: 'icon-btn pane-fold', type: 'button', title: label, 'aria-label': label, 'aria-expanded': 'true',
+      dataset: { key: `fold-${pane}` }, onclick: () => foldPane(pane, true),
+    }, icon('paneClose', 20));
+  }
+
+  function listRail() {
+    els.listLabel = h('span', { class: 'rail-label' });
+    return h('div', { class: 'pane-rail' },
+      h('button', {
+        class: 'icon-btn', type: 'button', title: 'New note', 'aria-label': 'New note',
+        dataset: { key: 'rail-new' }, onclick: () => newNote(),
+      }, icon('add', 20)),
+      h('button', {
+        class: 'icon-btn', type: 'button', title: 'Search notes', 'aria-label': 'Search notes',
+        dataset: { key: 'rail-search' }, onclick: () => { foldPane('list', false); els.search.focus(); },
+      }, icon('search', 20)),
+      h('button', {
+        class: 'rail-open', type: 'button', title: 'Show the list of notes', 'aria-label': 'Show the list of notes',
+        dataset: { key: 'unfold-list' }, onclick: () => foldPane('list', false),
+      }, icon('paneOpen', 20), els.listLabel));
+  }
+
+  function drawPanes() {
+    if (!els.wrap) return;
+    for (const pane of ['folders', 'list']) {
+      const folded = N.panes.has(pane);
+      els.wrap.classList.toggle(`fold-${pane}`, folded);
+      const btn = els.wrap.querySelector(`[data-key="fold-${pane}"]`);
+      if (btn) btn.setAttribute('aria-expanded', String(!folded));
+    }
+  }
+
+  function foldPane(pane, folded) {
+    if (folded) N.panes.add(pane);
+    else N.panes.delete(pane);
+    drawPanes();
+    // The button pressed has gone: the focus goes to the one that undoes it.
+    const undo = els.wrap && els.wrap.querySelector(`[data-key="${folded ? 'unfold' : 'fold'}-${pane}"]`);
+    if (undo) undo.focus();
+    const prefs = N.ctx && N.ctx.prefs;
+    if (!prefs) return;
+    try {
+      Promise.resolve(prefs.set('notePanes', [...N.panes])).catch(() => {});
+    } catch (err) { /* not remembered, that is all */ }
   }
 
   // The toolbar's Contents, shown or not, remembered as the folded folders are.

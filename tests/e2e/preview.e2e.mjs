@@ -1512,6 +1512,56 @@ try {
     await cp.context().close();
   });
 
+  await r.step('notes: the folders and the list each fold to a slim rail and back, for more room for the note; remembered; not on a narrow screen', async () => {
+    const fp = await openPage();
+    const pref = () => fp.evaluate(() => window.chrome.storage.local.dump()['pref:test@example.com:notePanes']);
+    const width = sel => fp.locator(sel).evaluate(el => Math.round(el.getBoundingClientRect().width));
+    await fp.locator('[data-action="toggle-notes"]').click();
+    await fp.locator('.note-item').first().waitFor();
+    const before = await width('.note-editor');
+
+    // The folders: to a rail that says so, the note wider by the difference.
+    await fp.locator('[data-key="fold-folders"]').click();
+    assert.ok(await width('.notes-folders') <= 56, 'the folders, a rail');
+    assert.equal(await fp.locator('.folder-items').isVisible(), false);
+    assert.equal(await fp.locator('[data-key="unfold-folders"]').innerText(), 'Folders');
+    assert.ok(await fp.evaluate(() => document.getElementById('gkb-board-host').shadowRoot.activeElement.dataset.key) === 'unfold-folders', 'the focus on the button that undoes it');
+    const oneFolded = await width('.note-editor');
+    assert.ok(oneFolded > before + 150, `the note wider (${before} → ${oneFolded})`);
+    assert.deepEqual(await pref(), ['folders'], 'remembered');
+
+    // The list too: its rail says where you are, and has New and Search.
+    await fp.locator('[data-key="fold-list"]').click();
+    assert.ok(await width('.notes-list') <= 56, 'the list, a rail');
+    assert.match(await fp.locator('[data-key="unfold-list"]').innerText(), /^All notes · 5 notes$/);
+    assert.ok(await width('.note-editor') > oneFolded + 200, 'the note wider still');
+    assert.deepEqual((await pref()).sort(), ['folders', 'list']);
+    await fp.locator('[data-key="rail-new"]').click();
+    await until(async () => (await fp.locator('[data-key="note-title"]').count()) === 1, 'a new note, from the rail');
+    await fp.locator('[data-key="rail-search"]').click();
+    await until(async () => fp.locator('.notes-list .search-box input').isVisible(), 'the list back');
+    assert.equal(await fp.evaluate(() => document.getElementById('gkb-board-host').shadowRoot.activeElement.dataset.key), 'notes-search', 'with the cursor in the search box');
+    assert.deepEqual(await pref(), ['folders']);
+    await fp.locator('[data-key="unfold-folders"]').click();
+    assert.equal(await fp.locator('.folder-items').isVisible(), true, 'the folders back');
+    assert.deepEqual(await pref(), []);
+
+    // Remembered for next time: folded when the notes open.
+    const again = await openPage();
+    await again.evaluate(() => window.chrome.storage.local.set({ 'pref:test@example.com:notePanes': ['list'] }));
+    await again.locator('[data-action="toggle-notes"]').click();
+    await until(async () => (await again.locator('.notes').getAttribute('class')).includes('fold-list'), 'the list folded, as left');
+    assert.equal(await again.locator('[data-key="fold-folders"]').getAttribute('aria-expanded'), 'true');
+    assert.equal(await again.locator('[data-key="fold-list"]').getAttribute('aria-expanded'), 'false');
+
+    // No room on a narrow screen: no buttons, and nothing folded away.
+    await again.setViewportSize({ width: 740, height: 900 });
+    assert.equal(await again.locator('[data-key="fold-folders"]').isVisible(), false);
+    assert.equal(await again.locator('.pane-rail').first().isVisible(), false);
+    await fp.context().close();
+    await again.context().close();
+  });
+
   await r.step('notes in dark mode', async () => {
     const p = await openPage('', { colorScheme: 'dark' });
     await p.locator('[data-action="toggle-notes"]').click();

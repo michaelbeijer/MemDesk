@@ -251,6 +251,10 @@ await r.step('no Contents on a phone: no room beside the text for the headings',
   assert.equal(await q(page, '[data-key="fmt-bold"]').first().isVisible(), true, 'the toolbar is there');
   assert.equal(await q(page, '[data-key="fmt-contents"]').first().isVisible(), false);
   assert.equal(await q(page, '[data-key="note-contents"]').first().isVisible(), false);
+  // Nor folding the folders or the list away: a phone shows one at a time.
+  for (const key of ['fold-folders', 'fold-list', 'unfold-folders', 'unfold-list']) {
+    assert.equal(await q(page, `[data-key="${key}"]`).first().isVisible(), false, key);
+  }
 });
 
 await r.step('a long note opened from the list stops at the foot of the screen, and a finger scrolls it', async () => {
