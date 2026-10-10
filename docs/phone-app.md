@@ -53,6 +53,11 @@ opens it in Gmail, moves it to another column, edits its title, note and
 colour, or takes it off the board. The **+** on a column finds an email and
 adds it, and the settings button changes the columns.
 
+Tapping a card, or **Open in Gmail**, opens the email on Gmail's mobile
+site in Chrome. It can't open in the Gmail app: Android gives web pages no
+way to send the Gmail app to one email (see
+[Questions](questions.md#open-in-gmail-opens-chrome-not-the-gmail-app)).
+
 The columns are the same as in Chrome: see
 [The same columns everywhere](board.md#the-same-columns-everywhere).
 
