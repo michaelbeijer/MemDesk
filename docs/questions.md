@@ -92,6 +92,13 @@ shows the same board. It is never sent, and never in your Inbox. Please
 leave it. If it goes, the next computer to open the board puts its own
 columns back.
 
+## Open in Gmail opens Chrome, not the Gmail app
+
+On a phone, MemDesk opens the email on Gmail's mobile site, in Chrome. The
+Gmail app can't be sent to one email from a web page: every way there is
+was tried on an Android phone, and the app only ever opened on the inbox.
+Chrome, at least, shows the email itself.
+
 ## I deleted a note by mistake
 
 Click **Undo** straight away. Later, the note is in Gmail's Trash for 30

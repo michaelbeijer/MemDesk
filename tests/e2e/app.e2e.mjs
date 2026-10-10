@@ -88,11 +88,11 @@ function breakHistory() {
   window.google.script.history = { push: no, replace: no, setChangeHandler: no };
 }
 
-async function openApp({ search = '', colorScheme = 'light', brokenHistory = false, file = PAGE, phone: given = null } = {}) {
+async function openApp({ search = '', colorScheme = 'light', brokenHistory = false, file = PAGE, phone: given = null, userAgent } = {}) {
   // Another phone on the same mailbox, or a mailbox of its own.
   const phone = given ? new Phone({ fake: given.fake }) : new Phone({ search });
   const ctx = await browser.newContext({
-    viewport: { width: 412, height: 860 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme,
+    viewport: { width: 412, height: 860 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme, userAgent,
   });
   const page = await ctx.newPage();
   watchErrors(page, errors);
@@ -626,7 +626,24 @@ await r.step('tapping a card opens the conversation in Gmail; the app remembers 
   await page.evaluate(() => { window.__opened = []; window.open = url => { window.__opened.push(url); return null; }; });
   const id = phone.fake.box.findThread('3,000-word NDA');
   await q(page, `[data-key="card:${id}"]`).tap();
-  assert.deepEqual(await page.evaluate(() => window.__opened), [`https://mail.google.com/mail/?authuser=test%40example.com#all/${id}`]);
+  assert.deepEqual(await page.evaluate(() => window.__opened), [`https://mail.google.com/mail/?authuser=test%40example.com#all/${id}`],
+    'a computer (this browser says it is one): Gmail’s usual address');
+
+  // An Android phone: Gmail's mobile site, at the conversation itself -
+  // its usual address would show the inbox there.
+  const android = await openApp({
+    phone,
+    userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36',
+  });
+  await scratchReady(android.page);
+  await q(android.page, '[data-key="view:board"]').tap();
+  await q(android.page, `[data-key="card:${id}"]`).waitFor();
+  await android.page.evaluate(() => { window.__opened = []; window.open = url => { window.__opened.push(url); return null; }; });
+  await q(android.page, `[data-key="card:${id}"]`).tap();
+  assert.deepEqual(await android.page.evaluate(() => window.__opened),
+    [`https://mail.google.com/mail/mu/mp/?authuser=test%40example.com#cv/All%20Mail/${id}`]);
+  await android.page.context().close();
+
   await page.reload();
   await q(page, '.card .subject').first().waitFor();
   assert.equal(await q(page, '[data-key="view:board"]').getAttribute('aria-selected'), 'true');

@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.34.0" src="https://img.shields.io/badge/version-0.34.0-6D28D9">
+  <img alt="Version 0.34.1" src="https://img.shields.io/badge/version-0.34.1-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -140,7 +140,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.34.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.34.1 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -603,6 +603,10 @@ notes as in Gmail, in a tab of their own.)
   card's **⋯** opens it in Gmail, moves it to another column, edits its
   title, note and colour, or takes it off the board; the **+** on a column
   finds an email and adds it; the settings button changes the columns.
+  On a phone, a card (or **Open in Gmail**) opens the email on Gmail's mobile
+  site in Chrome (`/mail/mu/mp/…#cv/All Mail/<id>`): the usual address shows
+  only the inbox there, and the Gmail app cannot be sent to one email from a
+  web page - every way in was tried on Android, and opened the inbox.
   The columns are the same as in Chrome: the layout kept in Gmail. Until
   there is one, they are your `_Board` labels as Gmail has them. Card edits
   are the app's own, the same on every phone and computer you open it on

@@ -237,13 +237,22 @@
     return call('appBoardColumns');
   }
 
-  const threadUrl = threadId =>
-    `https://mail.google.com/mail/?authuser=${encodeURIComponent(who.account)}#all/${encodeURIComponent(threadId)}`;
+  // On a phone, Gmail is its mobile site, which drops the desktop
+  // address's "#all/<id>" and shows the inbox; its own form for a
+  // conversation (#cv/<list>/<id>, All Mail holding every one) opens the
+  // email itself. Tried on Android: the Gmail app cannot be sent to one
+  // email from a web page - every way in only opened it on the inbox.
+  // On a computer (the app installed there), Gmail's usual address.
+  const onPhone = () => !!(navigator.userAgentData && navigator.userAgentData.mobile) ||
+    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const threadUrl = threadId => (onPhone()
+    ? `https://mail.google.com/mail/mu/mp/?authuser=${encodeURIComponent(who.account)}#cv/All%20Mail/${encodeURIComponent(threadId)}`
+    : `https://mail.google.com/mail/?authuser=${encodeURIComponent(who.account)}#all/${encodeURIComponent(threadId)}`);
 
   ns.hooks = {
     getAccount: () => who.account,
     threadUrl,
-    // The conversation in Gmail - which, on a phone, the Gmail app may offer to open.
+    // The conversation in Gmail, in the browser.
     openThread(threadId) {
       window.open(threadUrl(threadId), '_blank', 'noopener');
     },
