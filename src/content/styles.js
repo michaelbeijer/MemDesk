@@ -820,6 +820,35 @@ button.folder-twisty:hover { background: var(--hover); color: var(--fg); }
 .notes-tools { display: flex; align-items: center; gap: 8px; padding: 12px 12px 8px; flex: none; }
 .notes-tools .search-box { flex: 1; min-width: 0; background: var(--surface); }
 .notes-tools .btn { height: 40px; padding: 0 16px 0 12px; flex: none; }
+.notes-tools .pane-fold { margin-left: -4px; }
+/* On a computer, the folders and the list each fold to a slim rail, for
+   more room for the note. A phone (the app's own stylesheet, up to 760
+   pixels) never shows the buttons or the rails. */
+.pane-fold, .pane-rail { display: none; }
+@media (min-width: 761px) {
+  .pane-fold { display: inline-flex; }
+  .notes.fold-folders .notes-folders, .notes.fold-list .notes-list { flex-basis: 52px; }
+  .notes.fold-folders .notes-folders > :not(.pane-rail),
+  .notes.fold-list .notes-list > :not(.pane-rail) { display: none; }
+  .notes.fold-folders .notes-folders > .pane-rail,
+  .notes.fold-list .notes-list > .pane-rail { display: flex; }
+}
+.pane-rail { flex: 1; min-height: 0; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0; }
+.rail-open {
+  flex: 1;
+  min-height: 0;
+  width: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-radius: 12px;
+  color: var(--fg-2);
+  overflow: hidden;
+}
+.rail-open:hover { background: var(--hover); color: var(--fg); }
+.rail-label { writing-mode: vertical-rl; min-height: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; }
 .notes-items { flex: 1; overflow-y: auto; padding: 0 8px 8px; display: flex; flex-direction: column; gap: 2px; }
 .note-item {
   display: block;

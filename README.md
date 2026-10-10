@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.33.1" src="https://img.shields.io/badge/version-0.33.1-6D28D9">
+  <img alt="Version 0.34.0" src="https://img.shields.io/badge/version-0.34.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -140,7 +140,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.33.1 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.34.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -263,6 +263,12 @@ computers. All of it is kept per Gmail account.
 - **Open the notes** with the **Notes** tab next to **Board** at the top of the
   board, or the **Notes** button beside **Board** in Gmail's top bar.
   The board reopens on whichever tab you used last.
+- **More room for the note.** The folders and the list of notes each fold
+  away to a slim strip with the **«** button at the top of their column. The
+  folders' strip says Folders; the list's says which folder you are in and how
+  many notes it has, and has **New** and **Search** buttons. Click a strip to
+  bring its column back. What you fold stays folded on this computer. A phone
+  shows one thing at a time anyway, so it has no such buttons.
 - **Folders** are in the column on the left: **All notes**, then your folders
   as a tree, each with how many notes it holds. Choose one to see only its
   notes (and to search only inside it). The **+** at the top makes a folder;

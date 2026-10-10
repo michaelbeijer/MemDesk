@@ -101,6 +101,18 @@ becomes formatting too: bold, italics, headings, lists, links and tables.
 - **Ctrl+Shift+V** pastes the text alone, exactly as copied.
 - **Ctrl+Z** straight after a paste takes it back.
 
+## More room for the note
+
+The folders and the list of notes can each fold away to a slim strip, to
+give the note more room. Click the **«** button at the top of either
+column. The folders' strip says **Folders**; the list's says which folder
+you are in and how many notes it has, and has buttons for a **new note**
+and for **searching**. Click a strip to bring its column back.
+
+Whatever you fold stays folded on this computer until you open it again.
+On a phone, which shows one thing at a time anyway, there is nothing to
+fold.
+
 ## Folders
 
 On the left are **All notes**, then your folders as a tree, each with how

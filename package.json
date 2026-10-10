@@ -1,6 +1,6 @@
 {
   "name": "gmail-label-board",
-  "version": "0.33.1",
+  "version": "0.34.0",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "description": "Chrome extension: a Kanban board inside Gmail, backed by Gmail labels. No runtime dependencies, no build step.",
