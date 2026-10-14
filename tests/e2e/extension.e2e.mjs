@@ -29,6 +29,7 @@ import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { REPO, loadPlaywright, findChromium, screensDir, runner, until, watchErrors } from './lib.mjs';
 
 const { chromium } = await loadPlaywright();
@@ -154,6 +155,19 @@ try {
     assert.equal(noteTrash.error.code, 'not_configured');
     const labels = await ask({ type: 'gmail', account: 'test@example.com', method: 'GET', path: 'labels' });
     assert.equal(labels.error.code, 'not_configured', 'an allowed call gets as far as the missing client ID');
+    // A picture for a note, as big as one can be, gets through to the token
+    // (and through Chrome's messaging) with no label - but not into the Inbox.
+    const notes = createRequire(import.meta.url)('../../src/lib/notes-logic.js');
+    const pictureRaw = notes.buildPictureRaw({
+      pictureId: 'p1c7ur3s0m3th1ng0000', title: 'Trade fair stand', type: 'image/jpeg',
+      data: Buffer.alloc(notes.MAX_PICTURE - 16, 7).toString('base64'), account: 'test@example.com',
+    });
+    const picture = await ask({ type: 'gmail', account: 'test@example.com', method: 'POST', path: 'messages', body: { raw: pictureRaw, labelIds: [] } });
+    assert.equal(picture.error.code, 'not_configured', 'a picture insert is allowed');
+    const inbox = await ask({ type: 'gmail', account: 'test@example.com', method: 'POST', path: 'messages', body: { raw: pictureRaw, labelIds: ['INBOX'] } });
+    assert.equal(inbox.error.code, 'not_allowed');
+    const read = await ask({ type: 'gmail', account: 'test@example.com', method: 'GET', path: 'messages/18f2a3b4c5d6e000', query: { format: 'raw' } });
+    assert.equal(read.error.code, 'not_configured', 'and so is reading one whole');
 
     // The calendar: its reads, and one event or task changed with its own
     // fields - nothing else, refused before a token is asked for.

@@ -33,7 +33,8 @@ when it changes) into their Apps Script project.
 | What | Path |
 |---|---|
 | Note model, HTML/plain/Markdown in and out, merging | `src/lib/note-format.js` |
-| Note editor (blocks, tables, paste) | `src/content/note-editor.js` |
+| Note editor (blocks, tables, pictures, paste) | `src/content/note-editor.js` |
+| Pictures in notes: shrinking, held until saved, read and cached | `src/content/pictures.js`; their messages in `src/lib/notes-logic.js`; saving them in `notes.js` (`savePictures`) |
 | Notes view (list, folders, saving, merge on catch-up) | `src/content/notes.js` |
 | Board / calendar views | `src/content/board.js`, `calendar.js` |
 | Phone app start, local copy, timings | `addon/app/shell.js`, `addon/app/remote.js` |
@@ -48,7 +49,12 @@ when it changes) into their Apps Script project.
 
 - Never send mail, never delete mail for good, never touch Spam; only a
   note of ours goes to Trash; only an empty notes folder is deleted; the board
-  never adds Trash, Spam or Inbox. The board's column layout is kept in
+  never adds Trash, Spam or Inbox. A picture in a note is a note-shaped
+  message of its own (`X-Gkb-Note` plus `X-Gkb-Picture`, no label), so these
+  rules cover it unchanged; the note names it by message id, saving a note
+  never sends its pictures again, and only pictures (each read first,
+  `notesLogic.picturesFlow`) go to Trash for being taken out of a note. A
+  picture pasted from another note is saved as this note's own copy. The board's column layout is kept in
   Gmail as a note-shaped message (fixed id, under `_Board`;
   `logic.layoutReadFlow`/`layoutWriteFlow`), one for every device: only its
   older versions go to Trash, and the phone app's own copy is never the

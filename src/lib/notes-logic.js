@@ -206,10 +206,19 @@
     return end < 0 ? binary : binary.slice(0, end);
   }
 
+  // The start of a raw message, decoded: enough for its headers, however
+  // big the message (a picture's is megabytes, and Apps Script decodes
+  // base64 slowly).
+  function headOfRaw(raw) {
+    const s = String(raw || '');
+    const n = Math.min(s.length, 8192);
+    return base64UrlDecode(s.slice(0, n - (n % 4)));
+  }
+
   // The note id a raw message carries, or '' if it is not a note.
   function noteIdOfRaw(raw) {
     let bin;
-    try { bin = base64UrlDecode(raw); } catch { return ''; }
+    try { bin = headOfRaw(raw); } catch { return ''; }
     const m = headerBlock(bin).match(new RegExp(`^${NOTE_HEADER}:[ \\t]*([^\\r\\n]*)$`, 'mi'));
     const id = m ? m[1].trim() : '';
     return ID_RE.test(id) ? id : '';
@@ -333,6 +342,143 @@
     return { live, stale };
   }
 
+  // ── Pictures ─────────────────────────────────────────────────────────
+  //
+  // A picture in a note is a message of its own, written once and never
+  // changed; the note holds only that message's id (note-format's picture
+  // block). So saving a note sends its text alone, however many pictures
+  // it has, and the versions Trash keeps of it hold no copies of them.
+  // The message is shaped like a note - from the notes sender, with an
+  // X-Gkb-Note id of its own - so the rules for what may be inserted and
+  // what may go to Trash hold for it unchanged; X-Gkb-Picture says it is
+  // a picture. It carries no label, so it sits in All Mail and in no list.
+
+  const PICTURE_HEADER = 'X-Gkb-Picture';
+  const PICTURE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+  // Far more than a picture made smaller for a note needs (see
+  // src/content/pictures.js), and one insert stays well inside what
+  // Gmail's API takes in one request.
+  const MAX_PICTURE = 1536 * 1024;
+  const MAX_PICTURE_B64 = Math.ceil(MAX_PICTURE / 3) * 4;
+  const B64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+  // `data`: the picture's bytes in base64; `title`, the note's, so that
+  // the message reads as something if it is ever met in All Mail.
+  function buildPictureRaw({ pictureId, title, type, data, account, date = new Date() }) {
+    if (!ID_RE.test(String(pictureId || ''))) throw new Error('Invalid picture id');
+    if (!PICTURE_TYPES.has(type)) throw new Error('Not a kind of picture a note keeps');
+    const b64 = String(data || '').replace(/\s+/g, '');
+    if (!b64 || !B64_RE.test(b64)) throw new Error('The picture is not in base64');
+    if (b64.length > MAX_PICTURE_B64) throw new Error('The picture is too big');
+    const me = oneLine(account);
+    const t = oneLine(title).slice(0, 80);
+    const ext = type.split('/')[1].replace('jpeg', 'jpg');
+    const boundary = `gkb-${pictureId}-${date.getTime()}`;
+    const lines = [
+      `From: ${NOTE_SENDER}`,
+      `To: ${me}`,
+      `Reply-To: ${me}`,
+      `Subject: ${encodeHeaderText(t ? `Picture in “${t}”` : 'Picture in a note')}`,
+      `Date: ${date.toUTCString()}`,
+      `Message-ID: <${pictureId}.${date.getTime()}@notes.invalid>`,
+      `${NOTE_HEADER}: ${pictureId}`,
+      `${PICTURE_HEADER}: 1`,
+      'MIME-Version: 1.0',
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      ...textPart('text/plain', 'A picture in one of your notes, which shows it from here. Keep this email for as long as the note has the picture.'),
+      `--${boundary}`,
+      `Content-Type: ${type}; name="picture.${ext}"`,
+      `Content-Disposition: inline; filename="picture.${ext}"`,
+      'Content-Transfer-Encoding: base64',
+      '',
+      wrap76(b64),
+      `--${boundary}--`,
+      '',
+    ];
+    return base64UrlEncode(lines.join('\r\n'));
+  }
+
+  // The header lines of a message, unfolded: { name (lower case): value }.
+  function headersOf(block) {
+    const out = {};
+    for (const line of block.replace(/\r?\n[ \t]+/g, ' ').split(/\r?\n/)) {
+      const i = line.indexOf(':');
+      if (i > 0) out[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim();
+    }
+    return out;
+  }
+
+  const isPictureHead = head => !!head[PICTURE_HEADER.toLowerCase()] && ID_RE.test(head[NOTE_HEADER.toLowerCase()] || '');
+
+  // Whether a raw message is a picture of ours, from its headers alone:
+  // only the start is decoded, however big the picture.
+  function isPictureRaw(raw) {
+    let bin;
+    try { bin = headOfRaw(raw); } catch { return false; }
+    const end = bin.search(/\r?\n\r?\n/);
+    return end > 0 && isPictureHead(headersOf(bin.slice(0, end)));
+  }
+
+  // A picture from its raw message (messages.get, format=raw): { type,
+  // data } with the bytes in base64, or null if it is not a picture of
+  // ours. Only the shape buildPictureRaw writes is read.
+  function pictureOfRaw(raw) {
+    let bin;
+    try { bin = base64UrlDecode(raw); } catch { return null; }
+    const end = bin.search(/\r?\n\r?\n/);
+    if (end < 0) return null;
+    const head = headersOf(bin.slice(0, end));
+    if (!isPictureHead(head)) return null;
+    const b = /boundary="?([^";\s]+)"?/i.exec(head['content-type'] || '');
+    if (!b) return null;
+    for (const part of bin.slice(end).split(`--${b[1]}`)) {
+      const at = part.search(/\r?\n\r?\n/);
+      if (at < 0) continue;
+      const ph = headersOf(part.slice(0, at).replace(/^\r?\n/, ''));
+      const type = String(ph['content-type'] || '').split(';')[0].trim().toLowerCase();
+      if (!PICTURE_TYPES.has(type) || !/^base64$/i.test(ph['content-transfer-encoding'] || '')) continue;
+      const data = part.slice(at).replace(/\s+/g, '');
+      return data && B64_RE.test(data) ? { type, data } : null;
+    }
+    return null;
+  }
+
+  // The body of the one insert a picture is: a picture of ours, with no
+  // labels, no bigger than a picture can be. (What the phone app's script
+  // lets through; the extension's worker lets any note through.)
+  function isPictureInsert(body) {
+    if (!isNoteInsert(body) || (body.labelIds && body.labelIds.length)) return false;
+    // The picture's base64, base64 again, with room for the headers.
+    return body.raw.length <= Math.ceil(MAX_PICTURE_B64 * 1.05 / 3) * 4 + 4096 && isPictureRaw(body.raw);
+  }
+
+  // From messages.get with the two headers (format=metadata).
+  function isPictureMessage(msg) {
+    return !!(msg && headerOf(msg, PICTURE_HEADER)) && ID_RE.test(headerOf(msg, NOTE_HEADER).trim());
+  }
+
+  // The pictures named, to Trash ('trash') or out of it ('untrash'): each
+  // read first, and only a picture of ours, not already there, is moved.
+  // A flow like the board layout's (util.runAsync, runSync), with `io`:
+  // readMany(requests) → each message or { error }, and trash(ids) and
+  // untrash(ids) → for each, its answer or null where it failed, so that
+  // one picture that cannot be moved does not keep the others. Returns
+  // the ids moved.
+  function* picturesFlow(ids, op) {
+    const list = [...new Set((ids || []).map(String))].filter(id => /^[A-Za-z0-9]{6,40}$/.test(id));
+    if (!list.length || (op !== 'trash' && op !== 'untrash')) return [];
+    const metas = yield ['readMany', list.map(id => ['GET', `messages/${id}`, { format: 'metadata', metadataHeaders: [NOTE_HEADER, PICTURE_HEADER] }])];
+    const todo = list.filter((id, i) => {
+      const m = metas[i];
+      return !!m && !m.error && isPictureMessage(m) && (m.labelIds || []).includes('TRASH') !== (op === 'trash');
+    });
+    if (!todo.length) return [];
+    const done = yield [op, todo];
+    return todo.filter((id, i) => done[i] !== null && done[i] !== undefined);
+  }
+
   // ── Folders ──────────────────────────────────────────────────────────
   //
   // A folder is a Gmail label under the notes label: "_Notes/Work",
@@ -421,6 +567,8 @@
     SCRATCHPAD_ID, SCRATCHPAD_TITLE, newNoteId, noteIdFor, encodeHeaderText, decodeHeaderText, base64UrlEncode, base64UrlDecode,
     titleFor, buildNoteRaw, noteIdOfRaw, isNoteInsert,
     htmlToText, extractText, messageParts, noteFromMessage, dedupeNotes,
+    PICTURE_HEADER, PICTURE_TYPES, MAX_PICTURE,
+    buildPictureRaw, isPictureRaw, pictureOfRaw, isPictureInsert, isPictureMessage, picturesFlow,
   };
 
   ns.notesLogic = api;

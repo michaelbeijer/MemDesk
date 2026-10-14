@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.34.1" src="https://img.shields.io/badge/version-0.34.1-6D28D9">
+  <img alt="Version 0.35.0" src="https://img.shields.io/badge/version-0.35.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -52,10 +52,11 @@ the board, and files it in a column without opening the board.
 
 ### 📝 Notes that live in Gmail
 
-Headings, bold and italics, lists, checklists you tick, links, and tables you
-can sort. Notes save as you type, and a paste from Word, Google Docs, Excel, a
-web page or Markdown arrives formatted, a table as a table. Folders nest as
-deep as you like, and fold away when the tree gets long.
+Headings, bold and italics, lists, checklists you tick, links, tables you
+can sort, and pictures you size with a drag. Notes save as you type, and a
+paste from Word, Google Docs, Excel, a web page or Markdown arrives
+formatted, a table as a table; paste a screenshot and it is in. Folders nest
+as deep as you like, and fold away when the tree gets long.
 
 <img src="images/notes.jpg" width="100%" alt="The notes: nested folders on the left, the list in the middle, a checklist note open on the right">
 
@@ -140,7 +141,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.34.1 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.35.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -341,10 +342,24 @@ computers. All of it is kept per Gmail account.
   which is how it fits on a phone. Cells copied from a spreadsheet and pasted
   into a cell fill the table from that cell on, adding rows and columns as
   needed. In Gmail a table shows as a table; in plain text, a row a line.
+- **Pictures.** The picture button on the toolbar (on a phone: the photos or
+  the camera), a paste of a picture copied on its own (a screenshot, "Copy
+  image") or a picture dragged onto the note puts it in on a line of its own,
+  below the line the cursor (or the drop) is on. One bigger than 1,600 pixels
+  on its longest side is made smaller first, as a JPEG, or a PNG where it has
+  see-through parts or a PNG is smaller; one small already keeps its own
+  bytes. Click a picture to select it: drag the handle on its corner to size
+  it, or set it to 25%, 50%, 75% or 100% of the note's width with the buttons
+  on it; its bin, Delete or Backspace deletes it; Esc lets it go. Its size is
+  a share of the note's width, so it looks the same on a phone. The arrow
+  keys on the line above or below select it, and Backspace at the start of
+  the line after it too. **Ctrl+Z** straight after any of these takes it
+  back. In Gmail a picture shows as a line, "[Picture: open the note to see
+  it]"; in plain text, `[Picture]`.
 - **Pasting keeps the formatting a note can hold.** From Word, Google Docs, a
   web page or an email: headings, bold, italic, strike-through, links, and
   bulleted, numbered and check lists (nested, too) come across; fonts, colours,
-  sizes, images and scripts never do. Tables - from Excel, Google Sheets, Word
+  sizes, a page's images and scripts never do. Tables - from Excel, Google Sheets, Word
   or a web page - arrive as tables, with their heading row, column alignment
   and bold; a single cell copied on its own arrives as its text. Paragraphs that
   had space between them keep an empty line between them. Text written in
@@ -354,7 +369,8 @@ computers. All of it is kept per Gmail account.
   goes in at that item's level, and pasting in the middle of a line carries
   the rest of the line along after it. **Ctrl+Shift+V** pastes the text alone,
   exactly as copied. **Ctrl+Z** straight after a paste takes it back (one paste
-  at a time). Dropping text onto a note does nothing.
+  at a time). Dropping text onto a note does nothing; dropping a picture
+  puts it in.
 
 How it works: a note is a message placed straight into your mailbox with
 `messages.insert`, labelled `_Notes` (and its folder's label, if it is in one)
@@ -376,6 +392,24 @@ another computer or phone while you were editing it is merged rather than
 overwritten, as soon as this one hears of it (the phone app checks before every
 save): the newer version comes in with your edits on top, and a paragraph
 changed on both sides is kept in both versions.
+
+A picture in a note is a message of its own, written once and never changed,
+and the note's HTML names it by its message id. So saving a note sends only
+its text, however many pictures it has, and the old versions in Trash hold no
+copies of them. The picture's message is shaped like a note - from "Notes",
+with an `X-Gkb-Note` id of its own, so the rules for what may be inserted and
+trashed hold for it unchanged - and carries `X-Gkb-Picture`. It has no label,
+so it sits in All Mail and in no list; its subject says which note it was put
+in. A new picture is held in the page, made smaller, until the note is saved:
+the save puts it in first, then writes the note naming it. A picture pasted
+in from another note is saved as a copy of its own, so every note owns its
+pictures. After a save, the pictures the note no longer has go to Trash (each
+read first: only a picture of ours), and deleting a note takes its pictures
+there too, Undo bringing them back. Pictures are read whole (`format=raw`) as
+they come into view, a few at a time, and the most recent are kept in the
+page. One that is in Trash while the note's saved version still has it (taken
+out on another computer as this one put it back) comes back out of Trash when
+the note shows it.
 
 Anything else filed under `_Notes` shows up too - an email you sent yourself
 from your phone, say. Its bold, italic, lists and links come across; the rest
@@ -710,9 +744,11 @@ The privacy policy is [PRIVACY.md](PRIVACY.md). In detail:
   notes, it reads the messages under `_Notes` and its folders (bodies
   included), inserts new notes, moves notes between folders, moves its own old
   versions and deleted notes to Trash, and creates, renames and deletes empty
-  folders under `_Notes`. It **never
+  folders under `_Notes`; it inserts each picture in a note as a message of
+  its own with no label, reads it back whole, and moves the pictures taken out
+  of a note, or of a deleted note, to Trash. It **never
   sends and never permanently deletes**, never touches Spam, and moves nothing
-  to Trash but its own notes. The background worker enforces this with an
+  to Trash but its own notes and their pictures. The background worker enforces this with an
   allow-list: any other Gmail API call, any `DELETE`, any attempt to add `TRASH`
   or `SPAM` as a label, and any insert that is not a note (a message carrying
   the `X-Gkb-Note` header, filed under user labels only - never Inbox, Sent,
@@ -904,7 +940,8 @@ threads. A strip at the top toggles an open thread, sends the shortcut, and
 switches between states: `?state=auth_required`, `?state=not_configured`,
 `?fail=modify`, `?fresh` (no labels yet), `?page=3` (truncated columns) and
 `?latency=600`. `?showcase` swaps the test notes for tidy ones in a deeper
-folder tree, for pictures. The calendar has a fake Calendar and Tasks of its
+folder tree, for pictures; `?pictures` adds a note with two pictures in it
+(one of them in Trash). The calendar has a fake Calendar and Tasks of its
 own, a week of invented events and tasks around the current one;
 `?calendar=signin` makes it ask to connect first, and `?calendar=notasks`
 answers as if Tasks had not been allowed.
@@ -935,7 +972,8 @@ src/lib/                   pure logic, shared by content scripts, worker and tes
   calendar-logic.js        the calendar: dates and weeks, views, events and tasks
                            as day items, what may be asked of Calendar and Tasks
   board-logic.js           columns, order merge, move label diffs, summaries, card edits
-  notes-logic.js           building and reading note messages, what may be inserted
+  notes-logic.js           building and reading note messages and pictures' messages,
+                           what may be inserted
   note-format.js           the formatting model: HTML out and back in, plain text,
                            Markdown and pasted HTML in
   search-logic.js          the words in a query, where they occur, excerpts
@@ -947,6 +985,7 @@ src/content/               classic scripts, in manifest order
   notes-store.js           notes: list, read, save (insert + trash), delete
   ui.js, styles.js         DOM builder, icons, menus, toasts, shadow hosts
   board.js, dock.js        the overlay (header, tabs, board) and the corner buttons
+  pictures.js              pictures in notes: made smaller, held until saved, read and kept
   note-editor.js           the formatted editor and its toolbar
   notes.js                 the Notes tab: list, editor, autosave; the calendar's scratchpad tile
   calendar-store.js        Calendar and Tasks: sources, and what is on in a range

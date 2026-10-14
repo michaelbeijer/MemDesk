@@ -526,3 +526,79 @@ test('merge: whatever either side wrote is in the result (random edits)', () => 
     for (const at of r.map) assert.ok(at >= 0 && at < r.doc.length);
   }
 });
+
+// ── Pictures ─────────────────────────────────────────────────────────
+
+const Pic = (src, width = 0) => fmt.picture(src, width);
+
+test('pictures: between lines, kept by their message id and width, with a line after the last', () => {
+  const doc = [B('p', [T('Before')]), Pic('18c2ab34cd56ef78', 60), B('ul', [T('item')]), Pic('18c2ab34cd56ef79')];
+  const back = roundTrip(doc);
+  assert.deepEqual(back, fmt.normaliseDoc([...doc, B('p', [])]));
+  assert.equal(back.at(-1).type, 'p', 'somewhere to type after the last picture');
+  assert.deepEqual(fmt.pictureSrcs(back), ['18c2ab34cd56ef78', '18c2ab34cd56ef79']);
+  assert.equal(back[1].width, 60);
+  assert.equal(back[3].width, 0, 'its own size');
+});
+
+test('pictures in Gmail: a line that says so, which is not read back as text', () => {
+  const html = fmt.toHtml([B('p', [T('a')]), Pic('18c2ab34cd56ef78', 40)]);
+  assert.match(html, /<div data-gkb-picture="18c2ab34cd56ef78" data-width="40" style="[^"]+"><span data-glyph="1">\[Picture: open the note to see it\]<\/span><\/div>/);
+  assert.equal(fmt.docText(fmt.parseHtml(html)), 'a\n\n', 'no words of its own');
+  assert.equal(fmt.toPlain([B('p', [T('a')]), Pic('18c2ab34cd56ef78'), B('ol', [T('one')])]), 'a\n[Picture]\n1. one');
+});
+
+test('pictures: widths within a tenth and all of the note; a bad name is no picture', () => {
+  const doc = fmt.normaliseDoc([Pic('abcdef123456', 3), Pic('abcdef123457', 250), Pic('abcdef123458', -5), Pic('abcdef123459', '33.6'),
+    Pic('bad name'), Pic('"><script>'), Pic(''), Pic('new-abc123def'), Pic('new-ABC')]);
+  assert.deepEqual(doc.filter(b => b.type === 'picture').map(b => [b.src, b.width]), [
+    ['abcdef123456', 10], ['abcdef123457', 100], ['abcdef123458', 0], ['abcdef123459', 34], ['new-abc123def', 0],
+  ]);
+  // Read from HTML, too.
+  const got = fmt.parseHtml('<div data-gkb-picture="&quot;><b>x</b>">[Picture]</div><div data-gkb-picture="abcdef123456" data-width="900">x</div>');
+  assert.deepEqual(got.map(b => [b.type, b.src || fmt.docText([b])]), [['picture', 'abcdef123456'], ['p', '']], 'nothing inside either is text');
+  assert.equal(got[0].width, 100);
+});
+
+test('a picture not saved yet has no HTML: it has no message to name', () => {
+  const html = fmt.toHtml([B('p', [T('a')]), Pic('new-abc123def'), B('p', [T('b')])]);
+  assert.doesNotMatch(html, /new-abc123def|data-gkb-picture/);
+});
+
+test('pictures are something written; a note of only a picture is not empty', () => {
+  assert.equal(fmt.isEmpty(fmt.normaliseDoc([Pic('abcdef123456')])), false);
+  assert.equal(fmt.isEmpty(fmt.normaliseDoc([B('p', [])])), true);
+  assert.equal(fmt.hasFormatting([Pic('abcdef123456')]), true, 'a paste with a picture goes in as blocks');
+});
+
+test('pasted from the editor: a picture keeps its name and width, and its buttons are not text', () => {
+  const html = '<div class="blk" data-type="p">a</div>' +
+    '<div class="blk sel" data-type="picture" data-src="18c2ab34cd56ef78" data-width="40" data-state="ready" contenteditable="false">' +
+    '<div class="pic-frame" style="width: 40%;"><img src="data:image/png;base64,AAAA" alt="Picture">' +
+    '<span class="pic-tools"><button>25%</button><button>50%</button><div>nested</div></span><span class="pic-handle"></span></div></div>' +
+    '<div class="blk" data-type="p">b</div>';
+  assert.deepEqual(fmt.pasteDoc({ html, text: 'a\n25%50%\nb' }).map(b => [b.type, b.src || fmt.docText([b]), b.width || 0]), [
+    ['p', 'a', 0], ['picture', '18c2ab34cd56ef78', 40], ['p', 'b', 0],
+  ]);
+  // In a table's cell, no picture: cells hold text.
+  const cell = fmt.parseHtml('<table><tr><td>x<div data-gkb-picture="18c2ab34cd56ef78">[Picture]</div></td><td>y</td></tr><tr><td>1</td><td>2</td></tr></table>');
+  assert.equal(fmt.pictureSrcs(cell).length, 0);
+  assert.equal(cell[0].type, 'table');
+});
+
+test('pictures renamed once saved; one mapped to nothing is taken out', () => {
+  const doc = [B('p', [T('a')]), Pic('new-abc123def', 50), Pic('18c2ab34cd56ef78'), Pic('18c2ab34cd56ef79')];
+  const out = fmt.renamePictures(doc, { 'new-abc123def': '19aaaaaaaaaaaaaa', '18c2ab34cd56ef79': null });
+  assert.deepEqual(out.map(b => [b.type, b.src || '', b.width || 0]), [['p', '', 0], ['picture', '19aaaaaaaaaaaaaa', 50], ['picture', '18c2ab34cd56ef78', 0]]);
+  assert.equal(doc[1].src, 'new-abc123def', 'the document given is left as it was');
+  assert.equal(fmt.renamePictures(doc, {}).length, 4);
+});
+
+test('merge: a picture added on one side and another removed on the other both stand', () => {
+  const base = [B('p', [T('a')]), Pic('aaaaaaaaaaaa'), B('p', [T('b')]), B('p', [T('c')])];
+  const mine = [B('p', [T('a')]), B('p', [T('b')]), B('p', [T('c')])];
+  const theirs = [B('p', [T('a')]), Pic('aaaaaaaaaaaa'), B('p', [T('b')]), Pic('bbbbbbbbbbbb', 50), B('p', [T('c')])];
+  const { doc, clean } = fmt.mergeDocs(base, mine, theirs);
+  assert.equal(clean, true);
+  assert.deepEqual(fmt.pictureSrcs(doc), ['bbbbbbbbbbbb']);
+});

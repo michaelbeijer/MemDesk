@@ -24,6 +24,10 @@ function appMove(messageId, folderId) { return gkb.app.move(messageId, folderId)
 function appCreateFolder(parentId, title) { return gkb.app.createFolder(parentId, title); }
 function appRenameFolder(folderId, title) { return gkb.app.renameFolder(folderId, title); }
 function appDeleteFolder(folderId) { return gkb.app.deleteFolder(folderId); }
+function appPicture(messageId) { return gkb.app.picture(messageId); }
+function appAddPicture(raw) { return gkb.app.addPicture(raw); }
+function appRetirePictures(ids) { return gkb.app.retirePictures(ids); }
+function appRestorePictures(ids) { return gkb.app.restorePictures(ids); }
 function appAccount() { return gkb.app.account(); }
 function appBoardGmail(method, path, query, body) { return gkb.app.boardGmail(method, path, query, body); }
 function appBoardGmailMany(list) { return gkb.app.boardGmailMany(list); }

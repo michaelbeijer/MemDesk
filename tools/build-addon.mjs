@@ -54,6 +54,7 @@ export const APP_FILES = [
   'src/lib/calendar-logic.js',
   'src/content/ui.js',
   'src/content/styles.js',
+  'src/content/pictures.js',
   'src/content/note-editor.js',
   'addon/app/remote.js',
   'src/content/store.js',

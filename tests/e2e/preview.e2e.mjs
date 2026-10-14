@@ -1572,6 +1572,289 @@ try {
     await p.context().close();
   });
 
+  // ── Pictures ──
+
+  const pp = await openPage('pictures');
+  const pg = (fn, ...a) => pp.evaluate(([f, args]) => window.__fakeGmail[f](...args), [fn, a]);
+  const failing = (what, on) => pp.evaluate(([w, o]) => window.__fakeGmail.failing[o ? 'add' : 'delete'](w), [what, on]);
+  const picBlocks = () => pp.locator('.ne-body .blk[data-type="picture"]');
+  const picShape = () => picBlocks().evaluateAll(els => els.map(e => [e.dataset.src, Number(e.dataset.width), e.dataset.state]));
+  const pictureIds = async () => (await pg('pictures')).map(p => p.id);
+  const inTrash = async id => (await pg('pictures')).find(p => p.id === id).labels.includes('TRASH');
+  const ppStatus = () => pp.locator('.ne-status').innerText();
+  const ppSaved = () => until(async () => /^Saved/.test(await ppStatus()), 'note saved', 8000);
+  const noteHtml = async title => pg('messageHtml', await pg('findMessageBySubject', title));
+  const named = html => [...html.matchAll(/data-gkb-picture="([^"]+)"(?: data-width="(\d+)")?/g)].map(m => [m[1], Number(m[2] || 0)]);
+  const insertLog = () => pp.evaluate(() => window.__mockChrome.log.filter(l => l.method === 'POST' && l.path === 'messages').map(l => l.size));
+  // A picture to add: drawn in the page, as a camera or a screenshot would
+  // make it; `photo`, busy and big, so it is made smaller and a JPEG.
+  const drawn = (w, h, photo) => pp.evaluate(([cw, ch, busy]) => {
+    const c = document.createElement('canvas');
+    c.width = cw;
+    c.height = ch;
+    const g = c.getContext('2d');
+    g.fillStyle = '#e9eef6';
+    g.fillRect(0, 0, cw, ch);
+    for (let i = 0; i < 6; i++) {
+      g.fillStyle = `hsl(${i * 60},70%,50%)`;
+      g.fillRect((i * 97) % cw, (i * 61) % ch, cw / 8, ch / 8);
+    }
+    if (busy) {
+      // Grain, as a photo has: a PNG of it is big, a JPEG small.
+      const px = g.getImageData(0, 0, cw, ch);
+      let seed = 7;
+      for (let i = 0; i < px.data.length; i += 4) {
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+        const n = (seed >> 16) & 63;
+        px.data[i] = (px.data[i] + n) & 255;
+        px.data[i + 1] = (px.data[i + 1] + n * 2) & 255;
+        px.data[i + 2] = (px.data[i + 2] + n * 3) & 255;
+      }
+      g.putImageData(px, 0, 0);
+    }
+    return c.toDataURL('image/png').split(',')[1];
+  }, [w, h, photo]).then(b64 => Buffer.from(b64, 'base64'));
+  // A paste or a drop of files and text, as the browser hands them over.
+  const handOver = (kind, files, { html = '', text = '', at = null } = {}) => pp.evaluate(async ([k, list, h, t, sel]) => {
+    const dt = new DataTransfer();
+    for (const f of list) dt.items.add(new File([Uint8Array.from(atob(f.b64), ch => ch.charCodeAt(0))], f.name, { type: f.type }));
+    if (h) dt.setData('text/html', h);
+    if (t) dt.setData('text/plain', t);
+    const ed = document.getElementById('gkb-board-host').shadowRoot.querySelector('[data-key="note-body"]');
+    if (k === 'paste') {
+      ed.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+      return;
+    }
+    const target = ed.querySelectorAll('.blk')[sel];
+    const box = target.getBoundingClientRect();
+    ed.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, clientX: box.left + 10, clientY: box.top + box.height / 2, bubbles: true, cancelable: true }));
+  }, [kind, files.map(f => ({ ...f, b64: f.buffer.toString('base64') })), html, text, at]);
+
+  await r.step('pictures: a note shows its pictures as Gmail has them, at their width; one that cannot be read says so and is tried again on a click', async () => {
+    await openBoard(pp);
+    await pp.locator('[data-key="view:notes"]').click();
+    await pp.locator('.note-item').first().waitFor();
+    await failing('picture', true);
+    await pp.locator('.note-item', { hasText: 'Trade fair stand' }).click();
+    await until(async () => JSON.stringify((await picShape()).map(p => p[2])) === '["error","error"]', 'both say they could not be read');
+    assert.match(await picBlocks().first().evaluate(el => getComputedStyle(el.querySelector('.pic-frame'), '::after').content), /Couldn.t load the picture/);
+    await failing('picture', false);
+    await picBlocks().first().click();
+    await until(async () => (await picShape())[0][2] === 'ready', 'read on the click');
+    await picBlocks().nth(1).click();
+    await until(async () => (await picShape())[1][2] === 'ready', 'the other too');
+    const [sketch, colours] = (await picShape()).map(p => p[0]);
+    assert.deepEqual((await picShape()).map(p => p[1]), [50, 0], 'half the note’s width, and its own size');
+    const sizes = await picBlocks().evaluateAll(els => els.map(el => [Math.round(el.querySelector('.pic-frame').getBoundingClientRect().width / el.clientWidth * 100), el.querySelector('img').naturalWidth]));
+    assert.equal(sizes[0][0], 50);
+    assert.deepEqual(sizes[1], [Math.round(200 / (await picBlocks().nth(1).evaluate(el => el.clientWidth)) * 100), 200]);
+    // The one in Trash, though the note has it: back out, before its thirty days are up.
+    await until(async () => !(await inTrash(colours)), 'taken out of Trash');
+    assert.equal(await inTrash(sketch), false);
+    assert.equal(await pp.locator('.ne-body').evaluate(el => el.textContent.includes('[Picture]')), false, 'the words Gmail shows are not in the note');
+    await pp.mouse.move(0, 0);
+    await pp.screenshot({ path: join(SCREENS, 'notes-pictures.png'), animations: 'disabled' });
+  });
+
+  await r.step('pictures: one from the toolbar is made smaller, shown at once, and saved as a message of its own that the note names - once', async () => {
+    const before = await pictureIds();
+    await pp.locator('.ne-body .blk', { hasText: 'Print by the 20th.' }).click();
+    await pp.keyboard.press('End');
+    const chooser = pp.waitForEvent('filechooser');
+    await pp.locator('[data-key="fmt-picture"]').click();
+    await (await chooser).setFiles({ name: 'stand.png', mimeType: 'image/png', buffer: await drawn(3000, 2000, true) });
+    await until(async () => (await picShape()).length === 3 && (await picShape())[2][2] === 'ready', 'shown');
+    const shown = await picBlocks().nth(2).locator('img').evaluate(img => [img.naturalWidth, img.naturalHeight, /^data:([^;]+)/.exec(img.src)[1]]);
+    assert.deepEqual(shown, [1600, 1067, 'image/jpeg'], 'no side over 1600 pixels; a photo as a JPEG');
+    assert.match((await picShape())[2][0], /^new-/, 'held in the page until the note is saved');
+    assert.equal(await ppStatus(), 'Unsaved changes');
+    assert.ok(await pp.evaluate(() => document.getElementById('gkb-board-host').shadowRoot.activeElement.classList.contains('ne-body')), 'the cursor back in the text');
+    await pp.keyboard.press('Control+s');
+    await ppSaved();
+    const added = (await pg('pictures')).filter(p => !before.includes(p.id));
+    assert.equal(added.length, 1);
+    assert.deepEqual(added[0].labels, [], 'no label: in All Mail, in no list');
+    assert.equal(added[0].type, 'image/jpeg');
+    assert.equal(added[0].subject, 'Picture in “Trade fair stand”');
+    assert.equal((await picShape())[2][0], added[0].id, 'the editor now knows it by its message');
+    const html = await noteHtml('Trade fair stand');
+    assert.deepEqual(named(html).map(n => n[0]), [...(await picShape()).map(p => p[0])]);
+    assert.match(await pg('messageText', await pg('findMessageBySubject', 'Trade fair stand')), /Print by the 20th\.\n\[Picture\]/);
+    // Typing on: the note is saved again, the picture is not.
+    const inserts = (await insertLog()).length;
+    await pp.keyboard.type(' Ask Lukas.');
+    await pp.keyboard.press('Control+s');
+    await until(async () => (await insertLog()).length === inserts + 1, 'one more insert: the note');
+    await ppSaved();
+    assert.deepEqual((await pg('pictures')).length, before.length + 1, 'no second copy');
+    assert.ok((await insertLog()).at(-1) < 6000, 'the note’s own message is small: its pictures are not in it');
+    assert.deepEqual(named(await noteHtml('Trade fair stand')).map(n => n[0]), (await picShape()).map(p => p[0]));
+  });
+
+  await r.step('pictures: a click selects one; the handle and the buttons size it, Ctrl+Z takes that back; the arrows and Backspace reach it', async () => {
+    const third = picBlocks().nth(2);
+    await third.click();
+    assert.equal(await third.evaluate(el => el.classList.contains('sel')), true);
+    await pp.mouse.move(0, 0);
+    await pp.screenshot({ path: join(SCREENS, 'notes-picture-selected.png'), animations: 'disabled' });
+    const handle = await pp.locator('[data-key="picture-resize"]').boundingBox();
+    const full = await third.evaluate(el => el.clientWidth);
+    await pp.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await pp.mouse.down();
+    await pp.mouse.move(handle.x - full * 0.4, handle.y + 40, { steps: 6 });
+    await pp.mouse.up();
+    const dragged = Number(await third.getAttribute('data-width'));
+    assert.ok(dragged > 50 && dragged < 70, `about 60%: ${dragged}`);
+    assert.equal(await ppStatus(), 'Unsaved changes');
+    await pp.locator('[data-key="picture-width:25"]').click();
+    assert.equal(await third.getAttribute('data-width'), '25');
+    assert.equal(await pp.locator('[data-key="picture-width:25"]').getAttribute('aria-pressed'), 'true');
+    await pp.keyboard.press('Control+z');
+    assert.equal(await third.getAttribute('data-width'), String(dragged), 'Ctrl+Z: back to the width dragged to');
+    await pp.locator('.ne-body .blk[data-type="picture"]').nth(2).click();
+    await pp.keyboard.press('Escape');
+    assert.equal(await pp.locator('.ne-body .blk.sel').count(), 0, 'Escape lets it go');
+    // From the line after it: up selects it, Backspace deletes it, Ctrl+Z brings it back.
+    await pp.locator('.ne-body .blk').last().click();
+    await pp.keyboard.press('Home');
+    await pp.keyboard.press('ArrowUp');
+    assert.equal(await pp.locator('.ne-body .blk.sel').count(), 1, 'selected');
+    await pp.keyboard.press('Backspace');
+    assert.equal(await picBlocks().count(), 2, 'deleted');
+    await pp.keyboard.press('Control+z');
+    assert.equal(await picBlocks().count(), 3, 'back');
+    await pp.keyboard.press('Control+s');
+    await ppSaved();
+    assert.deepEqual(named(await noteHtml('Trade fair stand')).map(n => n[1]), [50, 0, dragged], 'saved at its width');
+  });
+
+  await r.step('pictures: one deleted goes to Trash once the note is saved; Ctrl+Z after that brings it back as a fresh copy', async () => {
+    const [, colours] = (await picShape()).map(p => p[0]);
+    await picBlocks().nth(1).click();
+    await pp.locator('[data-key="picture-delete"]').click();
+    assert.equal(await picBlocks().count(), 2);
+    assert.equal(await inTrash(colours), false, 'not before the save');
+    await pp.keyboard.press('Control+s');
+    await ppSaved();
+    await until(() => inTrash(colours), 'in Trash once saved');
+    assert.ok(!named(await noteHtml('Trade fair stand')).some(n => n[0] === colours));
+    const count = (await pg('pictures')).length;
+    await pp.keyboard.press('Control+z');
+    assert.equal(await picBlocks().count(), 3, 'back in the note');
+    await pp.keyboard.press('Control+s');
+    await ppSaved();
+    const now = (await picShape())[1][0];
+    assert.notEqual(now, colours, 'a copy of its own');
+    assert.equal((await pg('pictures')).length, count + 1);
+    assert.equal(await inTrash(colours), true, 'the old one stays in Trash, and goes in thirty days');
+    assert.equal(await inTrash(now), false);
+    assert.deepEqual(named(await noteHtml('Trade fair stand')).map(n => n[0]), (await picShape()).map(p => p[0]));
+  });
+
+  await r.step('pictures: a screenshot pasted and a picture dropped go in where they land; text copied with a picture of itself is text', async () => {
+    const small = { name: 'shot.png', type: 'image/png', buffer: await drawn(400, 240, false) };
+    // Pasted on the first line: after it.
+    await pp.locator('.ne-body .blk').first().click();
+    await handOver('paste', [small]);
+    // After that line, with a line of its own after it, to type on.
+    await until(async () => (await pp.locator('.ne-body .blk').evaluateAll(els => els.map(e => e.dataset.type))).slice(0, 4).join() === 'p,picture,p,picture', 'pasted after the first line');
+    const pasted = await pp.locator('.ne-body .blk').nth(1).evaluate(el => [el.dataset.src.slice(0, 4), el.querySelector('img').naturalWidth, /^data:([^;]+)/.exec(el.querySelector('img').src)[1]]);
+    assert.deepEqual(pasted, ['new-', 400, 'image/png'], 'small already: kept as it was');
+    // Dropped on the line "Colours for the banner:".
+    const at = await pp.locator('.ne-body .blk').evaluateAll(els => els.findIndex(e => e.textContent === 'Colours for the banner:'));
+    await handOver('drop', [{ ...small, name: 'drop.png' }], { at });
+    await until(async () => (await pp.locator('.ne-body .blk').nth(at + 1).getAttribute('data-src') || '').startsWith('new-'), 'dropped after that line');
+    // Word puts a picture of the copied text on the clipboard too: the text wins.
+    const count = await picBlocks().count();
+    await pp.locator('.ne-body .blk').last().click();
+    await pp.keyboard.press('End');
+    await handOver('paste', [small], { text: ' and the banner proof', html: '<p>and the banner proof</p>' });
+    assert.equal(await picBlocks().count(), count);
+    assert.match(await pp.locator('.ne-body .blk').last().innerText(), /and the banner proof$/);
+    // Not a picture: nothing.
+    await handOver('drop', [{ name: 'notes.txt', type: 'text/plain', buffer: Buffer.from('hello') }], { at: 0 });
+    assert.equal(await picBlocks().count(), count);
+    await pp.keyboard.press('Control+s');
+    await ppSaved();
+    assert.equal(named(await noteHtml('Trade fair stand')).length, count);
+  });
+
+  await r.step('pictures: one that cannot be saved keeps the note unsaved, and is not put into Gmail twice when it can', async () => {
+    const before = (await pg('pictures')).length;
+    await failing('note', true);
+    await pp.locator('.ne-body .blk').last().click();
+    await handOver('paste', [{ name: 'late.png', type: 'image/png', buffer: await drawn(300, 200, false) }]);
+    await until(async () => (await picBlocks().count()) && (await picShape()).some(p => /^new-/.test(p[0])), 'pasted');
+    await pp.keyboard.press('Control+s');
+    await until(async () => /^Couldn’t save/.test(await ppStatus()), 'the save fails');
+    assert.equal((await pg('pictures')).length, before + 1, 'the picture went in; the note did not');
+    assert.ok((await picShape()).some(p => /^new-/.test(p[0])), 'still unsaved here');
+    await failing('note', false);
+    await pp.keyboard.press('Control+s');
+    await ppSaved();
+    assert.equal((await pg('pictures')).length, before + 1, 'not a second time');
+    assert.deepEqual(named(await noteHtml('Trade fair stand')).map(n => n[0]), (await picShape()).map(p => p[0]));
+  });
+
+  await r.step('pictures: one copied into another note is that note’s own; deleting it there leaves the first alone', async () => {
+    const source = (await picShape())[0][0];
+    // Selected, Ctrl+C makes the picture the selection, which the browser
+    // copies as its markup: that is what is pasted below.
+    await picBlocks().first().click();
+    await pp.keyboard.press('Control+c');
+    const html = await pp.evaluate(() => {
+      const sel = document.getElementById('gkb-board-host').shadowRoot.getSelection();
+      const box = document.createElement('div');
+      box.appendChild(sel.getRangeAt(0).cloneContents());
+      return new XMLSerializer().serializeToString(box);
+    });
+    assert.match(html, new RegExp(`data-type="picture"[^>]*data-src="${source}"|data-src="${source}"[^>]*data-type="picture"`), 'the picture is what is copied');
+    assert.doesNotMatch(html, /pic-tools|pic-handle/, 'without its buttons');
+    await pp.locator('.note-item[data-note="n:rateschedule00000003"]').click();
+    await until(async () => /rush surcharge/.test(await pp.locator('.ne-body').innerText()), 'the other note');
+    await pp.locator('.ne-body .blk').last().click();
+    await pp.keyboard.press('End');
+    await handOver('paste', [], { html, text: '' });
+    await until(async () => (await picShape()).length === 1 && (await picShape())[0][2] === 'ready', 'pasted, and shown');
+    assert.equal((await picShape())[0][0], source, 'shown from what this page has');
+    await pp.keyboard.press('Control+s');
+    await ppSaved();
+    const copy = (await picShape())[0][0];
+    assert.notEqual(copy, source, 'saved as a picture of its own');
+    assert.deepEqual(named(await noteHtml('Rate schedule 2027 – draft')).map(n => n[0]), [copy]);
+    await picBlocks().first().click();
+    await pp.keyboard.press('Delete');
+    await pp.keyboard.press('Control+s');
+    await ppSaved();
+    await until(() => inTrash(copy), 'the copy in Trash');
+    assert.equal(await inTrash(source), false, 'the first note’s untouched');
+  });
+
+  await r.step('pictures: deleting a note takes its pictures to Trash, and Undo brings every one back', async () => {
+    await pp.locator('.note-item', { hasText: 'Trade fair stand' }).click();
+    await until(async () => (await picShape()).length > 3, 'loaded');
+    const ids = (await picShape()).map(p => p[0]);
+    await pp.locator('[data-key="note-delete"]').click();
+    await until(async () => (await Promise.all(ids.map(inTrash))).every(Boolean), 'all in Trash');
+    await pp.locator('.toast-action', { hasText: 'Undo' }).click();
+    await until(async () => !(await Promise.all(ids.map(inTrash))).some(Boolean), 'all back');
+    await until(async () => (await picShape()).every(p => p[2] === 'ready'), 'shown again');
+  });
+
+  await r.step('pictures in dark mode, selected', async () => {
+    const dark = await openPage('pictures', { colorScheme: 'dark' });
+    await openBoard(dark);
+    await dark.locator('[data-key="view:notes"]').click();
+    await dark.locator('.note-item', { hasText: 'Trade fair stand' }).click();
+    await dark.locator('.ne-body .blk[data-type="picture"][data-state="ready"]').first().waitFor();
+    await dark.locator('.ne-body .blk[data-type="picture"]').first().click();
+    await dark.mouse.move(0, 0);
+    await dark.screenshot({ path: join(SCREENS, 'notes-pictures-dark.png'), animations: 'disabled' });
+    await dark.context().close();
+  });
+
+  await pp.context().close();
+
   await r.step('auth_required shows Connect Gmail, which then loads the board', async () => {
     const p = await openPage('state=auth_required');
     await p.locator('[data-action="toggle-board"]').click();

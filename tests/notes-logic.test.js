@@ -278,3 +278,118 @@ test('folders: only an empty folder under the notes label, with nothing under it
   assert.equal(notes.isDeletableFolder({ id: 'L8', name: '_NotesExtra' }, '_Notes', LABELS, 0), false);
   assert.equal(notes.isDeletableFolder(recipes, '', LABELS, 0), false, 'no root known: nothing');
 });
+
+// ── Pictures ─────────────────────────────────────────────────────────
+
+const PIC = 'p1c7ur3s0m3th1ng0000';
+// A tiny PNG, and pictures big enough to need folding and the limit.
+const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+const bigB64 = n => btoa('x'.repeat(n));
+
+test('a picture is a message of its own, shaped like a note, with no label', () => {
+  const raw = notes.buildPictureRaw({ pictureId: PIC, title: 'Kestrel “site” visit', type: 'image/png', data: PNG, account: 'me@example.com', date: at });
+  assert.match(raw, /^[A-Za-z0-9_-]+$/);
+  const bin = decode(raw);
+  const head = headersOf(bin);
+  assert.match(head, /^From: "Notes" <notes@notes\.invalid>$/m);
+  assert.match(head, /^To: me@example\.com$/m);
+  assert.match(head, new RegExp(`^X-Gkb-Note: ${PIC}$`, 'm'), 'note-shaped: the worker’s rules hold for it');
+  assert.match(head, /^X-Gkb-Picture: 1$/m);
+  assert.match(head, /^Content-Type: multipart\/mixed; boundary="gkb-/m);
+  assert.equal(notes.decodeHeaderText(/^Subject: (.*(?:\r\n .*)*)/m.exec(head)[1]), 'Picture in “Kestrel “site” visit”');
+  assert.match(bin, /Content-Type: image\/png; name="picture\.png"/);
+  const said = /charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n([\s\S]*?)\r\n--/.exec(bin)[1];
+  assert.match(utf8(atob(said.replace(/\s+/g, ''))), /^A picture in one of your notes/, 'and says what it is');
+  assert.equal(notes.noteIdOfRaw(raw), PIC);
+  assert.equal(notes.isNoteInsert({ raw, labelIds: [] }), true);
+  assert.equal(notes.isPictureRaw(raw), true);
+  assert.deepEqual(notes.pictureOfRaw(raw), { type: 'image/png', data: PNG });
+  const untitled = headersOf(decode(notes.buildPictureRaw({ pictureId: PIC, title: '', type: 'image/jpeg', data: PNG, account: 'me@example.com', date: at })));
+  assert.match(untitled, /^Subject: Picture in a note$/m);
+});
+
+test('a big picture comes back byte for byte; one over the limit is refused', () => {
+  const data = bigB64(600000);
+  const raw = notes.buildPictureRaw({ pictureId: PIC, title: 'x', type: 'image/jpeg', data, account: 'me@example.com', date: at });
+  assert.ok(decode(raw).split('\r\n').every(l => l.length <= 998), 'no line longer than mail allows');
+  assert.deepEqual(notes.pictureOfRaw(raw), { type: 'image/jpeg', data });
+  assert.equal(notes.isPictureRaw(raw), true, 'told from its start alone');
+  assert.equal(notes.isPictureInsert({ raw, labelIds: [] }), true);
+  assert.throws(() => notes.buildPictureRaw({ pictureId: PIC, title: 'x', type: 'image/jpeg', data: bigB64(notes.MAX_PICTURE + 3), account: 'me@example.com' }), /too big/);
+  // The biggest a picture can be still passes the script's check.
+  const most = bigB64(notes.MAX_PICTURE - 2);
+  const rawMost = notes.buildPictureRaw({
+    pictureId: PIC, title: 'A title of eighty characters, which is as long as one can be in the subject line',
+    type: 'image/jpeg', data: most, account: 'someone.with.a.long.address@example.com', date: at,
+  });
+  assert.equal(notes.isPictureInsert({ raw: rawMost, labelIds: [] }), true);
+});
+
+test('only pictures of the kinds a browser shows, in base64, with a proper id', () => {
+  const base = { pictureId: PIC, title: '', type: 'image/png', data: PNG, account: 'me@example.com' };
+  assert.throws(() => notes.buildPictureRaw({ ...base, type: 'image/svg+xml' }), /kind of picture/, 'no SVG: it can carry script');
+  assert.throws(() => notes.buildPictureRaw({ ...base, type: 'text/html' }), /kind of picture/);
+  assert.throws(() => notes.buildPictureRaw({ ...base, data: '<script>' }), /base64/);
+  assert.throws(() => notes.buildPictureRaw({ ...base, data: '' }), /base64/);
+  assert.throws(() => notes.buildPictureRaw({ ...base, pictureId: 'Short' }), /id/);
+});
+
+test('what is not a picture of ours is not read as one, and not let in as one', () => {
+  const note = notes.buildNoteRaw({ noteId: ID, title: 'A note', body: 'text', account: 'me@example.com', date: at });
+  assert.equal(notes.isPictureRaw(note), false, 'a note is not a picture');
+  assert.equal(notes.pictureOfRaw(note), null);
+  assert.equal(notes.isPictureInsert({ raw: note, labelIds: [] }), false);
+  const pic = notes.buildPictureRaw({ pictureId: PIC, title: '', type: 'image/png', data: PNG, account: 'me@example.com', date: at });
+  assert.equal(notes.isPictureInsert({ raw: pic, labelIds: ['Label_1'] }), false, 'a picture carries no label');
+  assert.equal(notes.isPictureInsert({ raw: pic, labelIds: ['INBOX'] }), false);
+  assert.equal(notes.isPictureInsert({ raw: pic }), true);
+  assert.equal(notes.isPictureInsert({ raw: pic, labelIds: [], extra: 1 }), false);
+  // Mail claiming to be a picture, without a note id of ours: no.
+  const forged = notes.base64UrlEncode(`From: a@example.com\r\nX-Gkb-Picture: 1\r\nContent-Type: image/png\r\n\r\n${PNG}`);
+  assert.equal(notes.isPictureRaw(forged), false);
+  assert.equal(notes.pictureOfRaw(forged), null);
+  assert.equal(notes.pictureOfRaw('***'), null);
+  assert.equal(notes.pictureOfRaw(''), null);
+  // A picture part that is not in base64 is not read.
+  const bin = decode(pic).replace(/(Content-Type: image\/png[^\r]*\r\n[^\r]*\r\n)Content-Transfer-Encoding: base64/, '$1Content-Transfer-Encoding: 8bit');
+  assert.notEqual(bin, decode(pic));
+  assert.equal(notes.pictureOfRaw(notes.base64UrlEncode(bin)), null);
+});
+
+test('pictures go to Trash and back only if they are pictures of ours, each once, side by side', () => {
+  const meta = (id, headers, labelIds = []) => ({ id, labelIds, payload: { headers } });
+  const pic = (id, labelIds) => meta(id, [{ name: 'X-Gkb-Note', value: `${id}0000000000000` }, { name: 'X-Gkb-Picture', value: '1' }], labelIds);
+  const answers = {
+    aaaaaaaa: pic('aaaaaaaa'),
+    bbbbbbbb: meta('bbbbbbbb', [{ name: 'X-Gkb-Note', value: ID }]), // a note, not a picture
+    cccccccc: pic('cccccccc', ['TRASH']), // in Trash already
+    dddddddd: meta('dddddddd', [{ name: 'X-Gkb-Picture', value: '1' }]), // no note id: not ours
+    eeeeeeee: { error: new Error('404') },
+    ffffffff: pic('ffffffff'),
+  };
+  const run = (ids, op, failing = []) => {
+    const f = notes.picturesFlow(ids, op);
+    const asked = [];
+    let step = f.next();
+    while (!step.done) {
+      const [what, arg] = step.value;
+      asked.push([what, what === 'readMany' ? arg.map(r => r[1]) : arg]);
+      if (what === 'readMany') {
+        assert.ok(arg.every(r => r[0] === 'GET' && r[2].format === 'metadata' && r[2].metadataHeaders.includes('X-Gkb-Picture')));
+        step = f.next(arg.map(r => answers[r[1].split('/')[1]]));
+      } else {
+        step = f.next(arg.map(id => (failing.includes(id) ? null : { id })));
+      }
+    }
+    return { moved: step.value, asked };
+  };
+  const t = run(['aaaaaaaa', 'bbbbbbbb', 'cccccccc', 'dddddddd', 'eeeeeeee', 'ffffffff', 'aaaaaaaa', 'not valid!'], 'trash', ['ffffffff']);
+  assert.deepEqual(t.asked, [
+    ['readMany', ['messages/aaaaaaaa', 'messages/bbbbbbbb', 'messages/cccccccc', 'messages/dddddddd', 'messages/eeeeeeee', 'messages/ffffffff']],
+    ['trash', ['aaaaaaaa', 'ffffffff']],
+  ], 'one read each, then the pictures of ours not in Trash yet, together');
+  assert.deepEqual(t.moved, ['aaaaaaaa'], 'one that failed is not counted');
+  assert.deepEqual(run(['cccccccc', 'aaaaaaaa', 'bbbbbbbb'], 'untrash').asked.at(-1), ['untrash', ['cccccccc']], 'only from Trash');
+  assert.deepEqual(run([], 'trash').asked, [], 'nothing to do: nothing asked');
+  assert.deepEqual(run(['aaaaaaaa'], 'delete').asked, [], 'only trash and untrash');
+});

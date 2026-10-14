@@ -44,7 +44,8 @@ and a paragraph changed on both sides is kept in both versions.
 
 The toolbar above the text has a text style menu (normal text and three
 sizes of heading), bold, italic, strike-through, bulleted, numbered and
-check lists, less and more indent, a table, a link, and clear formatting.
+check lists, less and more indent, a table, a picture, a link, and clear
+formatting.
 
 Keyboard shortcuts:
 
@@ -87,11 +88,42 @@ takes it back.
 
 A wide table scrolls sideways, which is how it fits on a phone.
 
+## Pictures
+
+To put a picture in a note, click the picture button on the toolbar and
+choose one (on a phone, from your photos or the camera), paste one - a
+screenshot, say, or a picture copied with "Copy image" - or drag one onto
+the note. It goes in on a line of its own, below the line the cursor is
+on. A big picture is made smaller first, to about the size of a screen, so
+a photo straight from a phone takes up a few hundred KB rather than
+several MB.
+
+Click a picture to select it. Then:
+
+- Drag the **handle** on its bottom-right corner to make it bigger or
+  smaller.
+- The buttons on it set it to **25%**, **50%**, **75%** or **100%** of the
+  note's width.
+- The bin button, **Delete** or **Backspace** deletes it.
+- **Esc**, or a click in the text, lets it go.
+
+**Ctrl+Z** straight after any of these takes it back. A picture's size is a
+share of the note's width, so it looks the same on a phone. From the
+keyboard, the arrow keys on the line above or below a picture select it.
+
+Each picture is kept in Gmail as an email of its own, which the note
+points to, so saving a note never sends its pictures again. Gmail itself
+shows a note's pictures as a line saying "[Picture: open the note to see
+it]"; open the note in MemDesk to see them. A picture you take out of a
+note goes to Gmail's Trash once the note is saved, and so do a note's
+pictures when you delete it.
+
 ## Pasting
 
 A paste keeps the formatting a note can hold. From Word, Google Docs, a web
 page or an email, headings, bold, italic, strike-through, links and lists
-come across; fonts, colours, sizes and images do not. Tables from Excel,
+come across; fonts, colours, sizes and a page's images do not. A picture
+copied on its own does: see [Pictures](#pictures). Tables from Excel,
 Google Sheets, Word or a web page arrive as tables. Cells copied from a
 spreadsheet and pasted into a table fill it from that cell on.
 
@@ -151,7 +183,8 @@ match to the next. The ✕ on that bar clears the search.
 ## Deleting, and old versions
 
 The bin button above a note moves it to Gmail's Trash, with an **Undo**.
-The button beside it opens the note in Gmail, as Gmail keeps it.
+Its pictures go to Trash with it, and come back with the Undo. The button
+beside it opens the note in Gmail, as Gmail keeps it.
 
 Each time a note is saved, its previous version goes to Gmail's Trash,
 where Gmail keeps it for 30 days. So Gmail's Trash is a history of your

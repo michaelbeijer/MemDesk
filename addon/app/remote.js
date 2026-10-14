@@ -175,6 +175,23 @@
     async deleteFolder(folder) {
       S.folders = (await call('appDeleteFolder', folder.id)).folders;
     },
+
+    // Pictures: the script reads and adds their messages, and moves them
+    // to Trash and back, only ever pictures (app-server.js); the message
+    // itself is built and read here, where it is quicker.
+    async picture(id) {
+      const r = await call('appPicture', id);
+      const p = r && notesLogic.pictureOfRaw(r.raw);
+      return p && { type: p.type, data: p.data, trashed: (r.labelIds || []).includes('TRASH') };
+    },
+
+    async addPicture(account, { title, type, data }) {
+      const raw = notesLogic.buildPictureRaw({ pictureId: notesLogic.newNoteId(), title, type, data, account });
+      return (await call('appAddPicture', raw)).id;
+    },
+
+    retirePictures: ids => call('appRetirePictures', ids),
+    restorePictures: ids => call('appRestorePictures', ids),
   };
 
   // ── Whose mailbox, and opening a conversation ─────────────────────────
