@@ -1196,6 +1196,83 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
   border: 1px solid var(--border);
   flex: none;
 }
+/* Pictures: as wide as they are (never wider than the note), or the
+   share of the note's width they were given. Selected, an outline, the
+   corner handle and the buttons. Until one is read, a box that says so. */
+.blk[data-type="picture"] { margin: 8px 0; line-height: 0; white-space: normal; }
+.pic-frame { position: relative; display: inline-block; max-width: 100%; vertical-align: top; border-radius: 6px; }
+.pic-frame img { display: block; max-width: 100%; height: auto; border-radius: 6px; }
+.blk[data-type="picture"]:not([data-width="0"]) .pic-frame img { width: 100%; }
+.blk[data-type="picture"]:not([data-state="ready"]) img { display: none; }
+.blk[data-type="picture"]:not([data-state="ready"]) .pic-frame {
+  min-width: 200px;
+  min-height: 72px;
+  background: var(--col);
+  border: 1px dashed var(--border-strong);
+}
+.blk[data-type="picture"]:not([data-state="ready"]) .pic-frame::after {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  color: var(--fg-3);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: center;
+  content: 'Loading the picture\\2026';
+}
+.blk[data-type="picture"][data-state="error"] .pic-frame::after { content: 'Couldn\\2019t load the picture. Click to try again.'; cursor: pointer; }
+.blk[data-type="picture"][data-state="gone"] .pic-frame::after { content: 'This picture is no longer in Gmail.'; }
+.blk[data-type="picture"][data-state="lost"] .pic-frame::after { content: 'This picture was not saved before the page closed.'; }
+.ne-body[contenteditable="true"] .blk[data-type="picture"] .pic-frame { cursor: pointer; }
+.blk[data-type="picture"].sel .pic-frame { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Top left, so that on a small picture they run on over the note rather
+   than off its edge. */
+.pic-tools {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 1;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--menu);
+  box-shadow: var(--shadow-2);
+  line-height: 1.4;
+}
+.pic-tools button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 7px;
+  color: var(--fg-2);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.pic-tools button:hover { background: var(--hover); color: var(--fg); }
+.pic-tools button[aria-pressed="true"] { background: var(--accent-soft); color: var(--on-accent-soft); }
+.pic-tools .pic-delete { color: var(--danger); }
+.pic-handle {
+  position: absolute;
+  right: -8px;
+  bottom: -8px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  box-shadow: var(--shadow-1);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+@media (hover: none) { .pic-handle { width: 24px; height: 24px; right: -12px; bottom: -12px; } }
 .ne-tablebar .tb-label { display: inline-flex; padding: 0 6px; color: var(--accent); }
 .ne-tablebar .spacer { flex: 1; }
 .tb-text {

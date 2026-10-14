@@ -1,6 +1,6 @@
 # MemDesk privacy policy
 
-*Last updated: 8 October 2026*
+*Last updated: 14 October 2026*
 
 MemDesk is a Chrome extension, a phone panel in the Gmail app and a
 phone app, made by Michael Beijer. This policy says what they do with your
@@ -27,7 +27,11 @@ To work, MemDesk asks Google for permission to read and change your Gmail
   folders, saves each note as a new message there (never in your Inbox, and
   never sent), moves its own older versions and the notes you delete to
   Gmail's Trash, and creates, renames and deletes empty folders under
-  `_Notes`.
+  `_Notes`. Each picture you put in a note is kept as a message of its own,
+  with no label (so it is in All Mail, never in your Inbox, and never
+  sent), made smaller first in your browser; MemDesk reads it back to show
+  the note, and moves it to Gmail's Trash when you take it out of the note
+  or delete the note.
 - **To tell accounts apart:** reads your email address.
 
 For the Calendar tab, and only once you allow it there, MemDesk asks
@@ -58,7 +62,7 @@ shown.
 
 The Gmail permission Google grants is broader than what MemDesk does. MemDesk **never sends
 mail, never deletes mail for good**, never touches Spam, and moves
-nothing to Trash but its own notes. In the Chrome extension, a gatekeeper in
+nothing to Trash but its own notes and their pictures. In the Chrome extension, a gatekeeper in
 its background worker refuses any other kind of request before it reaches
 Google.
 
@@ -66,7 +70,9 @@ Google.
 
 - **In your Gmail:** your board (as labels on your conversations, and its
   column layout as one message under `_Board`) and your notes (as messages
-  under `_Notes`).
+  under `_Notes`, and their pictures as messages of their own in All Mail).
+  While a note is open, its pictures are also held in the page's memory,
+  and they are gone when it closes.
 - **In Chrome:** a copy of the board's column layout, and your own card titles, notes
   and colours, in Chrome's sync storage (so they follow your Chrome profile);
   card order and a few view settings (including which calendars to show) in

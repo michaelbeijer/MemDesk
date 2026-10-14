@@ -28,13 +28,21 @@
 // the table bar - shown while the cursor is in a cell - adds, removes,
 // aligns and sorts. Cells copied from a spreadsheet and pasted into a
 // cell fill the cells from there, as in a spreadsheet.
+//
+// A picture is an island too: picked with the toolbar's button, pasted
+// or dropped, it goes in between lines, made smaller and held in the
+// page (src/content/pictures.js) until the note saves it. A click
+// selects it: a handle on its corner drags it to any width, and buttons
+// on it set a quarter, half, three quarters or all of the note's width,
+// or delete it. Its width is a share of the note's, so it looks the same
+// on a phone. Pictures already saved are read as they come into view.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
   'use strict';
 
   const ns = (globalThis.gkb = globalThis.gkb || {});
-  const { h, icon, openMenu, closeMenu } = ns.ui;
+  const { h, icon, toast, openMenu, closeMenu } = ns.ui;
   const fmt = ns.noteFormat;
   const NEW_TABLE = { cols: 3, rows: 3 };
 
@@ -139,8 +147,39 @@
     return el;
   }
 
+  // A picture: a frame its width is set on, holding the picture once it
+  // is read (watchPictures). The handle and the buttons are added while
+  // it is selected, and are never part of what is saved or copied.
+  function pictureEl(b) {
+    const el = document.createElement('div');
+    el.className = 'blk';
+    el.dataset.type = 'picture';
+    el.dataset.src = b.src;
+    el.dataset.width = String(b.width || 0);
+    el.contentEditable = 'false';
+    const img = document.createElement('img');
+    img.alt = 'Picture';
+    img.draggable = false;
+    const frame = document.createElement('div');
+    frame.className = 'pic-frame';
+    frame.appendChild(img);
+    sizeFrame(frame, b.width);
+    el.appendChild(frame);
+    return el;
+  }
+
+  // Through the style API: a page's security policy may refuse a style
+  // attribute, never this.
+  function sizeFrame(frame, width) {
+    if (width) frame.style.setProperty('width', `${width}%`);
+    else frame.style.removeProperty('width');
+  }
+
+  const isIslandEl = el => !!el && el.nodeType === 1 && (el.dataset.type === 'table' || el.dataset.type === 'picture');
+
   function blockEl(b) {
     if (b.type === 'table') return tableEl(b);
+    if (b.type === 'picture') return pictureEl(b);
     const el = document.createElement('div');
     el.className = 'blk';
     setBlock(el, b.type, b.level, b.checked);
@@ -252,6 +291,7 @@
     const blocks = [];
     for (const node of editor.childNodes) {
       if (node.nodeType === 1 && node.dataset.type === 'table') blocks.push(readTable(node));
+      else if (node.nodeType === 1 && node.dataset.type === 'picture') blocks.push(fmt.picture(node.dataset.src, Number(node.dataset.width) || 0));
       else if (node.nodeType === 1 && node.classList.contains('blk')) readBlock(node, blocks);
       else if (node.nodeType === 3 && node.data.trim()) blocks.push(fmt.block('p', [{ text: node.data.replace(/ /g, ' ') }]));
       else if (node.nodeType === 1 && node.tagName !== 'BR') readBlock(node, blocks);
@@ -264,12 +304,14 @@
   // `contents`: { shown, onToggle(shown) } where the host has room for
   // the note's headings beside it (the notes view, not the calendar's
   // tile): a button for them on the toolbar, and `outline` to place.
-  function create({ root, onChange, contents = null }) {
+  // `onPicture(src, { trashed })`: a picture has been read, to show.
+  function create({ root, onChange, contents = null, onPicture = null }) {
     const els = {};
     let saved = null;     // the last selection inside the editor
     let editable = false;
     let plainNext = false; // Ctrl+Shift+V: the next paste is text alone
     let pasteUndo = [];    // how the text was before each formatted paste, latest last
+    let selPic = null;     // the picture selected, if one is
 
     const selection = () => (root.getSelection ? root.getSelection() : document.getSelection());
 
@@ -345,11 +387,11 @@
       td.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     }
 
-    // Out of a table, above or below it: to the block there, or a new
-    // empty line if there is none (or only another table).
+    // Out of a table or a picture, above or below it: to the block there,
+    // or a new empty line if there is none (or only another island).
     function leaveTable(el, below) {
       let target = below ? el.nextElementSibling : el.previousElementSibling;
-      if (!target || target.dataset.type === 'table') {
+      if (!target || isIslandEl(target)) {
         target = blockEl(fmt.block('p'));
         if (below) el.after(target); else el.before(target);
         changed();
@@ -477,9 +519,8 @@
         placeCaret(els.editor.firstChild, 0);
         moved = false;
       }
-      // Somewhere to type after a table at the end.
-      const lastBlk = els.editor.lastElementChild;
-      if (lastBlk && lastBlk.dataset.type === 'table') els.editor.appendChild(blockEl(fmt.block('p')));
+      // Somewhere to type after a table or a picture at the end.
+      if (isIslandEl(els.editor.lastElementChild)) els.editor.appendChild(blockEl(fmt.block('p')));
       if (moved && keep && keep[0].isConnected && keep[2].isConnected) {
         try {
           const back = document.createRange();
@@ -501,6 +542,7 @@
     function changed() {
       pasteUndo = [];
       tidy();
+      watchPictures();
       onChange();
       refreshToolbar();
       scheduleOutline();
@@ -522,7 +564,9 @@
       restore();
       const r = range();
       if (!r || cellOf(r.startContainer)) return; // a cell holds text, not lists or headings
-      const blocks = rangeBlocks(r);
+      // A table or a picture the selection runs over stays what it is.
+      const blocks = rangeBlocks(r).filter(b => !isIslandEl(b));
+      if (!blocks.length) return;
       const off = blocks.every(b => b.dataset.type === type) && type !== 'p';
       for (const b of blocks) {
         const was = b.dataset.type;
@@ -555,7 +599,7 @@
       document.execCommand('removeFormat');
       document.execCommand('unlink');
       const r = range();
-      if (r && !cellOf(r.startContainer)) for (const b of rangeBlocks(r)) if (b.dataset.type !== 'table') setBlock(b, 'p');
+      if (r && !cellOf(r.startContainer)) for (const b of rangeBlocks(r)) if (!isIslandEl(b)) setBlock(b, 'p');
       changed();
     }
 
@@ -698,7 +742,7 @@
     // The table gone: the cursor to the line after it.
     function removeTable(el) {
       let next = el.nextElementSibling;
-      if (!next || next.dataset.type === 'table') {
+      if (!next || isIslandEl(next)) {
         next = blockEl(fmt.block('p'));
         el.after(next);
       }
@@ -788,7 +832,7 @@
       const el = tableEl(fmt.table(rows, { head: true, align: Array(NEW_TABLE.cols).fill('') }));
       if (blk.dataset.type === 'p' && !blk.textContent) blk.replaceWith(el);
       else blk.after(el);
-      if (!el.nextElementSibling || el.nextElementSibling.dataset.type === 'table') el.after(blockEl(fmt.block('p')));
+      if (!el.nextElementSibling || isIslandEl(el.nextElementSibling)) el.after(blockEl(fmt.block('p')));
       changed();
       pasteUndo = [...undo.slice(-19), before];
       focusCell(el.querySelector('td'));
@@ -838,27 +882,34 @@
       return false;
     }
 
-    // Keys on a line beside a table: the arrows into it, and Backspace or
-    // Delete into it rather than through it.
+    // Keys on a line beside a table or a picture: the arrows into it -
+    // into a table's cells, onto a picture, selecting it - and Backspace
+    // or Delete into it rather than through it. (A selected picture's own
+    // keys are in pictureKey.)
     function besideTable(e, r, blk, mod) {
       if (mod || e.altKey || e.shiftKey || !r.collapsed) return false;
       const prev = blk.previousElementSibling;
       const next = blk.nextElementSibling;
       const into = (el, last) => {
         e.preventDefault();
+        if (el.dataset.type === 'picture') {
+          selectPicture(el);
+          return true;
+        }
         const cells = el.querySelectorAll('td');
         focusCell(last ? cells[cells.length - 1] : cells[0], last);
         return true;
       };
-      if (next && next.dataset.type === 'table') {
+      if (isIslandEl(next)) {
         if ((e.key === 'ArrowDown' && onEdgeLine(blk, r, true)) || (e.key === 'ArrowRight' && caretAtEnd(r, blk))) return into(next, false);
         if (e.key === 'Delete' && caretAtEnd(r, blk)) {
           if (!blk.textContent && blk.previousElementSibling) { blk.remove(); changed(); }
           return into(next, false);
         }
       }
-      if (prev && prev.dataset.type === 'table') {
+      if (isIslandEl(prev)) {
         if (e.key === 'ArrowUp' && onEdgeLine(blk, r, false)) {
+          if (prev.dataset.type === 'picture') return into(prev, true);
           // Up into the last row, at its start.
           e.preventDefault();
           const rows = prev.querySelector('table').rows;
@@ -866,8 +917,9 @@
           return true;
         }
         if (e.key === 'ArrowLeft' && caretAtBlockStart(r, blk)) return into(prev, true);
-        // An empty line after a table goes (unless it is the last); a line
-        // with text keeps it, and the cursor goes into the table.
+        // An empty line after a table or a picture goes (unless it is the
+        // last); a line with text keeps it, and the cursor goes into the
+        // table, or the picture is selected.
         if (e.key === 'Backspace' && blk.dataset.type === 'p' && caretAtBlockStart(r, blk)) {
           if (!blk.textContent && blk.nextElementSibling) { blk.remove(); changed(); }
           return into(prev, true);
@@ -911,6 +963,274 @@
         if (i) document.execCommand('insertLineBreak');
         if (line) document.execCommand('insertText', false, line);
       });
+    }
+
+    // ── Pictures ─────────────────────────────────────────────────────────
+
+    // Each picture is read once it is near the part of the note on show.
+    // `watched`: the picture elements already seen to - a copy of one,
+    // put back by Ctrl+Z, is a new element and is seen to afresh.
+    let viewer = null;
+    const watched = new WeakSet();
+
+    function watchPictures() {
+      for (const el of els.editor.querySelectorAll('.blk[data-type="picture"]')) {
+        if (watched.has(el)) continue;
+        watched.add(el);
+        if (el.dataset.state === 'ready' && el.querySelector('img').getAttribute('src')) continue;
+        el.dataset.state = 'loading';
+        // One not saved yet is here already: shown at once.
+        if (ns.pictures.isPending(el.dataset.src) || typeof IntersectionObserver !== 'function') { showPicture(el); continue; }
+        if (!viewer) {
+          viewer = new IntersectionObserver(entries => {
+            for (const en of entries) {
+              if (!en.isIntersecting) continue;
+              viewer.unobserve(en.target);
+              showPicture(en.target);
+            }
+          }, { root: els.editor, rootMargin: '600px 0px' });
+        }
+        viewer.observe(el);
+      }
+    }
+
+    function showPicture(el) {
+      const src = el.dataset.src;
+      el.dataset.state = 'loading';
+      ns.pictures.load(src).then(info => {
+        el.querySelector('img').src = info.url;
+        el.dataset.state = 'ready';
+        if (onPicture) onPicture(src, info);
+      }, err => {
+        el.dataset.state = err.lost ? 'lost' : err.code === 'gone' ? 'gone' : 'error';
+      });
+    }
+
+    // A change to a picture, or pictures put in: like a table's, Ctrl+Z
+    // straight afterwards takes it back.
+    function pictureEdit(fn) {
+      if (!editable) return;
+      const undo = pasteUndo;
+      const before = snapshot();
+      fn();
+      changed();
+      pasteUndo = [...undo.slice(-19), before];
+    }
+
+    // Selected: outlined, with its handle and buttons, and the cursor just
+    // after it, so that typing carries on below it.
+    function selectPicture(el) {
+      if (!editable || !el || !el.isConnected) return;
+      if (selPic !== el) {
+        deselectPicture();
+        selPic = el;
+        el.classList.add('sel');
+        el.querySelector('.pic-frame').append(pictureTools(el), pictureHandle(el));
+      }
+      const next = el.nextElementSibling;
+      if (next && !isIslandEl(next)) {
+        els.editor.focus({ preventScroll: true });
+        caretInto(next, false);
+      }
+      refreshPictureTools();
+    }
+
+    function deselectPicture() {
+      const el = selPic;
+      selPic = null;
+      if (!el) return;
+      el.classList.remove('sel');
+      for (const x of el.querySelectorAll('.pic-tools, .pic-handle')) x.remove();
+    }
+
+    const SIZES = [
+      [25, '25%', 'A quarter of the note’s width'],
+      [50, '50%', 'Half the note’s width'],
+      [75, '75%', 'Three quarters of the note’s width'],
+      [100, '100%', 'The note’s whole width'],
+    ];
+
+    function setPictureWidth(el, width) {
+      el.dataset.width = String(width);
+      sizeFrame(el.querySelector('.pic-frame'), width);
+      refreshPictureTools();
+    }
+
+    function refreshPictureTools() {
+      if (!selPic) return;
+      const w = Number(selPic.dataset.width) || 0;
+      for (const b of selPic.querySelectorAll('.pic-size')) b.setAttribute('aria-pressed', String(Number(b.dataset.width) === w));
+    }
+
+    function pictureTools(el) {
+      const keep = e => e.preventDefault();
+      return h('span', { class: 'pic-tools', role: 'toolbar', 'aria-label': 'Picture' },
+        SIZES.map(([w, label, title]) => h('button', {
+          class: 'pic-size', type: 'button', title, 'aria-pressed': 'false', dataset: { key: `picture-width:${w}`, width: String(w) },
+          onmousedown: keep,
+          onclick: e => {
+            e.stopPropagation();
+            if ((Number(el.dataset.width) || 0) !== w) pictureEdit(() => setPictureWidth(el, w));
+          },
+        }, label)),
+        h('button', {
+          class: 'pic-delete', type: 'button', title: 'Delete the picture (Ctrl+Z brings it back)', 'aria-label': 'Delete the picture',
+          dataset: { key: 'picture-delete' }, onmousedown: keep,
+          onclick: e => { e.stopPropagation(); removePicture(el); },
+        }, icon('delete', 16)));
+    }
+
+    // Dragged, the corner sets the width as a share of the note's: from a
+    // tenth of it to all of it.
+    function pictureHandle(el) {
+      const handle = h('span', { class: 'pic-handle', title: 'Drag to make it bigger or smaller', dataset: { key: 'picture-resize' } });
+      handle.addEventListener('pointerdown', e => {
+        if (!editable || e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const frame = el.querySelector('.pic-frame');
+        const full = el.clientWidth || 1;
+        const startW = frame.getBoundingClientRect().width;
+        const startX = e.clientX;
+        const was = Number(el.dataset.width) || 0;
+        let width = was;
+        try { handle.setPointerCapture(e.pointerId); } catch { /* the pointer went already */ }
+        const move = ev => {
+          const px = Math.max(full / 10, Math.min(full, startW + ev.clientX - startX));
+          width = Math.round((px / full) * 100);
+          sizeFrame(frame, width);
+        };
+        const done = () => {
+          handle.removeEventListener('pointermove', move);
+          handle.removeEventListener('pointerup', done);
+          handle.removeEventListener('pointercancel', done);
+          if (width !== was && el.isConnected) {
+            sizeFrame(frame, was);
+            pictureEdit(() => setPictureWidth(el, width));
+          }
+        };
+        handle.addEventListener('pointermove', move);
+        handle.addEventListener('pointerup', done);
+        handle.addEventListener('pointercancel', done);
+      });
+      return handle;
+    }
+
+    // The picture gone, the cursor to the line after it.
+    function removePicture(el) {
+      pictureEdit(() => {
+        let next = el.nextElementSibling;
+        if (!next || isIslandEl(next)) {
+          next = blockEl(fmt.block('p'));
+          el.after(next);
+        }
+        if (selPic === el) deselectPicture();
+        el.remove();
+        els.editor.focus({ preventScroll: true });
+        caretInto(next, false);
+      });
+    }
+
+    // Keys while a picture is selected: Backspace or Delete deletes it,
+    // Ctrl+C and Ctrl+X copy and cut it (the browser does, once it is the
+    // selection), the arrows leave it, Escape lets it go, and anything
+    // typed goes in where the cursor is, just after it.
+    function pictureKey(e, mod) {
+      const el = selPic;
+      if (!el.isConnected) { selPic = null; return false; }
+      const k = e.key.toLowerCase();
+      if (mod && !e.altKey && !e.shiftKey && (k === 'c' || k === 'x')) {
+        deselectPicture();
+        const r = document.createRange();
+        r.selectNode(el);
+        select(r);
+        return true;
+      }
+      if ((e.key === 'Backspace' || e.key === 'Delete') && !mod && !e.altKey) {
+        e.preventDefault();
+        removePicture(el);
+        return true;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        deselectPicture();
+        return true;
+      }
+      if (/^Arrow(Up|Down|Left|Right)$/.test(e.key) && !mod && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        deselectPicture();
+        leaveTable(el, e.key === 'ArrowDown' || e.key === 'ArrowRight');
+        return true;
+      }
+      if (!['Shift', 'Control', 'Alt', 'Meta', 'Tab'].includes(e.key)) deselectPicture();
+      return false;
+    }
+
+    // Pictures from files - picked, pasted or dropped - each made smaller
+    // and held in the page until the note is saved: after the block `at`,
+    // or in its place if it is an empty line; at the end if it has gone.
+    // In a table, after the table.
+    async function insertPictures(files, at) {
+      const list = [...files].filter(f => /^image\//i.test(f.type || ''));
+      if (!editable || !list.length) return;
+      const made = [];
+      for (const f of list) {
+        try {
+          made.push(await ns.pictures.add(f));
+        } catch (err) {
+          toast(root, err.message, { kind: 'error' });
+        }
+      }
+      if (!made.length || !editable) return;
+      const blk = at && at.parentNode === els.editor ? at : els.editor.lastElementChild;
+      pictureEdit(() => {
+        let last = null;
+        for (const p of made) {
+          const el = pictureEl(fmt.picture(p.src));
+          if (!last && blk && blk.dataset.type === 'p' && !blk.textContent) blk.replaceWith(el);
+          else if (last || blk) (last || blk).after(el);
+          else els.editor.appendChild(el);
+          last = el;
+        }
+        let next = last.nextElementSibling;
+        if (!next || isIslandEl(next)) {
+          next = blockEl(fmt.block('p'));
+          last.after(next);
+        }
+        if (els.editor.isConnected) {
+          els.editor.focus({ preventScroll: true });
+          caretInto(next, false);
+        }
+      });
+      if (els.editor.isConnected) revealCaret();
+    }
+
+    const imageFiles = data => {
+      if (!data) return [];
+      const files = [...(data.files || [])];
+      if (!files.length) for (const it of data.items || []) if (it.kind === 'file') files.push(it.getAsFile());
+      return files.filter(f => f && /^image\//i.test(f.type || ''));
+    };
+
+    // The toolbar's Picture: the file picker (on a phone, the photos or
+    // the camera), the pictures going in after the line the cursor is on.
+    let pickAt = null;
+    els.filePick = h('input', {
+      type: 'file', accept: 'image/*', multiple: true, hidden: true, tabindex: '-1', dataset: { key: 'picture-file' },
+      onchange: () => {
+        const files = [...els.filePick.files];
+        els.filePick.value = '';
+        insertPictures(files, pickAt);
+      },
+    });
+
+    function pickPicture() {
+      if (!editable) return;
+      restore();
+      const r = range();
+      pickAt = r ? blockOf(r.startContainer === els.editor ? els.editor.childNodes[Math.min(r.startOffset, els.editor.childNodes.length - 1)] : r.startContainer) : null;
+      els.filePick.click();
     }
 
     // ── Toolbar ──────────────────────────────────────────────────────────
@@ -959,6 +1279,8 @@
       tbButton('outdent', 'Less indent (Shift+Tab)', 'outdent', () => { restore(); indent(-1); }, false),
       tbButton('indent', 'More indent (Tab)', 'indent', () => { restore(); indent(1); }, false),
       tbButton('table', 'Table', 'table', () => insertTable(), false),
+      tbButton('picture', 'Picture (or paste or drop one)', 'picture', () => pickPicture(), false),
+      els.filePick,
       sep(),
       tbButton('link', 'Link (Ctrl+K)', 'link', () => openLink()),
       tbButton('clear', 'Clear formatting', 'clear', () => clearFormatting(), false));
@@ -1082,6 +1404,19 @@
     els.editor.addEventListener('keydown', e => {
       if (!editable) return;
       const mod = e.ctrlKey || e.metaKey;
+      // A selected picture's buttons take their own keys; Escape goes back
+      // to the text.
+      if (e.target.closest && e.target.closest('.pic-tools')) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          const el = selPic;
+          deselectPicture();
+          if (el && el.isConnected) leaveTable(el, true);
+        }
+        return;
+      }
+      if (selPic && pictureKey(e, mod)) return;
       const r = range();
       const blk = r && blockOf(r.startContainer);
       const td = r && cellOf(r.startContainer);
@@ -1185,6 +1520,14 @@
       const text = (data && data.getData('text/plain')) || '';
       const plain = plainNext;
       plainNext = false;
+      // A picture copied on its own - a screenshot, "Copy image". (Word
+      // copies a picture of the text along with it: text comes first.)
+      const files = text.trim() ? [] : imageFiles(data);
+      if (files.length) {
+        const at = range();
+        insertPictures(files, at ? blockOf(at.startContainer) : null);
+        return;
+      }
       const doc = plain ? null : fmt.pasteDoc({ html: data && data.getData('text/html'), text });
       const at = range();
       if (at && cellOf(at.startContainer)) {
@@ -1202,9 +1545,19 @@
       else insertPlain(doc ? line : text);
       revealCaret();
     });
-    els.editor.addEventListener('drop', e => {
-      // Dropped HTML would bring its own markup; dropped files have nowhere to go.
+    // Dropped pictures go in after the line they are dropped on. Dropped
+    // HTML would bring its own markup, and other files have nowhere to go.
+    els.editor.addEventListener('dragover', e => {
+      if (!editable || !e.dataTransfer || ![...e.dataTransfer.types].includes('Files')) return;
       e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+    els.editor.addEventListener('drop', e => {
+      e.preventDefault();
+      const files = imageFiles(e.dataTransfer);
+      if (!editable || !files.length) return;
+      const under = root.elementFromPoint ? root.elementFromPoint(e.clientX, e.clientY) : null;
+      insertPictures(files, under && under !== els.editor && els.editor.contains(under) ? blockOf(under) : null);
     });
 
     function insertPlain(text) {
@@ -1274,7 +1627,7 @@
       let i = 0;
       // The first line joins the text before the caret; on an empty line
       // it also brings its kind (a heading, a list item) with it.
-      if (doc[0].type !== 'table' && (doc[0].type === 'p' || !blk.textContent)) {
+      if (!fmt.isIsland(doc[0]) && (doc[0].type === 'p' || !blk.textContent)) {
         if (!blk.textContent && doc[0].type !== 'p') setBlock(blk, doc[0].type, levelOf(doc[0]), doc[0].checked);
         blk.append(...inlineNodes(doc[0].runs));
         i = 1;
@@ -1294,21 +1647,22 @@
         target.replaceChildren();
         last.after(target);
       }
-      // Nothing goes into a pasted table: the cursor goes to a line after it.
-      if (last.dataset.type === 'table' && target === last) {
+      // Nothing goes into a pasted table or picture: the cursor goes to a
+      // line after it.
+      if (isIslandEl(last) && target === last) {
         target = blockEl(fmt.block('p'));
         target.replaceChildren();
         last.after(target);
       }
-      if (last.dataset.type !== 'table') prune(last);
+      if (!isIslandEl(last)) prune(last);
       const at = target === last ? last.childNodes.length : 0;
       target.append(after);
       holdOpen(blk);
-      if (last.dataset.type !== 'table') holdOpen(last);
+      if (!isIslandEl(last)) holdOpen(last);
       holdOpen(target);
-      // A table pasted on an empty line takes its place.
-      if (doc[0].type === 'table' && !blk.textContent && blk !== target) blk.remove();
-      if (last.dataset.type === 'table') caretInto(target, false);
+      // A table or a picture pasted on an empty line takes its place.
+      if (fmt.isIsland(doc[0]) && !blk.textContent && blk !== target) blk.remove();
+      if (isIslandEl(last)) caretInto(target, false);
       else if (target === last) placeCaret(last, at);
       else placeCaret(last, last.firstChild.nodeName === 'BR' ? 0 : last.childNodes.length);
 
@@ -1317,10 +1671,18 @@
     }
 
     // The editor's blocks, and the selection as text offsets within them.
+    // A selected picture is copied as it is when not selected.
     function snapshot() {
       const r = range();
+      const copy = n => {
+        const c = n.cloneNode(true);
+        if (c.nodeType !== 1 || c.dataset.type !== 'picture') return c;
+        c.classList.remove('sel');
+        for (const x of c.querySelectorAll('.pic-tools, .pic-handle')) x.remove();
+        return c;
+      };
       return {
-        nodes: [...els.editor.childNodes].map(n => n.cloneNode(true)),
+        nodes: [...els.editor.childNodes].map(copy),
         start: r && where(r.startContainer, r.startOffset),
         end: r && where(r.endContainer, r.endOffset),
       };
@@ -1355,6 +1717,7 @@
     function undoPaste() {
       const rest = pasteUndo.slice(0, -1);
       const snap = pasteUndo[pasteUndo.length - 1];
+      deselectPicture();
       els.editor.replaceChildren(...snap.nodes);
       const a = pointAt(snap.start);
       const z = pointAt(snap.end);
@@ -1384,6 +1747,15 @@
     }
 
     els.editor.addEventListener('click', e => {
+      const pic = e.target.closest && e.target.closest('.blk[data-type="picture"]');
+      if (pic && e.target.closest('.pic-tools, .pic-handle')) return;
+      if (pic && editable) {
+        // One that could not be read: tried again.
+        if (pic.dataset.state === 'error') showPicture(pic);
+        selectPicture(pic);
+        return;
+      }
+      if (selPic) deselectPicture();
       const a = e.target.closest && e.target.closest('a[href]');
       if (a && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
@@ -1423,6 +1795,7 @@
       let text = '';
       els.editor.childNodes.forEach((blk, b) => {
         if (b) text += '\n';
+        if (blk.nodeType === 1 && blk.dataset.type === 'picture') return; // its buttons are not the note's words
         const walker = document.createTreeWalker(blk, NodeFilter.SHOW_TEXT);
         for (let n = walker.nextNode(); n; n = walker.nextNode()) {
           parts.push({ node: n, start: text.length, end: text.length + n.data.length });
@@ -1579,10 +1952,32 @@
     function setDoc(doc) {
       pasteUndo = [];
       lastCell = null;
+      deselectPicture();
       els.editor.replaceChildren(...fmt.normaliseDoc(doc).map(blockEl));
       for (const td of els.editor.querySelectorAll('td')) td.contentEditable = editable ? 'true' : 'false';
       updateEmpty();
+      watchPictures();
       drawOutline();
+    }
+
+    // Pictures saved: their "new-..." names, or the ids of another note's
+    // pictures copied in, replaced by their own messages' ids (`map`:
+    // { old: new }); one mapped to null, which could not be saved because
+    // it is no longer there, is taken out. What shows does not change.
+    function renamePictures(map) {
+      const has = k => Object.prototype.hasOwnProperty.call(map || {}, k);
+      let dropped = false;
+      for (const el of [...els.editor.querySelectorAll('.blk[data-type="picture"]')]) {
+        if (!has(el.dataset.src)) continue;
+        if (map[el.dataset.src]) {
+          el.dataset.src = map[el.dataset.src];
+          continue;
+        }
+        if (selPic === el) deselectPicture();
+        el.remove();
+        dropped = true;
+      }
+      if (dropped) tidy();
     }
 
     // New text under someone who may be typing - a newer version merged
@@ -1623,7 +2018,10 @@
       // The contents only go somewhere in the text: they work regardless.
       if (buttons.contents) buttons.contents.disabled = false;
       for (const td of els.editor.querySelectorAll('td')) td.contentEditable = editable ? 'true' : 'false';
-      if (!editable) els.tablebar.hidden = true;
+      if (!editable) {
+        els.tablebar.hidden = true;
+        deselectPicture();
+      }
     }
 
     function focus() {
@@ -1635,6 +2033,7 @@
     function destroy() {
       clearTimeout(outlineTimer);
       cancelAnimationFrame(outlineFrame);
+      if (viewer) viewer.disconnect();
       document.removeEventListener('selectionchange', onSelection);
       clearHighlights();
       closeMenu(root);
@@ -1649,6 +2048,7 @@
       setContentsShown,
       setDoc,
       replaceDoc,
+      renamePictures,
       getDoc: () => readDoc(els.editor),
       setEditable,
       focus,

@@ -5,7 +5,8 @@
 // served as a full-screen web page by this same script. Where the
 // extension asks Gmail through its background worker, the app asks these
 // functions through google.script.run - and they keep the worker's rules:
-// only notes are inserted, only notes go to Trash or come back out of it,
+// only notes are inserted (a picture in a note is note-shaped, and goes in
+// with no label), only notes go to Trash or come back out of it,
 // mail kept as a note just leaves the list, only an empty notes folder is
 // ever deleted, and the board only reads, labels and unlabels - nothing
 // is ever sent, deleted, or put in Trash, Spam or the Inbox. The calendar
@@ -188,6 +189,41 @@
     store.move(ctx, messageId, ctx.folders.some(f => f.id === folderId) ? folderId : '');
     return true;
   }
+
+  // ── Pictures ─────────────────────────────────────────────────────────
+  //
+  // Each in a message of its own (notesLogic's pictures). The page builds
+  // and reads the messages; the script reads only a picture, adds only a
+  // picture, with no label, and moves only pictures to Trash and back.
+
+  // The picture's raw message and its labels, or null if there is none.
+  function picture(messageId) {
+    let msg;
+    try {
+      msg = gmail.call('GET', `messages/${encodeURIComponent(messageId)}`, { format: 'raw' });
+    } catch (err) {
+      if (err.status === 404 || err.status === 400) return null;
+      throw err;
+    }
+    if (!notesLogic.isPictureRaw(msg.raw)) throw new Error('not_allowed: that is not a picture in a note.');
+    return { raw: msg.raw, labelIds: msg.labelIds || [] };
+  }
+
+  function addPicture(raw) {
+    const body = { raw: String(raw || ''), labelIds: [] };
+    if (!notesLogic.isPictureInsert(body)) throw new Error('not_allowed: only a picture for a note is added here.');
+    return { id: gmail.insertNote(body).id };
+  }
+
+  // One at a time: each is read again first (gmail.trashNote), as every
+  // move to Trash from here is.
+  const moveAll = fn => ids => ids.map(id => {
+    try { return fn(id); } catch (err) { return null; }
+  });
+  const pictureIo = { readMany: list => gmail.callAll(list), trash: moveAll(gmail.trashNote), untrash: moveAll(gmail.untrashNote) };
+
+  const retirePictures = ids => ns.util.runSync(notesLogic.picturesFlow([].concat(ids || []), 'trash'), pictureIo);
+  const restorePictures = ids => ns.util.runSync(notesLogic.picturesFlow([].concat(ids || []), 'untrash'), pictureIo);
 
   // ── Folders ──────────────────────────────────────────────────────────
 
@@ -527,6 +563,7 @@
 
   ns.app = {
     page, start, list, body, save, retire, restore, move, createFolder, renameFolder, deleteFolder,
+    picture, addPicture, retirePictures, restorePictures,
     account, boardGmail, boardGmailMany, boardColumns, layout, saveLayout, googleMany, googleWrite, allowCalendar,
     prefsGet, prefsSet, prefsRemove, licence,
   };

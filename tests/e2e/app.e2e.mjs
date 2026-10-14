@@ -398,6 +398,58 @@ await r.step('a table on the phone: from the toolbar, filled cell by cell with T
   await t.page.context().close();
 });
 
+await r.step('pictures on the phone: read through the script; one picked from the photos is made smaller and saved as its own message; deleted, it goes to Trash', async () => {
+  const t = await openApp({ search: '?pictures' });
+  const box = t.phone.fake.box;
+  const pics = () => plain(box.pictures());
+  const blocks = () => q(t.page, '.ne-body .blk[data-type="picture"]').evaluateAll(els => els.map(e => [e.dataset.src, e.dataset.state]));
+  await scratchReady(t.page);
+  await pickFolder(t.page, 'All notes');
+  await q(t.page, '.note-item').filter({ hasText: 'Trade fair stand' }).tap();
+  await until(async () => (await blocks()).length === 2 && (await blocks()).every(b => b[1] === 'ready'), 'both shown', 10000);
+  const colours = (await blocks())[1][0];
+  await until(() => !pics().find(p => p.id === colours).labels.includes('TRASH'), 'the one in Trash taken out by the script');
+  // A photo from the phone: big, so made smaller first.
+  const photo = await t.page.evaluate(() => {
+    const c = document.createElement('canvas');
+    c.width = 4000;
+    c.height = 3000;
+    const g = c.getContext('2d');
+    const px = g.createImageData(4000, 3000);
+    let seed = 3;
+    for (let i = 0; i < px.data.length; i += 4) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      px.data[i] = 90 + ((seed >> 16) & 63);
+      px.data[i + 1] = 140 + ((seed >> 18) & 31);
+      px.data[i + 2] = 200;
+      px.data[i + 3] = 255;
+    }
+    g.putImageData(px, 0, 0);
+    return c.toDataURL('image/jpeg', 0.95).split(',')[1];
+  });
+  await q(t.page, '.ne-body .blk').last().tap();
+  await q(t.page, '[data-key="fmt-picture"]').scrollIntoViewIfNeeded();
+  const chooser = t.page.waitForEvent('filechooser');
+  await q(t.page, '[data-key="fmt-picture"]').tap();
+  await (await chooser).setFiles({ name: 'IMG_2041.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(photo, 'base64') });
+  await until(async () => (await blocks()).length === 3 && (await blocks())[2][1] === 'ready', 'shown', 10000);
+  assert.deepEqual(await q(t.page, '.ne-body .blk[data-type="picture"] img').nth(2).evaluate(img => [img.naturalWidth, img.naturalHeight]), [1600, 1200]);
+  await until(async () => /^Saved/.test(await q(t.page, '.ne-status').first().innerText()), 'saved by itself', 15000);
+  await settled(t.page);
+  const added = pics().filter(p => p.labels.length === 0 && p.type === 'image/jpeg');
+  assert.equal(added.length, 1, 'one new picture, with no label');
+  assert.equal((await blocks())[2][0], added[0].id);
+  assert.ok(box.messageHtml(box.findMessageBySubject('Trade fair stand')).includes(`data-gkb-picture="${added[0].id}"`));
+  await t.page.screenshot({ path: join(SCREENS, 'app-pictures.png'), animations: 'disabled' });
+  // Tapped, it is selected; its bin deletes it, and the save puts it in Trash.
+  await q(t.page, '.ne-body .blk[data-type="picture"] img').nth(2).tap();
+  await q(t.page, '[data-key="picture-delete"]').tap();
+  await until(async () => /^Saved/.test(await q(t.page, '.ne-status').first().innerText()), 'saved again', 15000);
+  await settled(t.page);
+  await until(() => pics().find(p => p.id === added[0].id).labels.includes('TRASH'), 'in Trash');
+  await t.page.context().close();
+});
+
 // ── Opening fast: the phone's own copy ──
 
 // One phone, kept between visits (its browser storage stays), on the same

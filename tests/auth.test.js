@@ -145,6 +145,16 @@ test('notes: reading, inserting a note, relabelling, trash and untrash', () => {
   assert.equal(auth.isAllowedRequest('POST', 'messages/18c2f7a0b1d2e3f4/untrash'), true);
 });
 
+test('pictures in notes: one read whole, one added with no label - shaped like a note, so no new rule', () => {
+  const notes = require('../src/lib/notes-logic.js');
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const raw = notes.buildPictureRaw({ pictureId: 'p1c7ur3s0m3th1ng0000', title: 't', type: 'image/png', data: png, account: 'a@b.example' });
+  assert.equal(auth.isAllowedRequest('GET', 'messages/18c2f7a0b1d2e3f4'), true, 'format=raw is a read like any other');
+  assert.equal(auth.isAllowedRequest('POST', 'messages', { raw, labelIds: [] }), true);
+  assert.equal(auth.isAllowedRequest('POST', 'messages', { raw, labelIds: ['SPAM'] }), false);
+  assert.equal(auth.isAllowedRequest('POST', 'messages/18c2f7a0b1d2e3f4/trash'), true, 'and to Trash only past the worker’s note check');
+});
+
 test('inserting anything but a note is refused', () => {
   const notes = require('../src/lib/notes-logic.js');
   const raw = notes.buildNoteRaw({ noteId: 'k3x9q2m8w1z7p4r6t0yb', title: 't', body: 'b', account: 'a@b.example' });

@@ -1243,6 +1243,7 @@
         if (c === N.scratch) T.stale = true;
       },
       contents: { shown: N.contents, onToggle: saveContents },
+      onPicture: (src, info) => pictureShown(c, src, info),
     });
     els.ed = ed;
     els.edStale = false;
@@ -1356,6 +1357,69 @@
     c.timer = setTimeout(() => save(c), AUTOSAVE_MS);
   }
 
+  // ── Pictures ─────────────────────────────────────────────────────────
+  //
+  // A picture is a message of its own (notes-logic's pictures), so a save
+  // puts the note's new pictures into Gmail first - those added here, and
+  // copies of any pasted in from another note, which stays the only owner
+  // of its own - and writes the note naming them. Then the pictures the
+  // note no longer has go to Trash, where they stay for thirty days.
+  //
+  // c.uploads: a picture's name in the editor ("new-…", or another note's
+  // picture's id) → the id of the message made for it for this note. So a
+  // save that failed after putting a picture in does not put it in again,
+  // and Ctrl+Z bringing back a picture's name from before a save renamed
+  // it finds its message. A picture that goes to Trash leaves c.uploads:
+  // brought back after that, it is saved as a copy, made from what this
+  // page still holds.
+
+  // The note's pictures before it is written: the document with every
+  // picture named by its own message, and the renames that took (null
+  // for a picture this page no longer has, which is left out).
+  async function savePictures(c, snap) {
+    const base = new Set(fmt.pictureSrcs(c.base || []));
+    if (!c.uploads) c.uploads = new Map();
+    const map = {};
+    for (const src of new Set(fmt.pictureSrcs(snap.doc))) {
+      if (base.has(src)) continue;
+      if (c.uploads.has(src)) { map[src] = c.uploads.get(src); continue; }
+      const got = await ns.pictures.dataOf(src);
+      if (!got) { map[src] = null; continue; }
+      const title = c.scratch ? notesLogic.SCRATCHPAD_TITLE : snap.title;
+      const id = await notesStore.addPicture(hooks.getAccount(), { title, type: got.type, data: got.data });
+      c.uploads.set(src, id);
+      ns.pictures.adopt(src, id);
+      map[src] = id;
+    }
+    return { doc: Object.keys(map).length ? fmt.renamePictures(snap.doc, map) : snap.doc, map };
+  }
+
+  // Saved: the pictures' new names into what is being edited, and the
+  // ones the note no longer has - from its last version, or put in for a
+  // save that never got written - to Trash. A picture of another note
+  // is never among them: every one in `before` was made for this note.
+  function picturesSaved(c, before, doc, map) {
+    if (Object.keys(map).length) {
+      c.doc = fmt.renamePictures(c.doc, map);
+      if (N.current === c && els.ed) els.ed.renamePictures(map);
+      if (T.ed && T.for === c) T.ed.renamePictures(map);
+    }
+    const kept = new Set(fmt.pictureSrcs(doc));
+    const gone = new Set([...fmt.pictureSrcs(before || []), ...(c.uploads ? c.uploads.values() : [])].filter(id => !kept.has(id)));
+    if (!gone.size) return;
+    for (const [src, id] of c.uploads || []) if (gone.has(id)) c.uploads.delete(src);
+    notesStore.retirePictures([...gone]).catch(() => { /* left in All Mail: harmless, and found by its subject */ });
+  }
+
+  // A picture shown from Trash, though the note's saved version has it:
+  // another device took it out while this one put it back. Back out of
+  // Trash, before its thirty days are up.
+  function pictureShown(c, src, info) {
+    if (!info.trashed || !c.note || !c.note.own || !fmt.pictureSrcs(c.base || []).includes(src)) return;
+    ns.pictures.untrashed(src);
+    notesStore.restorePictures([src]).catch(() => {});
+  }
+
   // Saves are chained: each one retires the version the previous one
   // wrote, so two in flight at once would each leave a stray behind.
   function save(c) {
@@ -1374,13 +1438,17 @@
       drawStatus();
       let newer = null;
       try {
+        const pics = await savePictures(c, snap);
+        snap.doc = pics.doc;
         const saved = await notesStore.save(hooks.getAccount(), before, snap);
         const oldKey = c.key;
         const wasOurs = !!(before && before.own);
+        const oldBase = c.base;
         c.note = saved;
         c.key = saved.key;
         c.base = snap.doc;
         c.baseTitle = snap.title;
+        picturesSaved(c, oldBase, snap.doc, pics.map);
         c.savedAt = Date.now();
         c.conflicts = 0;
         if (c.scratch) { N.scratchNote = saved; N.scratchKnown = true; }
@@ -1466,6 +1534,7 @@
         edited(s, { doc: ed.getDoc() });
         if (s === N.current) els.edStale = true;
       },
+      onPicture: (src, info) => pictureShown(s, src, info),
     });
     T.ed = ed;
     T.for = s;
@@ -1495,17 +1564,29 @@
     N.current = null;
     showScratch();
     const note = c.note;
-    if (!note) { drawList(); return; } // never saved: nothing in Gmail
+    // Its pictures go to Trash with it, and come back with it: those of
+    // its saved version - and any put in for a save that never got
+    // written, which do not come back.
+    const pictures = note && note.own ? fmt.pictureSrcs(c.base || []) : [];
+    const strays = c.uploads ? [...c.uploads.values()].filter(id => !pictures.includes(id)) : [];
+    const trashPictures = () => (pictures.length || strays.length
+      ? notesStore.retirePictures([...pictures, ...strays]).catch(() => {}) : Promise.resolve());
+    if (!note) { // never saved: nothing in Gmail but those
+      trashPictures();
+      drawList();
+      return;
+    }
 
     const at = N.notes.findIndex(n => n.key === note.key);
     N.notes = N.notes.filter(n => n.key !== note.key);
     drawList();
     try {
       await notesStore.retire(note);
+      const trashing = trashPictures();
       toast(N.ctx.root, note.own
         ? 'Note moved to Gmail’s Trash.'
         : `Taken off the notes list. The email stays in Gmail.`, {
-        action: { label: 'Undo', onClick: () => undoDelete(note, at) },
+        action: { label: 'Undo', onClick: () => undoDelete(note, at, pictures, trashing) },
         timeout: 8000,
       });
     } catch (err) {
@@ -1515,9 +1596,15 @@
     }
   }
 
-  async function undoDelete(note, at) {
+  // `trashing`: the pictures on their way to Trash, which they must reach
+  // before they are taken out again.
+  async function undoDelete(note, at, pictures = [], trashing = null) {
     try {
       await notesStore.restore(note);
+      if (pictures.length) {
+        await trashing;
+        await notesStore.restorePictures(pictures).catch(() => {});
+      }
       N.notes.splice(Math.max(0, Math.min(at, N.notes.length)), 0, note);
       drawList();
       openNote(note, { force: true });

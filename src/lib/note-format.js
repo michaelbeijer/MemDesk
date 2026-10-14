@@ -2,10 +2,11 @@
 // Note formatting (pure)
 //
 // A formatted note is a list of blocks - paragraphs, three heading
-// sizes, bulleted, numbered and check lists nested up to three deep, and
-// tables - each holding runs of text that may be bold, italic, struck
-// through or a link (a table, rows of cells of them). That is the whole
-// model; nothing outside it survives a save.
+// sizes, bulleted, numbered and check lists nested up to three deep,
+// tables and pictures - each holding runs of text that may be bold,
+// italic, struck through or a link (a table, rows of cells of them; a
+// picture, none: it is kept in a message of its own, which the block
+// names). That is the whole model; nothing outside it survives a save.
 //
 // It is stored in the note's message twice. The HTML part is the real
 // record: Gmail shows it (on the phone too), and this file reads it back
@@ -26,7 +27,7 @@
   const ns = (globalThis.gkb = globalThis.gkb || {});
   const util = (typeof module === 'object' && module.exports) ? require('./util.js') : ns.util;
 
-  const TYPES = new Set(['p', 'h1', 'h2', 'h3', 'ul', 'ol', 'check', 'table']);
+  const TYPES = new Set(['p', 'h1', 'h2', 'h3', 'ul', 'ol', 'check', 'table', 'picture']);
   const LISTS = new Set(['ul', 'ol', 'check']);
   const MAX_LEVEL = 3;
   // A table: at most this many columns and rows; a column is aligned
@@ -52,6 +53,23 @@
   }
 
   const emptyCell = () => ({ runs: [] });
+
+  // A picture block: `src`, the id of the message the picture is kept in
+  // (notes-logic's pictures) - or, until the note is saved, "new-…", the
+  // copy held in the page (src/content/pictures.js); `width`, its share of
+  // the note's width in per cent, or 0 for its own size (never wider than
+  // the note).
+  function picture(src, width = 0) {
+    return Object.assign(block('picture'), { src, width });
+  }
+  const PICTURE_SRC = /^(new-[a-z0-9]{6,40}|[A-Za-z0-9]{6,40})$/;
+  const isPending = src => /^new-/.test(src);
+  const pictureWidth = w => {
+    const n = Math.round(Number(w) || 0);
+    return n <= 0 ? 0 : Math.max(10, Math.min(100, n));
+  };
+  // Tables and pictures: blocks the text cannot run into.
+  const isIsland = b => b.type === 'table' || b.type === 'picture';
 
   function emptyDoc() {
     return [block('p')];
@@ -96,8 +114,9 @@
 
   // Unknown types become paragraphs; a list item may sit at most one level
   // deeper than the list item before it, which is what keeps the HTML a
-  // properly nested list and the editor's indents meaningful. A table is
-  // never last: a line follows it, somewhere to type after it.
+  // properly nested list and the editor's indents meaningful. A picture
+  // that names no message is left out. A table or a picture is never
+  // last: a line follows it, somewhere to type after it.
   function normaliseDoc(doc) {
     const out = [];
     let prevLevel = -1;
@@ -105,6 +124,11 @@
       if (!b || typeof b !== 'object') continue;
       if (b.type === 'table') {
         out.push(normaliseTable(b));
+        prevLevel = -1;
+        continue;
+      }
+      if (b.type === 'picture') {
+        if (PICTURE_SRC.test(String(b.src || ''))) out.push(picture(String(b.src), pictureWidth(b.width)));
         prevLevel = -1;
         continue;
       }
@@ -118,22 +142,38 @@
       }
       out.push(block(type, normaliseRuns(b.runs), { level, checked: b.checked }));
     }
-    if (out.length && out[out.length - 1].type === 'table') out.push(block('p'));
+    if (out.length && isIsland(out[out.length - 1])) out.push(block('p'));
     return out.length ? out : emptyDoc();
   }
 
   const runsText = runs => runs.map(r => r.text).join('');
   // A table's text: a row a line, its cells between " | ".
   const tableText = b => b.rows.map(r => r.map(c => runsText(c.runs).replace(/\n/g, ' ')).join(' | ')).join('\n');
-  const blockText = b => (b.type === 'table' ? tableText(b) : runsText(b.runs));
+  const blockText = b => (b.type === 'table' ? tableText(b) : b.type === 'picture' ? '' : runsText(b.runs));
 
   function docText(doc) {
     return doc.map(blockText).join('\n');
   }
 
-  // A table counts as something written, even with nothing in it yet.
+  // A table or a picture counts as something written, even with no words.
   function isEmpty(doc) {
-    return doc.every(b => b.type !== 'table' && !blockText(b).trim());
+    return doc.every(b => !isIsland(b) && !blockText(b).trim());
+  }
+
+  // The pictures a document has, by `src`, in order.
+  function pictureSrcs(doc) {
+    return (doc || []).filter(b => b && b.type === 'picture').map(b => String(b.src));
+  }
+
+  // The document with its pictures' `src` changed as `map` says ({ old:
+  // new }); a picture mapped to null is taken out.
+  function renamePictures(doc, map) {
+    const m = map || {};
+    const has = k => Object.prototype.hasOwnProperty.call(m, k);
+    return (doc || []).flatMap(b => {
+      if (!b || b.type !== 'picture' || !has(b.src)) return [b];
+      return m[b.src] ? [Object.assign({}, b, { src: m[b.src] })] : [];
+    });
   }
 
   // ── Links ────────────────────────────────────────────────────────────
@@ -203,7 +243,19 @@
     table: 'border-collapse:collapse;margin:6px 0',
     cell: 'border:1px solid #c4c7c5;padding:4px 8px;vertical-align:top;text-align:left',
     th: 'background:#f1f3f4;font-weight:bold',
+    picture: 'margin:6px 0;padding:8px 12px;border:1px dashed #c4c7c5;border-radius:8px;color:#5f6368;font-size:13px',
   };
+
+  // A picture as Gmail shows it: a line saying there is one. The picture
+  // itself is in a message of its own, which only the note can show; the
+  // words are a glyph, so reading the note back does not take them for
+  // text. A picture not saved yet has no message to name, and no HTML.
+  function pictureHtml(b) {
+    if (isPending(b.src)) return '';
+    const width = b.width ? ` data-width="${b.width}"` : '';
+    return `<div data-gkb-picture="${escHtml(b.src)}"${width} style="${STYLE.picture}">` +
+      '<span data-glyph="1">[Picture: open the note to see it]</span></div>\n';
+  }
 
   // A table as Gmail and any mail client shows one, styled inline; the
   // heading row in <thead>, as <th>.
@@ -230,6 +282,11 @@
       if (b.type === 'table') {
         while (stack.length) close();
         out += `${tableHtml(b)}\n`;
+        continue;
+      }
+      if (b.type === 'picture') {
+        while (stack.length) close();
+        out += pictureHtml(b);
         continue;
       }
       const inner = runsHtml(b.runs);
@@ -289,6 +346,10 @@
       if (b.type === 'table') {
         counters.fill(0);
         return tablePlain(b);
+      }
+      if (b.type === 'picture') {
+        counters.fill(0);
+        return '[Picture]';
       }
       const text = runsPlain(b.runs);
       if (!LISTS.has(b.type)) {
@@ -428,6 +489,7 @@
     let para = null;          // the open <p>: { gap }
     let gap = false;          // a <p> just closed with space below it
     let ours = false;         // inside a note's own HTML, where paragraphs are lines
+    let hold = 0;             // inside a picture's own markup, which holds no text: its depth in <div>s
 
     const level = () => Math.max(0, lists.length - 1);
     const open = (type, extra) => {
@@ -496,6 +558,10 @@
     TOKEN_RE.lastIndex = 0;
     while ((m = TOKEN_RE.exec(String(html || '')))) {
       const [whole, closing, rawName, rawAttrs, selfClosing] = m;
+      if (hold) {
+        if (rawName !== undefined && rawName.toLowerCase() === 'div' && !selfClosing) hold += closing ? -1 : 1;
+        continue;
+      }
       if (rawName === undefined) {
         if (whole[0] === '<' && whole.length > 1) continue; // comment, doctype, CDATA
         if (skip) continue;
@@ -698,8 +764,18 @@
         continue;
       }
       if (name === 'div' && a['data-gkb-note'] !== undefined) ours = true;
+      // A picture: as a note's HTML has it, or copied out of the editor.
+      // Pictures go between lines, never in a table's cell.
+      if (name === 'div' && !isClose && !tbl && (a['data-gkb-picture'] !== undefined || a['data-type'] === 'picture')) {
+        const src = String(a['data-gkb-picture'] !== undefined ? a['data-gkb-picture'] : a['data-src'] || '');
+        end();
+        gap = false;
+        if (PICTURE_SRC.test(src)) blocks.push(picture(src, pictureWidth(a['data-width'])));
+        if (!selfClosing) hold = 1;
+        continue;
+      }
       // A block copied out of a note's editor keeps its kind.
-      if (name === 'div' && !isClose && TYPES.has(a['data-type']) && a['data-type'] !== 'table') {
+      if (name === 'div' && !isClose && TYPES.has(a['data-type']) && !isIsland({ type: a['data-type'] })) {
         end();
         open(a['data-type'], { level: Number(a['data-level']) || 0, checked: a['data-checked'] === '1' });
         cur.ours = true;
@@ -786,6 +862,7 @@
         b.rows.forEach(r => r.forEach(c => tidyRuns(c.runs)));
         continue;
       }
+      if (b.type === 'picture') continue;
       const runs = b.runs;
       tidyRuns(runs);
       if (b.wordList && /^\s*(\d+|[a-z]|[ivxlc]+)[.)]\s*$/i.test(b.marker || '')) b.type = 'ol';
@@ -1120,6 +1197,7 @@
   const api = {
     TYPES, LISTS, MAX_LEVEL,
     block, emptyDoc, normaliseRuns, normaliseDoc, docText, isEmpty, safeHref,
+    picture, pictureSrcs, renamePictures, isIsland,
     toHtml, toPlain, fromPlain, parseHtml, docFromParts, fromMarkdown, looksLikeMarkdown, hasFormatting, pasteDoc,
     mergeDocs, sameDoc, table, onlyTable, tableText, MAX_COLS, MAX_ROWS,
   };

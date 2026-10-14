@@ -10,8 +10,9 @@ its maker never receives any of your data. The full policy is on the
 
 - It **never sends mail**.
 - It **never deletes mail for good**. The only things it moves to Gmail's
-  Trash are its own notes: old versions, and the notes you delete. Gmail
-  keeps them there for 30 days.
+  Trash are its own notes and their pictures: old versions, the notes you
+  delete, and the pictures you take out of a note. Gmail keeps them there
+  for 30 days.
 - It never touches Spam, and the board never puts anything in your Inbox,
   Spam or Trash.
 - It deletes a notes folder only once it is empty.
@@ -29,7 +30,8 @@ extension refuses anything else before it reaches Google.
 ## Where your data is kept
 
 - **In your Gmail:** the board, as labels on your emails, and your notes,
-  as messages under `_Notes`.
+  as messages under `_Notes`. Each picture in a note is an email of its
+  own, with no label, so it sits in All Mail.
 - **In Chrome:** the board's columns, and your own card titles, notes and
   colours, in Chrome's sync storage, so they follow your Chrome profile.
   The order of the cards and a few view settings stay in this browser.

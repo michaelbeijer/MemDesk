@@ -187,6 +187,39 @@
     S.meta.set(note.messageId, note);
   }
 
+  // ── Pictures ─────────────────────────────────────────────────────────
+  //
+  // Each in a message of its own (notes-logic's pictures), read whole
+  // (format raw) and kept in the page by src/content/pictures.js.
+
+  // { type, data, trashed }, or null if there is no such picture.
+  async function picture(id) {
+    let msg;
+    try {
+      msg = await api.gmail('GET', `messages/${id}`, { format: 'raw' });
+    } catch (err) {
+      if (err.code === 'http_404' || err.code === 'http_400') return null;
+      throw err;
+    }
+    const p = notesLogic.pictureOfRaw(msg.raw);
+    return p && { type: p.type, data: p.data, trashed: (msg.labelIds || []).includes('TRASH') };
+  }
+
+  // A picture for a note, as a new message with no label: its id.
+  async function addPicture(account, { title, type, data }) {
+    const raw = notesLogic.buildPictureRaw({ pictureId: notesLogic.newNoteId(), title, type, data, account });
+    const made = await api.gmail('POST', 'messages', null, { raw, labelIds: [] });
+    return made.id;
+  }
+
+  const moveAll = how => ids => util.mapPool(ids, 4, id => api.gmail('POST', `messages/${id}/${how}`).catch(() => null));
+  const pictureIo = { readMany: list => api.gmailMany(list), trash: moveAll('trash'), untrash: moveAll('untrash') };
+
+  // To Trash and back out, only pictures of ours (picturesFlow): the ids
+  // moved.
+  const retirePictures = ids => util.runAsync(notesLogic.picturesFlow(ids, 'trash'), pictureIo);
+  const restorePictures = ids => util.runAsync(notesLogic.picturesFlow(ids, 'untrash'), pictureIo);
+
   // ── Folders ──────────────────────────────────────────────────────────
 
   async function move(note, folderId) {
@@ -228,5 +261,6 @@
   ns.notesStore = {
     resolveLabel, labelName, folders, list, body, save, retire, restore,
     move, createFolder, renameFolder, deleteFolder,
+    picture, addPicture, retirePictures, restorePictures,
   };
 })();

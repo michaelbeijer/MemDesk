@@ -19,6 +19,8 @@
 //   ?latency=MS            simulated round-trip time (default 120)
 //   ?showcase              tidy notes and a deeper folder tree instead of the
 //                          test notes, for the README's pictures
+//   ?pictures              one more note, with two pictures in it (one of
+//                          them in Trash)
 //   ?calendar=signin       the calendar asks to connect first
 //   ?calendar=notasks      Google Tasks was not allowed when connecting
 //   ?calendar=failwrite    every change to an event or a task fails with a 500
@@ -39,6 +41,7 @@
   const PAGE_CAP = Number(params.get('page') || 0);
   const FRESH = params.has('fresh');
   const SHOWCASE = params.has('showcase');
+  const PICTURES = params.has('pictures');
   const ACCOUNT = SHOWCASE ? 'sam@example.com' : 'test@example.com';
   const CALENDAR = params.get('calendar') || '';
 
@@ -321,6 +324,30 @@
       snippet: text.replace(/\s+/g, ' ').slice(0, 140),
     });
   }
+  // Two small pictures for notes, each a message of its own with no label
+  // (notes-logic's pictures); the whole message is built when it is asked
+  // for (format raw), by the notes code itself.
+  const SEED_PICTURES = {
+    sketch: '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',
+    colours: 'iVBORw0KGgoAAAANSUhEUgAAAMgAAAB4CAMAAACATE3ZAAADAFBMVEX///8LV9D5qwAejj6TNOYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABZRA4BAAAAfUlEQVR42u3PqQEAMAzEsPTZf+aCLHC4kbGJqiRJ0pettN53Wu8nrfebBgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIyGiJJ0twea6+hw8ktThIAAAAASUVORK5CYII=',
+  };
+  function seedPicture(pictureId, data, hoursAgo, labelIds = []) {
+    const msg = addMessageThread({
+      hoursAgo,
+      labelIds,
+      headers: [{ name: 'Subject', value: 'Picture in a note' }, { name: NOTE_HEADER, value: pictureId }, { name: 'X-Gkb-Picture', value: '1' }],
+      payload: {
+        mimeType: 'multipart/mixed',
+        parts: [{ mimeType: 'image/png', headers: [{ name: 'Content-Type', value: 'image/png' }], body: { data: b64url(atob(data)) } }],
+      },
+      snippet: 'A picture in one of your notes',
+    });
+    msg.picture = { pictureId, type: 'image/png', data };
+    return msg;
+  }
+  const pictureDiv = (msg, width = 0) =>
+    `<div data-gkb-picture="${msg.id}"${width ? ` data-width="${width}"` : ''}><span data-glyph="1">[Picture]</span></div>`;
+
   const ck = (done, text, sub = '') =>
     `<li data-checked="${done ? 1 : 0}"><span data-glyph="1">${done ? '\u2611' : '\u2610'}&nbsp;</span>${text}${sub}</li>`;
   const checks = (...items) => `<ul data-check="1">${items.join('')}</ul>`;
@@ -405,6 +432,14 @@
       'Tips on termbase hygiene\nA short piece on patent claim punctuation\nReader question: CAT tools and Markdown', 5, notesLabel, work);
     seedNote('rateschedule00000003', 'Rate schedule 2027 – draft',
       'Per-word rates, minimum charge, rush surcharge.\nRevisit in December. ✓', 200, notesLabel);
+    if (PICTURES) {
+      // The second picture is in Trash, though the note still has it.
+      const sketch = seedPicture('standsketch00000001', SEED_PICTURES.sketch, 2);
+      const colours = seedPicture('standcolours0000002', SEED_PICTURES.colours, 2, ['TRASH']);
+      seedRich('tradefairstand0005', 'Trade fair stand',
+        `<p>Layout as agreed with Lukas:</p>${pictureDiv(sketch, 50)}<p>Colours for the banner:</p>${pictureDiv(colours)}<p>Print by the 20th.</p>`,
+        1, [notesLabel]);
+    }
     // One written with formatting: the HTML part is the record.
     addMessageThread({
       hoursAgo: 30,
@@ -517,6 +552,10 @@
   const changed = () => window.dispatchEvent(new CustomEvent('fakegmail:change'));
 
   const box = {
+    // What fails for now, switched by the browser tests: 'insert' (every
+    // insert), 'note' (a note's, not a picture's), 'picture' (reading one).
+    failing: new Set(),
+
     profile() {
       return { emailAddress: ACCOUNT, messagesTotal: 4242, threadsTotal: threads.size, historyId: String(historyCounter) };
     },
@@ -673,6 +712,13 @@
       const msg = box.findMessage(id);
       const base = { id: msg.id, threadId: msg.threadId, labelIds: msg.labelIds.slice(), historyId: msg.historyId, internalDate: msg.internalDate, snippet: msg.snippet };
       if (query.format === 'full') return { ...base, payload: structuredClone(msg.payload) };
+      // The message as it was inserted (only those are asked for whole).
+      if (query.format === 'raw') {
+        if (box.failing.has('picture')) throw new HttpError(500, 'Backend Error');
+        const p = msg.picture;
+        const raw = msg.raw || (p ? window.gkb.notesLogic.buildPictureRaw({ pictureId: p.pictureId, title: '', type: p.type, data: p.data, account: ACCOUNT }) : '');
+        return { ...base, raw };
+      }
       const wanted = [].concat(query.metadataHeaders || []).map(x => x.toLowerCase());
       return { ...base, payload: { headers: msg.payload.headers.filter(hd => !wanted.length || wanted.includes(hd.name.toLowerCase())) } };
     },
@@ -681,8 +727,9 @@
     // headers unfolded and decoded, each base64 part stored as its bytes,
     // multipart/alternative split into its parts.
     insertMessage(body) {
-      if (FAIL === 'insert') throw new HttpError(500, 'Backend Error');
       const notes = window.gkb.notesLogic;
+      if (FAIL === 'insert' || box.failing.has('insert')) throw new HttpError(500, 'Backend Error');
+      if (box.failing.has('note') && !notes.isPictureRaw(body.raw)) throw new HttpError(500, 'Backend Error');
       const parse = bin => {
         const split = bin.indexOf('\r\n\r\n');
         const head = bin.slice(0, split).replace(/\r\n[ \t]+/g, ' ');
@@ -713,6 +760,7 @@
         historyId: String(historyCounter++),
         internalDate: String(Date.now()),
         payload,
+        raw: body.raw,
       };
       msg.snippet = messageText(msg).replace(/\s+/g, ' ').trim().slice(0, 140);
       threads.set(threadId, { id: threadId, historyId: msg.historyId, messages: [msg] });
@@ -763,6 +811,12 @@
     findMessageBySubject(subject) {
       const found = box.allMessages().filter(x => header(x, 'Subject') === subject && !x.labelIds.includes('TRASH'));
       return found.length ? found[found.length - 1].id : '';
+    },
+    // The pictures in notes: each one's message id, labels and type.
+    pictures() {
+      const typeOf = x => ((x.payload.parts || []).find(p => /^image\//.test(p.mimeType)) || {}).mimeType || '';
+      return box.allMessages().filter(x => header(x, 'X-Gkb-Picture'))
+        .map(x => ({ id: x.id, labels: box.messageLabelNames(x.id), type: typeOf(x), subject: header(x, 'Subject') }));
     },
     messageText(id) { return messageText(box.findMessage(id)); },
     messageHtml(id) { return messagePart(box.findMessage(id), 'text/html'); },
@@ -1135,6 +1189,8 @@
       type: msg.type, method: msg.method, service: msg.service, path: msg.path, at: Date.now(),
       query: msg.type === 'google' ? msg.query : undefined,
       body: msg.type === 'google' ? msg.body : undefined, etag: msg.type === 'google' ? msg.etag : undefined,
+      // How much a request to Gmail sends: a note's save, without its pictures.
+      size: msg.type === 'gmail' && msg.body ? JSON.stringify(msg.body).length : undefined,
     });
     switch (msg.type) {
       case 'gmail': {
