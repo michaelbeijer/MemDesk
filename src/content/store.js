@@ -43,10 +43,17 @@
 
   let layout = null;
 
+  // The labels are read afresh with the layout, for the board's load that
+  // follows. The board's own label keeps its id through a rename, so once
+  // it is known the two are asked for side by side: one wait, not two (in
+  // the phone app, a round trip to the script each).
   async function readLayout(columns) {
-    if (!S.labelsAt) await refreshLabels();
-    const rootId = labelId(logic.labelRoot(columns));
-    const found = rootId ? await api.layoutRead(rootId, layout ? layout.id : '') : null;
+    const root = logic.labelRoot(columns);
+    const known = labelId(root);
+    const ask = id => api.layoutRead(id, layout ? layout.id : '');
+    const [, early] = await Promise.all([refreshLabels(), known ? ask(known) : null]);
+    const rootId = labelId(root);
+    const found = !rootId ? null : rootId === known ? early : await ask(rootId);
     if (!found) {
       layout = null;
       return null;
@@ -150,6 +157,11 @@
     S.labelsAt = Date.now();
   }
 
+  // Labels read this long ago are still fresh enough for the board's load
+  // to use rather than read again: they were read with the layout, just
+  // before it (readLayout).
+  const LABELS_FRESH_MS = 15 * 1000;
+
   function allLabels() {
     return [...S.labels.values()];
   }
@@ -212,6 +224,16 @@
     return S.meta.get(id) || null;
   }
 
+  // What the phone app's board last showed (board.js fromCopy), drawn
+  // before Gmail answers. The labels give the cards their colours, but
+  // nothing that changes Gmail goes by them: S.labelsAt stays 0, so those
+  // read the labels first. The threads' summaries are re-read only once
+  // Gmail says a thread has changed (its historyId), as for any other.
+  function adopt({ labels, threads }) {
+    if (!S.labelsAt) S.labels = new Map((labels || []).map(l => [String(l.name).toLowerCase(), l]));
+    for (const t of threads || []) if (t && t.id && !S.meta.has(t.id)) S.meta.set(t.id, t);
+  }
+
   // Fetches metadata only for threads that are new to the cache or whose
   // historyId moved. On a warm refresh of an unchanged board that is zero
   // calls beyond the one list per column.
@@ -220,6 +242,8 @@
       const m = S.meta.get(t.id);
       return !m || (t.historyId && m.historyId !== String(t.historyId));
     });
+    // Nothing new: no call at all (in the phone app, a round trip saved).
+    if (!need.length) return;
     const results = await api.gmailMany(need.map(t => ['GET', `threads/${t.id}`, {
       format: 'metadata',
       // To and Cc: whether a message of the user's own went to anyone else.
@@ -261,8 +285,9 @@
     // thread back in the column it is leaving.
     await Promise.allSettled([...S.pending]);
     // Renames first: ensuring labels by their stale names would recreate
-    // the old ones, empty.
-    await refreshLabels();
+    // the old ones, empty. Read a moment ago with the layout, they need
+    // not be read again.
+    if (Date.now() - S.labelsAt > LABELS_FRESH_MS) await refreshLabels();
     let columns = await syncColumnLabels(account, columnsIn);
     await ensureLabels(columns.map(c => c.label));
     columns = await syncColumnLabels(account, columns);
@@ -347,6 +372,6 @@
   ns.store = {
     bus, loadColumns, saveColumns, loadOrder, saveOrder, loadCardEdits, saveCardEdit, loadDockPlace,
     refreshLabels, ensureLabels, renameLabel, labelId, allLabels,
-    thread, loadBoard, moveToColumn, removeFromBoard, search, threadColumn,
+    thread, adopt, loadBoard, moveToColumn, removeFromBoard, search, threadColumn,
   };
 })();

@@ -456,10 +456,10 @@ await r.step('pictures on the phone: read through the script; one picked from th
 // mailbox. `hold`: the script answers nothing until let go, as Apps Script
 // taking its time. `saves: false`: saves never get through, as a page the
 // phone closes before they could.
-async function visit(ctx, { hold = false, saves = true } = {}) {
+async function visit(ctx, { hold = false, saves = true, fake = phone.fake, refuse = [] } = {}) {
   const p = await ctx.newPage();
   watchErrors(p, errors);
-  const at = new Phone({ fake: phone.fake });
+  const at = new Phone({ fake });
   let release;
   const gate = new Promise(res => { release = res; });
   if (!hold) release();
@@ -468,6 +468,7 @@ async function visit(ctx, { hold = false, saves = true } = {}) {
     calls.push(fn);
     if (fn === 'appSave' && !saves) await new Promise(() => {});
     await gate;
+    if (refuse.includes(fn)) throw new Error('Gmail could not be reached.');
     return at.server(fn, ...args);
   });
   await p.addInitScript(installGoogle);
@@ -701,6 +702,120 @@ await r.step('tapping a card opens the conversation in Gmail; the app remembers 
   assert.equal(await q(page, '[data-key="view:board"]').getAttribute('aria-selected'), 'true');
   await q(page, '[data-key="view:notes"]').tap();
   await scratchReady(page);
+});
+
+await r.step('the board opens on the phone’s copy at once, and Gmail catches it up behind it in three calls, not five', async () => {
+  const own = new Phone(); // a mailbox of its own: a card is moved in it
+  const ctx = await phoneContext();
+  const board = v => v.calls.filter(fn => /^(appBoardGmail|appBoardGmailMany|appLayout)$/.test(fn)).sort();
+
+  // The first time there is nothing to show until Gmail has answered: the
+  // labels, read once, the layout, the columns' lists, and their cards.
+  const first = await visit(ctx, { fake: own.fake });
+  await scratchReady(first.page);
+  await settled(first.page);
+  await q(first.page, '[data-key="view:board"]').tap();
+  await q(first.page, '.card .subject').first().waitFor();
+  await settled(first.page);
+  assert.deepEqual(board(first), ['appBoardGmail', 'appBoardGmailMany', 'appBoardGmailMany', 'appLayout']);
+  await first.page.close();
+
+  // Moved on another device while the app was closed.
+  const id = own.fake.box.findThread('Termbase export');
+  const labelOf = name => plain(own.fake.box.labelByName(name)).id;
+  own.server('appBoardGmail', 'POST', `threads/${id}/modify`, null,
+    { addLabelIds: [labelOf('_Board/Done')], removeLabelIds: [labelOf('_Board/Doing')] });
+
+  // The next time, the board as it was, before the script has answered
+  // anything; the labels and the layout are asked for side by side.
+  const next = await visit(ctx, { hold: true, fake: own.fake });
+  await q(next.page, '.card .subject').first().waitFor();
+  assert.equal(await next.page.locator('#boot').count(), 0, 'no loading line');
+  assert.equal(await q(next.page, '[data-key="view:board"]').getAttribute('aria-selected'), 'true');
+  assert.ok((await cardTitles(next.page, 'Doing')).includes('Termbase export won’t open'), 'where it was');
+  assert.match(await q(next.page, '[aria-label="Refresh"]').getAttribute('class'), /spinning/, 'and catching up');
+  await until(async () => next.calls.includes('appBoardGmail') && next.calls.includes('appLayout'), 'labels and layout asked for together');
+  assert.equal(next.calls.includes('appBoardGmailMany'), false, 'the lists wait for the layout');
+  next.release();
+  await until(async () => (await cardTitles(next.page, 'Done')).includes('Termbase export won’t open'), 'caught up');
+  assert.ok(!(await cardTitles(next.page, 'Doing')).includes('Termbase export won’t open'));
+  await settled(next.page);
+  // Only the card that moved is read again.
+  assert.deepEqual(board(next), ['appBoardGmail', 'appBoardGmailMany', 'appBoardGmailMany', 'appLayout']);
+  await next.page.close();
+
+  // Nothing changed since: no cards read at all, three calls in all.
+  const third = await visit(ctx, { fake: own.fake });
+  await q(third.page, '.card .subject').first().waitFor();
+  await settled(third.page);
+  assert.deepEqual(board(third), ['appBoardGmail', 'appBoardGmailMany', 'appLayout']);
+  assert.ok((await cardTitles(third.page, 'Done')).includes('Termbase export won’t open'));
+  await ctx.close();
+});
+
+await r.step('the board’s copy is used only by its own account and version; with Gmail out of reach it stays, with a message', async () => {
+  const own = new Phone();
+  const ctx = await phoneContext();
+  const first = await visit(ctx, { fake: own.fake });
+  await scratchReady(first.page);
+  await q(first.page, '[data-key="view:board"]').tap();
+  await q(first.page, '.card .subject').first().waitFor();
+  await settled(first.page);
+  const kept = await first.page.evaluate(() => localStorage.getItem('memdesk.board'));
+  assert.ok(kept, 'kept on the phone');
+
+  // Another version's copy, or another account's: the placeholders until
+  // Gmail answers, not the copy.
+  for (const change of [{ version: '0.0.1' }, { account: 'someone@example.org' }]) {
+    await first.page.evaluate(([text, c]) => localStorage.setItem('memdesk.board', JSON.stringify(Object.assign(JSON.parse(text), c))), [kept, change]);
+    const v = await visit(ctx, { hold: true, fake: own.fake });
+    await q(v.page, '.skeleton').first().waitFor();
+    assert.equal(await q(v.page, '.card').count(), 0, JSON.stringify(change));
+    v.release();
+    await q(v.page, '.card .subject').first().waitFor();
+    await settled(v.page);
+    await v.page.close();
+  }
+  await first.page.close();
+
+  // The script out of reach for the board: its cards as they were, and a
+  // message saying why they are not newer.
+  const off = await visit(ctx, { fake: own.fake, refuse: ['appBoardGmail', 'appLayout'] });
+  await q(off.page, '.card .subject').first().waitFor();
+  await until(async () => /Couldn’t load the board: Gmail could not be reached/.test(await q(off.page, '.toast').innerText().catch(() => '')), 'the message');
+  assert.equal(await q(off.page, '.skeleton').count(), 0);
+  assert.ok((await cardTitles(off.page, 'To do')).length > 0, 'the cards stay');
+  await ctx.close();
+});
+
+await r.step('a board of more than 200 cards: every one shows, read from the script in turns of 200', async () => {
+  const own = new Phone();
+  const box = own.fake.box;
+  for (const name of ['_Board/To do', '_Board/Waiting', '_Board/Done']) {
+    const label = plain(box.labelByName(name)).id;
+    for (let i = 0; i < 90; i++) {
+      const text = `From: Client ${i} <client${i}@example.net>\r\nTo: test@example.com\r\nSubject: ${name.slice(7)} job ${i}\r\n` +
+        `Content-Type: text/plain; charset=UTF-8\r\n\r\n${Buffer.from(`About job ${i}.`).toString('base64')}`;
+      box.insertMessage({ raw: Buffer.from(text).toString('base64url'), labelIds: [label] });
+    }
+  }
+  const ctx = await phoneContext();
+  const v = await visit(ctx, { fake: own.fake });
+  await scratchReady(v.page);
+  await settled(v.page);
+  await q(v.page, '[data-key="view:board"]').tap();
+  await q(v.page, '.card .subject').first().waitFor();
+  await settled(v.page);
+  // Each column as Gmail lists it (up to 100), each thread in one column.
+  const listed = new Set();
+  for (const name of ['To do', 'Doing', 'Waiting', 'Done']) {
+    const label = plain(box.labelByName(`_Board/${name}`)).id;
+    for (const t of plain(own.server('appBoardGmail', 'GET', 'threads', { labelIds: label, maxResults: 100 })).threads) listed.add(t.id);
+  }
+  assert.ok(listed.size > 200, `a big board (${listed.size})`);
+  assert.equal(await q(v.page, '.card').count(), listed.size, 'every card');
+  assert.equal(v.calls.filter(fn => fn === 'appBoardGmailMany').length, 3, 'the lists, then the cards in two turns');
+  await ctx.close();
 });
 
 // A finger dragged sideways across the calendar's days.

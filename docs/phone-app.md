@@ -48,7 +48,9 @@ See [Notes](notes.md) for the editor, folders and search.
 
 ## The board
 
-One column fills the screen: swipe sideways for the next. A card's **⋯**
+One column fills the screen: swipe sideways for the next. The board opens
+as you last saw it on this phone, at once, and catches up with Gmail a
+moment later; **Updating…** at the top says it is still doing so. A card's **⋯**
 opens it in Gmail, moves it to another column, edits its title, note and
 colour, or takes it off the board. The **+** on a column finds an email and
 adds it, and the settings button changes the columns.

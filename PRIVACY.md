@@ -88,7 +88,10 @@ Google.
   In your phone's browser,
   the phone app keeps which folders you have folded and which calendars you
   show, and, so that it opens at once, a copy of your Scratchpad, of the
-  list of your notes (titles and first lines) and of the app's settings,
+  list of your notes (titles and first lines), of the board as it last
+  showed (each card's subject, sender, date, first line and labels, your
+  labels' names and colours, and your own titles, notes and colours on
+  cards) and of the app's settings,
   plus any Scratchpad text not saved yet. That copy never leaves the phone,
   and is replaced each time the app hears from Gmail. The app's copy of the
   board's layout, and its card edits, are kept in the script's settings for
