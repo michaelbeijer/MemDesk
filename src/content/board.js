@@ -9,8 +9,9 @@
 //
 // The phone app (addon/app) runs this same board as the app itself rather
 // than over Gmail: it sets ns.boardFrame - where to draw, the tab to start
-// on, and what the notes need from it - and there is then nothing to
-// close, and no Gmail page behind to keep the keyboard out of.
+// on, what the notes need from it, and a copy of the board as last shown,
+// to draw at once - and there is then nothing to close, and no Gmail page
+// behind to keep the keyboard out of.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -238,12 +239,45 @@
 
   function showBoard() {
     if (blocked()) { render(); return; }
+    if (S.status !== 'ready') fromCopy();
     const stale = S.status !== 'ready' || Date.now() - S.loadedAt > STALE_MS;
     // Skeleton columns while a first (or retried) load runs, rather than
     // leaving an old "Connect Gmail" panel up after the user has connected.
     if (S.status !== 'ready') S.status = 'loading';
     render();
     if (stale) refresh();
+  }
+
+  // The phone app's copy of the board as it last showed it (frame.board):
+  // drawn at once, and caught up from Gmail behind it, since loadedAt
+  // says it was never loaded. Its cards can be moved meanwhile; a move
+  // makes the catching up start again (S.mutations).
+  function fromCopy() {
+    const copy = frame && frame.board ? frame.board.cached() : null;
+    if (!copy || !copy.lists) return;
+    store.adopt(copy);
+    const lists = {};
+    for (const col of S.columns) lists[col.id] = (copy.lists[col.id] || []).filter(id => store.thread(id));
+    S.lists = lists;
+    S.truncated = copy.truncated || {};
+    S.edits = new Map(copy.edits || []);
+    S.status = 'ready';
+    S.statusMessage = '';
+    S.loadedAt = 0;
+  }
+
+  // What is on the board now, for the phone app to keep (see fromCopy).
+  function keepCopy() {
+    if (!frame || !frame.board || S.status !== 'ready') return;
+    const ids = [...new Set(Object.values(S.lists).flat())];
+    frame.board.keep({
+      lists: S.lists,
+      truncated: S.truncated,
+      threads: ids.map(id => store.thread(id)).filter(Boolean),
+      // Only what the cards' colours need.
+      labels: store.allLabels().map(l => ({ id: l.id, name: l.name, type: l.type, color: l.color })),
+      edits: [...S.edits],
+    });
   }
 
   // An account panel left over from earlier is retried rather than shown
@@ -408,7 +442,6 @@
     let overtaken = false;
 
     S.loading = (async () => {
-      updateBar();
       try {
         S.columns = await store.loadColumns(S.account);
         const [board, saved, edits] = await Promise.all([
@@ -439,6 +472,7 @@
         // Saved directly, not via persistOrder: this prunes vanished ids
         // and is not a local move.
         store.saveOrder(S.account, S.lists, S.columns).catch(() => {});
+        keepCopy();
       } catch (err) {
         handleError(err, 'Couldn’t load the board');
       } finally {
@@ -450,6 +484,8 @@
       }
     })();
     const p = S.loading;
+    // "Updating…" once S.loading is set: not from inside, where it is not yet.
+    updateBar();
     return p.then(() => (overtaken ? refresh() : undefined));
   }
 
@@ -475,6 +511,7 @@
   function persistOrder() {
     S.mutations++;
     store.saveOrder(S.account, S.lists, S.columns).catch(() => {});
+    keepCopy();
   }
 
   // ── Rendering ────────────────────────────────────────────────────────
@@ -1705,6 +1742,7 @@
 
     if (edit) S.edits.set(ed.id, edit);
     else S.edits.delete(ed.id);
+    keepCopy();
     if (S.editor === ed) S.editor = null;
     renderEditor();
     render();

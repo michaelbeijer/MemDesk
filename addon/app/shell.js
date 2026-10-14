@@ -163,6 +163,8 @@
       focus: wide(),
       // The script's own access covers the calendar: nothing to connect.
       calendar: { prefs, connect: null },
+      // The board as it last showed, kept on the phone: drawn at once.
+      board: ns.appRemote.board,
       notes: {
         prefs,
         // Each step in goes on the history, so the back gesture can undo it;

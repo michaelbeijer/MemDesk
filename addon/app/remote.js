@@ -38,11 +38,14 @@
   // So that the app opens at once, this browser keeps what the notes need
   // before Gmail has answered: whose they are, the list (titles and first
   // lines), the scratchpad's text and the app's settings - and, apart,
-  // scratchpad text typed but not yet saved. The page opens on these, and
-  // Gmail's answers replace them a moment later. They never leave the phone.
+  // scratchpad text typed but not yet saved, and the board as it last
+  // showed (its cards, as board.js keepCopy gives them). The page opens on
+  // these, and Gmail's answers replace them a moment later. They never
+  // leave the phone.
 
   const COPY = 'memdesk.copy';
   const DRAFT = 'memdesk.draft';
+  const BOARD = 'memdesk.board';
   const readJson = key => {
     try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (err) { return null; }
   };
@@ -66,6 +69,7 @@
     kept.v = 1;
     writeJson(COPY, null);
     writeJson(DRAFT, null);
+    writeJson(BOARD, null);
   };
 
   // The listing's fields of a note, and nothing else.
@@ -275,6 +279,23 @@
     },
   };
 
+  // ── The board, as it last showed ─────────────────────────────────────
+  //
+  // Kept apart from the notes' copy, since the board changes on its own,
+  // and written as it changes. A copy from another version is not used: a
+  // newer one may sum up a card differently, and a card is only read again
+  // once it changes in Gmail.
+
+  const board = {
+    cached() {
+      const b = readJson(BOARD);
+      return b && b.version === ns.APP_VERSION && !!who.account && b.account === who.account ? b : null;
+    },
+    keep(shown) {
+      if (who.account) writeJson(BOARD, Object.assign({ version: ns.APP_VERSION, account: who.account }, shown));
+    },
+  };
+
   // ── The board's Gmail ────────────────────────────────────────────────
   //
   // appBoardGmail allows only what the board does with Gmail. Errors come
@@ -294,9 +315,16 @@
     });
   }
 
-  // A batch of reads in one round trip: a board's worth of cards at once.
+  // A batch of reads in one round trip: a board's worth of cards at once,
+  // up to the script's limit (BATCH_MAX in app-server.js), which takes no
+  // more: a bigger board's cards go in turns, rather than some being left
+  // out.
+  const BATCH_MAX = 200;
   async function gmailMany(list) {
-    const results = await call('appBoardGmailMany', list);
+    const results = [];
+    for (let i = 0; i < list.length; i += BATCH_MAX) {
+      results.push(...await call('appBoardGmailMany', list.slice(i, i + BATCH_MAX)));
+    }
     return results.map(r => (r && r.error ? { error: gmailError(r.error.message, r.error.status) } : r));
   }
 
@@ -336,7 +364,7 @@
   const layoutWrite = (rootLabelId, columns, replaces) => call('appSaveLayout', rootLabelId, columns, replaces || []);
 
   ns.api = { STATE_CODES: new Set(), gmail, gmailMany, googleMany, googleWrite, licence, layoutRead, layoutWrite };
-  ns.appRemote = { call, start, hasCopy, firstColumns };
+  ns.appRemote = { call, start, hasCopy, firstColumns, board };
 
   // ── chrome.storage, as the board uses it ─────────────────────────────
   //
