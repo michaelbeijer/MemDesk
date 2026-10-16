@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.36.0" src="https://img.shields.io/badge/version-0.36.0-6D28D9">
+  <img alt="Version 0.37.0" src="https://img.shields.io/badge/version-0.37.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -53,7 +53,8 @@ the board, and files it in a column without opening the board.
 ### 📝 Notes that live in Gmail
 
 Headings, bold and italics, lists, checklists you tick, links, tables you
-can sort, and pictures you size with a drag. Notes save as you type, and a
+can sort, boards of cards you drag between columns, and pictures you size
+with a drag. Notes save as you type, and a
 paste from Word, Google Docs, Excel, a web page or Markdown arrives
 formatted, a table as a table; paste a screenshot and it is in. Folders nest
 as deep as you like, and fold away when the tree gets long.
@@ -142,7 +143,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.36.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.37.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -343,6 +344,37 @@ computers. All of it is kept per Gmail account.
   which is how it fits on a phone. Cells copied from a spreadsheet and pasted
   into a cell fill the table from that cell on, adding rows and columns as
   needed. In Gmail a table shows as a table; in plain text, a row a line.
+- **Boards.** The board button on the toolbar (next to the table) puts a
+  little Kanban board in the note where the cursor is: three columns, **To
+  do**, **Doing** and **Done**, with the cursor in a first card in To do. A
+  note can hold as many boards as you like, each with its own columns. Type
+  straight into a card: **Enter** adds the next card below it (on an empty
+  card it ends the column instead, as on an empty list item, and the cursor
+  goes to the line under the board), **Shift+Enter** starts a new line in the
+  card, **Tab** goes on to the next column's title and cards, **Backspace** in
+  an empty card deletes it, and the arrow keys leave a card at its edges and
+  lead into and out of the board. Click a column's title to rename it.
+  Move a card by dragging it by its handle (the dots at its top right, shown
+  when the pointer is over the card; always on a phone, where a finger drags
+  it), or with **Alt** and the arrow keys: up and down its column, or left
+  and right into the next column at the same height. **Alt+Left** and
+  **Alt+Right** in a column's title move the whole column. Clicking a card's
+  handle opens its menu: insert a card above or below, move it up or down,
+  move it to the top of another column, or delete it. **Add a card** under a
+  column adds one at its foot, and **+** after the last column adds a column.
+  While the cursor is in a board, the **board bar** under the toolbar has the
+  same card menu, a **Column** menu (insert a column left or right, move it,
+  delete it, delete the board) and **Delete board**. **Ctrl+Z** straight
+  after any of these, or after a drag, takes it back; **Esc** during a drag
+  puts the card back at once. A board wider than the note scrolls sideways,
+  and while you drag a card near its edge it scrolls for you. Cards hold text
+  with bold, italic, strike-through and links; a title is one line. A board
+  holds up to 20 columns of up to 1,000 cards each; it stays quick into the
+  thousands of cards, and slows down near that limit. In Gmail a board shows
+  as columns of cards side by side; in plain text, each column's title with
+  its cards as bullets under it. If the same note is changed on two devices
+  at once and both changed the board, the note keeps both versions of the
+  board, one under the other, so nothing is lost.
 - **Pictures.** The picture button on the toolbar (on a phone: the photos or
   the camera), a paste of a picture copied on its own (a screenshot, "Copy
   image") or a picture dragged onto the note puts it in on a line of its own,

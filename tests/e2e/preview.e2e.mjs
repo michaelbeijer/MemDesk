@@ -1223,6 +1223,191 @@ try {
     await np.screenshot({ path: join(SCREENS, 'notes-table.png'), animations: 'disabled' });
   });
 
+  // ── Boards ──
+
+  // The board in the editor: each column's title, then its cards' text.
+  const boardGrid = () => np.locator('.ne-body .blk[data-type="board"]').first().evaluate(el =>
+    [...el.querySelectorAll('[data-gkb-column]')].map(c => [c.querySelector('[data-gkb-title]').innerText.replace(/\n$/, ''),
+      ...[...c.querySelectorAll('[data-gkb-card]')].map(t => t.innerText.replace(/\n$/, ''))]));
+  const boards = () => np.locator('.ne-body .blk[data-type="board"]').count();
+  // The title or card with the cursor: ['title' or 'card', its text].
+  const inBoard = () => np.evaluate(() => {
+    const a = document.getElementById('gkb-board-host').shadowRoot.activeElement;
+    if (!a || !a.dataset) return null;
+    const kind = a.dataset.gkbTitle !== undefined ? 'title' : a.dataset.gkbCard !== undefined ? 'card' : null;
+    return kind && [kind, a.innerText.replace(/\n$/, '')];
+  });
+  // A card's text, and the card it is in, by how its text starts.
+  const cardText = text => np.locator('.ne-body [data-gkb-card]', { hasText: new RegExp(`^${text}`) });
+  const cardBox = text => np.locator('.ne-body .kb-card', { has: np.locator('[data-gkb-card]', { hasText: new RegExp(`^${text}`) }) });
+  const gripOf = text => cardBox(text).locator('.kb-grip');
+  // A card dragged by its handle with the mouse to a point, by way of a
+  // few moves.
+  async function dragCard(text, to, { escape = false } = {}) {
+    await cardBox(text).hover();
+    const g = await gripOf(text).boundingBox();
+    await np.mouse.move(g.x + g.width / 2, g.y + g.height / 2);
+    await np.mouse.down();
+    await np.mouse.move(g.x + g.width / 2 + 12, g.y + g.height / 2 + 6, { steps: 3 });
+    await np.mouse.move(to.x, to.y, { steps: 12 });
+    if (escape) await np.keyboard.press('Escape');
+    await np.mouse.up();
+  }
+  const columnBox = k => np.locator('.ne-body .kb-col').nth(k).boundingBox();
+
+  await r.step('a board from the toolbar: To do, Doing and Done; Enter adds a card, Tab goes on, Shift+Enter a line in a card; it saves as columns Gmail shows', async () => {
+    await np.locator('[data-key="note-new"]').click();
+    await np.locator('[data-key="note-title"]').fill('Week plan');
+    await np.locator('[data-key="note-title"]').press('Enter');
+    await np.keyboard.type('This week:');
+    await np.keyboard.press('Enter');
+    assert.equal(await np.locator('.ne-boardbar').isHidden(), true, 'no board bar outside a board');
+    await np.locator('[data-key="fmt-board"]').click();
+    assert.deepEqual(await inBoard(), ['card', ''], 'the cursor in an empty card in To do');
+    assert.deepEqual(await blocks(np).then(b => b.map(x => x[0])), ['p', 'board', 'p'], 'in place of the empty line, a line after it');
+    await until(() => np.locator('.ne-boardbar').isVisible(), 'the board bar');
+    assert.equal(await np.locator('.ne-tablebar').isHidden(), true);
+    for (const k of ['fmt-ul', 'fmt-table', 'fmt-board', 'fmt-style']) assert.equal(await np.locator(`[data-key="${k}"]`).isDisabled(), true, `no ${k} in a board`);
+    await keys(['Ring the printer', 'Enter', 'Quote for Ingrid']);
+    await np.keyboard.press('Shift+Enter');
+    await keys(['by Friday', 'Tab', 'Enter', 'Patent EP 3 456 789', 'Tab', 'Enter', 'Invoice sent', 'Enter', 'Order business cards']);
+    assert.deepEqual(await boardGrid(), [['To do', 'Ring the printer', 'Quote for Ingrid\nby Friday'], ['Doing', 'Patent EP 3 456 789'],
+      ['Done', 'Invoice sent', 'Order business cards']]);
+    await np.keyboard.press('Control+s');
+    await savedSoon();
+    const id = await gm('findMessageBySubject', 'Week plan');
+    const html = await gm('messageHtml', id);
+    assert.match(html, /<p[^>]*>This week:<\/p>\n<table data-gkb-board="1"[^>]*><tbody><tr><td data-gkb-column="1"[^>]*><div data-gkb-title="1"[^>]*>To do<\/div><div data-gkb-card="1"[^>]*>Ring the printer<\/div>/);
+    assert.match(html, /Quote for Ingrid<br>by Friday/);
+    assert.doesNotMatch(html, /Add a card|class=|contenteditable/, 'none of the editor’s buttons or markup');
+    assert.match(await gm('messageText', id), /This week:\nTo do:\n {2}• Ring the printer\n {2}• Quote for Ingrid by Friday\nDoing:\n {2}• Patent EP 3 456 789\nDone:\n {2}• Invoice sent\n {2}• Order business cards/,
+      'plain text: each column with its cards as bullets');
+  });
+
+  await r.step('cards move with Alt and the arrow keys, by their handle and from their menu; Ctrl+Z takes a move back, Escape a drag', async () => {
+    await cardText('Ring the printer').click();
+    await np.keyboard.press('Alt+ArrowDown');
+    assert.deepEqual((await boardGrid())[0], ['To do', 'Quote for Ingrid\nby Friday', 'Ring the printer']);
+    await np.keyboard.press('Alt+ArrowRight');
+    assert.deepEqual((await boardGrid()).slice(0, 2), [['To do', 'Quote for Ingrid\nby Friday'], ['Doing', 'Patent EP 3 456 789', 'Ring the printer']],
+      'into the next column at the same height');
+    assert.deepEqual(await inBoard(), ['card', 'Ring the printer'], 'still typing in the card moved');
+    await np.keyboard.press('Control+z');
+    assert.deepEqual((await boardGrid())[0], ['To do', 'Quote for Ingrid\nby Friday', 'Ring the printer'], 'Ctrl+Z: back');
+    // Alt+Left in the first column: nothing - and not the browser's Back.
+    const url = np.url();
+    await cardText('Ring the printer').click();
+    await np.keyboard.press('Alt+ArrowLeft');
+    await np.waitForTimeout(150);
+    assert.equal(np.url(), url);
+    assert.deepEqual((await boardGrid())[0], ['To do', 'Quote for Ingrid\nby Friday', 'Ring the printer']);
+
+    // Dragged by its handle, below the last card in Done.
+    const done = await columnBox(2);
+    await dragCard('Ring the printer', { x: done.x + done.width / 2, y: done.y + done.height - 4 });
+    assert.deepEqual((await boardGrid())[2], ['Done', 'Invoice sent', 'Order business cards', 'Ring the printer']);
+    assert.deepEqual(await inBoard(), ['card', 'Ring the printer'], 'the cursor in it once dropped');
+    await np.keyboard.press('Control+z');
+    assert.deepEqual((await boardGrid())[0], ['To do', 'Quote for Ingrid\nby Friday', 'Ring the printer'], 'the drag undone');
+    // Between two cards, in another column.
+    const invoice = await cardBox('Invoice sent').boundingBox();
+    await dragCard('Quote for Ingrid', { x: invoice.x + invoice.width / 2, y: invoice.y + invoice.height + 2 });
+    assert.deepEqual((await boardGrid())[2], ['Done', 'Invoice sent', 'Quote for Ingrid\nby Friday', 'Order business cards']);
+    // Escape during a drag: it goes back at once.
+    const doing = await columnBox(1);
+    await dragCard('Invoice sent', { x: doing.x + doing.width / 2, y: doing.y + doing.height - 4 }, { escape: true });
+    assert.deepEqual((await boardGrid())[2], ['Done', 'Invoice sent', 'Quote for Ingrid\nby Friday', 'Order business cards'], 'Escape: not moved');
+    // The button let go outside the window, where the page cannot see it:
+    // the next move, with no button down, ends the drag where it is.
+    await np.evaluate(() => document.addEventListener('pointerdown', e => { window.__pid = e.pointerId; }, { once: true, capture: true }));
+    await cardBox('Invoice sent').hover();
+    const ig = await gripOf('Invoice sent').boundingBox();
+    await np.mouse.move(ig.x + ig.width / 2, ig.y + ig.height / 2);
+    await np.mouse.down();
+    await np.mouse.move(doing.x + doing.width / 2, doing.y + doing.height - 4, { steps: 8 });
+    await np.evaluate(() => document.dispatchEvent(new PointerEvent('pointermove',
+      { pointerId: window.__pid, pointerType: 'mouse', isPrimary: true, buttons: 0, clientX: 5, clientY: 5, bubbles: true })));
+    assert.equal(await np.locator('.ne-body .kb-dragging').count(), 0, 'the drag is over');
+    await np.mouse.move(done.x + done.width / 2, done.y + done.height - 4, { steps: 4 });
+    await np.mouse.up();
+    assert.deepEqual((await boardGrid())[1], ['Doing', 'Patent EP 3 456 789', 'Invoice sent'], 'left where it was, not carried on by the mouse');
+    await np.keyboard.press('Control+z');
+    assert.deepEqual((await boardGrid())[2], ['Done', 'Invoice sent', 'Quote for Ingrid\nby Friday', 'Order business cards']);
+
+    // The handle clicked: the card's menu.
+    await cardBox('Patent EP 3 456 789').hover();
+    await gripOf('Patent EP 3 456 789').click();
+    await np.locator('.menu').waitFor();
+    assert.match(await np.locator('.menu').innerText(), /Move to\s+To do\s+Doing\s+Done\s+Delete card/);
+    await np.locator('.menu [data-key="card-to:0"]').click();
+    assert.deepEqual((await boardGrid()).slice(0, 2), [['To do', 'Patent EP 3 456 789', 'Ring the printer'], ['Doing']], 'to the top of To do');
+    assert.deepEqual(await inBoard(), ['card', 'Patent EP 3 456 789']);
+    // An empty card: Backspace deletes it; Enter on one leaves the board below it.
+    await np.locator('[data-key="board-card"]').click();
+    await np.locator('.menu [data-key="card-below"]').click();
+    assert.deepEqual(await inBoard(), ['card', ''], 'a new card below, the cursor in it');
+    await np.keyboard.press('Backspace');
+    assert.deepEqual((await boardGrid())[0], ['To do', 'Patent EP 3 456 789', 'Ring the printer']);
+    assert.deepEqual(await inBoard(), ['card', 'Patent EP 3 456 789'], 'the cursor to the card above');
+    await cardText('Ring the printer').click();
+    await keys(['Enter', 'Enter']);
+    assert.equal(await inBoard(), null, 'out of the board');
+    assert.deepEqual((await boardGrid())[0], ['To do', 'Patent EP 3 456 789', 'Ring the printer'], 'and no empty card left behind');
+    await keys(['After the board']);
+    await np.keyboard.press('Home');
+    await np.keyboard.press('ArrowUp');
+    assert.deepEqual(await inBoard(), ['card', 'Ring the printer'], 'up into the foot of the first column');
+  });
+
+  await r.step('columns: added, moved, deleted; the board bar deletes the board and Ctrl+Z brings it back; it opens again as saved, and search passes its buttons by', async () => {
+    await np.locator('.ne-body [data-key="board-add-column"]').click();
+    assert.deepEqual(await inBoard(), ['title', ''], 'a new column at the end, its title to type');
+    await keys(['Waiting']);
+    await np.locator('[data-key="board-column"]').click();
+    await np.locator('.menu [data-key="board-col-move-left"]').click();
+    assert.deepEqual((await boardGrid()).map(c => c[0]), ['To do', 'Doing', 'Waiting', 'Done']);
+    await np.keyboard.press('Alt+ArrowLeft');
+    assert.deepEqual((await boardGrid()).map(c => c[0]), ['To do', 'Waiting', 'Doing', 'Done'], 'Alt+Left in a title moves the column');
+    assert.deepEqual(await inBoard(), ['title', 'Waiting']);
+    await np.keyboard.press('Alt+ArrowRight');
+    await np.locator('.ne-body .kb-col').nth(2).locator('[data-key="board-add-card"]').click();
+    await keys(['Reply from Sam']);
+    assert.deepEqual((await boardGrid())[2], ['Waiting', 'Reply from Sam']);
+    await np.locator('[data-key="board-column"]').click();
+    await np.locator('.menu [data-key="board-col-delete"]').click();
+    assert.deepEqual((await boardGrid()).map(c => c[0]), ['To do', 'Doing', 'Done']);
+    assert.deepEqual(await inBoard(), ['title', 'Done'], 'the cursor to the column that took its place');
+    await np.keyboard.press('Control+z');
+    assert.deepEqual((await boardGrid())[2], ['Waiting', 'Reply from Sam'], 'back with its card');
+
+    const grid = await boardGrid();
+    await cardText('Reply from Sam').click();
+    const bar = np.locator('[data-key="fmt-board-delete"]');
+    assert.equal(await bar.innerText(), 'Delete board');
+    await bar.click();
+    await until(async () => (await boards()) === 0, 'deleted from the bar');
+    assert.equal(await np.locator('.ne-boardbar').isVisible(), false, 'no board bar without a board');
+    await np.keyboard.press('Control+z');
+    await until(async () => (await boards()) === 1, 'back with Ctrl+Z');
+    assert.deepEqual(await boardGrid(), grid, 'as it was');
+    await np.keyboard.press('Control+s');
+    await savedSoon();
+    await np.locator('.note-item', { hasText: 'Launch checklist' }).click();
+    await np.locator('.note-item', { has: np.locator('.ni-title', { hasText: /^Week plan$/ }) }).click();
+    await np.locator('.ne-body [data-gkb-card]').first().waitFor();
+    assert.deepEqual(await boardGrid(), grid, 'opened again from what Gmail has');
+
+    // "card" is on every column's button, and in one card: one match.
+    const search = np.locator('[data-key="notes-search"]');
+    await search.fill('card');
+    await until(async () => (await noteTitles()).includes('Week plan'), 'found by its card');
+    await until(async () => (await np.locator('.ne-find .find-pos').innerText()) === '1 of 1', 'one match, not the buttons');
+    await np.locator('[data-key="find-clear"]').click();
+    await until(async () => (await noteTitles()).length > 1, 'search cleared');
+    await np.mouse.move(0, 0);
+    await np.screenshot({ path: join(SCREENS, 'notes-board.png'), animations: 'disabled' });
+  });
+
   // ── Folders ──
 
   const folderId = name => np.locator('.folder-row', { has: np.locator('.folder-title', { hasText: new RegExp(`^${name}$`) }) })

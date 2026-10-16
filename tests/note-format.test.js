@@ -602,3 +602,92 @@ test('merge: a picture added on one side and another removed on the other both s
   assert.equal(clean, true);
   assert.deepEqual(fmt.pictureSrcs(doc), ['bbbbbbbbbbbb']);
 });
+
+// ── Boards ───────────────────────────────────────────────────────────
+
+const Col = (title, ...cards) => ({ title: title ? [T(title)] : [], cards: cards.map(c => ({ runs: typeof c === 'string' ? (c ? [T(c)] : []) : c })) });
+const Board = (...cols) => fmt.board(cols);
+const cardsOf = b => b.columns.map(c => [c.title.map(x => x.text).join(''), ...c.cards.map(k => k.runs.map(x => x.text).join(''))]);
+const boardOf = doc => doc.find(b => b.type === 'board');
+
+test('boards: HTML out and back - titles, cards with marks, links and lines, empty cards and columns', () => {
+  const b = Board(
+    Col('To do', [T('Call '), T('Sam', { b: true })], [T('two'), T('\nlines')], ''),
+    Col('Doing', [T('Patent '), T('EP 123', { href: 'https://example.com/ep?a=1&b=2' })]),
+    Col(''));
+  const doc = [P('Week 42'), b, P('end')];
+  const html = fmt.toHtml(doc);
+  assert.match(html, /<table data-gkb-board="1"[^>]*><tbody><tr><td data-gkb-column="1" style="[^"]*width:33%"><div data-gkb-title="1"[^>]*>To do<\/div><div data-gkb-card="1"[^>]*>Call <b>Sam<\/b><\/div>/);
+  assert.match(html, /two<br>lines/);
+  assert.match(html, /<div data-gkb-card="1"[^>]*><br><\/div><\/td>/, 'an empty card is a box');
+  const back = roundTrip(doc);
+  assert.deepEqual(back.map(x => x.type), ['p', 'board', 'p']);
+  assert.deepEqual(boardOf(back), fmt.normaliseDoc([b])[0]);
+  assert.deepEqual(roundTrip(doc), fmt.normaliseDoc(doc));
+});
+
+test('boards: plain text, a column a title with its cards as bullets; their words are the note\'s text', () => {
+  const doc = [P('Week'), Board(Col('To do', 'a', [T('b'), T('\nc')]), Col('', 'd'), Col('Done')), P('end')];
+  assert.equal(fmt.toPlain(doc), 'Week\nTo do:\n  • a\n  • b c\nUntitled:\n  • d\nDone:\nend');
+  assert.equal(fmt.docText(doc), 'Week\nTo do\na\nb c\n\nd\nDone\nend');
+  assert.equal(fmt.isEmpty(fmt.normaliseDoc([Board(Col(''))])), false, 'an empty board is still something');
+  assert.equal(fmt.hasFormatting([Board(Col('x'))]), true);
+});
+
+test('boards: normalised - within the limits, at least one column, titles one line, a line after one', () => {
+  const doc = fmt.normaliseDoc([{ type: 'board', columns: [{ title: [T('a\nb')], cards: [{ runs: [T('x')] }, null, 'junk', { runs: [] }] }, null] }]);
+  assert.deepEqual(doc.map(b => b.type), ['board', 'p'], 'a line to type after it');
+  assert.deepEqual(cardsOf(doc[0]), [['a b', 'x', '']]);
+  assert.deepEqual(cardsOf(fmt.normaliseDoc([{ type: 'board' }])[0]), [['']]);
+  const huge = fmt.normaliseDoc([fmt.board(Array.from({ length: fmt.MAX_BOARD_COLS + 3 }, () => ({ title: [], cards: Array.from({ length: fmt.MAX_CARDS + 5 }, () => ({ runs: [T('x')] })) })))]);
+  assert.equal(huge[0].columns.length, fmt.MAX_BOARD_COLS);
+  assert.equal(huge[0].columns[0].cards.length, fmt.MAX_CARDS);
+  // As many as that, read back from its HTML in good time.
+  const t0 = Date.now();
+  assert.equal(fmt.parseHtml(fmt.toHtml(huge)).find(b => b.type === 'board').columns[19].cards.length, fmt.MAX_CARDS);
+  assert.ok(Date.now() - t0 < 5000, `20,000 cards read in ${Date.now() - t0} ms`);
+});
+
+test('boards copied out of the editor: columns, titles and cards, and nothing of its buttons', () => {
+  const html = '<div class="blk" data-type="p">before</div>' +
+    '<div class="blk" data-type="board" contenteditable="false"><div class="kb-cols">' +
+    '<div class="kb-col" data-gkb-column="1"><div class="kb-head"><div class="kb-title" data-gkb-title="1" contenteditable="true">To <b>do</b></div>' +
+    '<button class="kb-ui"><svg><path d="M0"></path></svg>Column menu</button></div>' +
+    '<div class="kb-list"><div class="kb-card"><span class="kb-grip kb-ui"><svg></svg></span><div class="kb-text" data-gkb-card="1" contenteditable="true">one<br>two</div></div>' +
+    '<div class="kb-card"><div class="kb-text" data-gkb-card="1">x<div>nested</div></div></div></div>' +
+    '<button class="kb-add kb-ui">Add a card</button></div>' +
+    '<div class="kb-col" data-gkb-column="1"><div class="kb-head"><div class="kb-title" data-gkb-title="1">Done</div></div><div class="kb-list"></div></div>' +
+    '<button class="kb-add-col kb-ui">Add a column</button></div></div>' +
+    '<div class="blk" data-type="p">after</div>';
+  const doc = fmt.pasteDoc({ html, text: 'before\nTo do\none\ntwo\nAdd a card\nafter' });
+  assert.deepEqual(doc.map(b => b.type), ['p', 'board', 'p']);
+  assert.deepEqual(cardsOf(boardOf(doc)), [['To do', 'one\ntwo', 'x\nnested'], ['Done']]);
+  assert.deepEqual(boardOf(doc).columns[0].title, [T('To '), T('do', { b: true })]);
+  assert.deepEqual(doc[2].runs, [T('after')], 'the text after the board is its own line');
+  // A bit of one card's text, copied: its text, not a board of one.
+  const lone = fmt.pasteDoc({ html: '<div data-type="board"><div data-gkb-column="1"><div class="kb-card"><div data-gkb-card="1">just <i>this</i></div></div></div></div>', text: 'just this' });
+  assert.deepEqual(lone, [B('p', [T('just '), T('this', { i: true })])]);
+});
+
+test('boards from mail that is not ours, half-written, or inside a table: nothing lost, nothing broken', () => {
+  // A card before any column has one made for it; an unclosed board ends with the mail.
+  assert.deepEqual(cardsOf(boardOf(fmt.parseHtml('<div data-gkb-board="1"><div data-gkb-card="1">stray</div>'))), [['', 'stray']]);
+  // A board with no columns at all is no board.
+  assert.deepEqual(fmt.parseHtml('<p>x</p><table data-gkb-board="1"><tr><td>loose</td></tr></table><p>y</p>').map(b => b.type), ['p', 'p']);
+  // Inside a table's cell, a board is read as the cell's text.
+  const t = fmt.parseHtml('<table><tr><td><div data-gkb-board="1"><div data-gkb-card="1">in a cell</div></div></td><td>b</td></tr><tr><td>1</td><td>2</td></tr></table>');
+  assert.deepEqual(t.map(b => b.type), ['table', 'p']);
+  assert.equal(fmt.tableText(t[0]).split('\n')[0], 'in a cell | b');
+});
+
+test('boards merge as whole blocks: both versions are kept, never one lost', () => {
+  const base = [P('a'), Board(Col('To do', 'x'))];
+  const mine = [P('a'), Board(Col('To do', 'x', 'mine'))];
+  const theirs = [P('a'), Board(Col('To do'), Col('Done', 'x'))];
+  const r = fmt.mergeDocs(base, mine, theirs);
+  assert.equal(r.clean, false);
+  assert.deepEqual(r.doc.filter(b => b.type === 'board').map(cardsOf), [[['To do'], ['Done', 'x']], [['To do', 'x', 'mine']]]);
+  const one = fmt.mergeDocs(base, [P('a, mine'), base[1]], theirs);
+  assert.equal(one.clean, true);
+  assert.deepEqual(one.doc.filter(b => b.type === 'board').map(cardsOf), [[['To do'], ['Done', 'x']]]);
+});

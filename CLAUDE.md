@@ -33,7 +33,7 @@ when it changes) into their Apps Script project.
 | What | Path |
 |---|---|
 | Note model, HTML/plain/Markdown in and out, merging | `src/lib/note-format.js` |
-| Note editor (blocks, tables, pictures, paste) | `src/content/note-editor.js` |
+| Note editor (blocks, tables, boards, pictures, paste) | `src/content/note-editor.js` |
 | Pictures in notes: shrinking, held until saved, read and cached | `src/content/pictures.js`; their messages in `src/lib/notes-logic.js`; saving them in `notes.js` (`savePictures`) |
 | Notes view (list, folders, saving, merge on catch-up) | `src/content/notes.js` |
 | Board / calendar views | `src/content/board.js`, `calendar.js` |

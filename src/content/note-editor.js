@@ -3,7 +3,7 @@
 //
 // An editable area with a toolbar: text style (normal, three headings),
 // bold, italic, strike-through, bulleted, numbered and check lists with
-// three levels of nesting, tables, links, and clear formatting.
+// three levels of nesting, tables, boards, links, and clear formatting.
 //
 // The editable area is a flat column of blocks - one <div class="blk">
 // per paragraph, heading or list item, its kind and indent in data
@@ -29,6 +29,14 @@
 // aligns and sorts. Cells copied from a spreadsheet and pasted into a
 // cell fill the cells from there, as in a spreadsheet.
 //
+// A board is an island too: columns side by side, each a title over a
+// list of cards, every title and card edited on its own like a cell.
+// Enter adds the next card, Alt and the arrow keys move one (up, down,
+// to the next column), a card's handle drags it anywhere on the board or
+// opens its menu, and the board bar - shown while the cursor is in it -
+// adds, moves and deletes cards and columns. It is saved as a table of
+// one row, so Gmail shows it as columns of cards.
+//
 // A picture is an island too: picked with the toolbar's button, pasted
 // or dropped, it goes in between lines, made smaller and held in the
 // page (src/content/pictures.js) until the note saves it. A click
@@ -45,6 +53,7 @@
   const { h, icon, toast, openMenu, closeMenu } = ns.ui;
   const fmt = ns.noteFormat;
   const NEW_TABLE = { cols: 3, rows: 3 };
+  const NEW_BOARD = ['To do', 'Doing', 'Done'];
 
   const STYLES = [['p', 'Normal text'], ['h1', 'Heading 1'], ['h2', 'Heading 2'], ['h3', 'Heading 3']];
   const STYLE_LABEL = Object.fromEntries(STYLES);
@@ -175,10 +184,55 @@
     else frame.style.removeProperty('width');
   }
 
-  const isIslandEl = el => !!el && el.nodeType === 1 && (el.dataset.type === 'table' || el.dataset.type === 'picture');
+  // A board: a row of columns, each a title above its cards, a button
+  // under them to add one, and one at the end to add a column. Each title
+  // and each card's text is edited on its own, as a table's cells are.
+  // The buttons and the cards' handles (kb-ui) hold no words of the note:
+  // reading it back, copying it and searching it pass them by.
+  function cardEl(runs) {
+    const text = document.createElement('div');
+    text.className = 'kb-text';
+    text.dataset.gkbCard = '1';
+    text.contentEditable = 'true';
+    fillCell(text, runs);
+    return h('div', { class: 'kb-card' }, text, h('button', {
+      class: 'kb-grip kb-ui', type: 'button', tabindex: '-1', title: 'Drag to move the card, or click for its menu',
+      'aria-label': 'Move or delete the card', 'aria-haspopup': 'menu', dataset: { key: 'board-grip' },
+    }, icon('drag', 18)));
+  }
+
+  function columnEl(c) {
+    const title = document.createElement('div');
+    title.className = 'kb-title';
+    title.dataset.gkbTitle = '1';
+    title.dataset.placeholder = 'Column name';
+    title.contentEditable = 'true';
+    title.replaceChildren(...inlineNodes(c.title || []));
+    return h('div', { class: 'kb-col', dataset: { gkbColumn: '1' } },
+      title,
+      h('div', { class: 'kb-list' }, (c.cards || []).map(k => cardEl(k.runs))),
+      h('button', { class: 'kb-add kb-ui', type: 'button', tabindex: '-1', dataset: { key: 'board-add-card', kb: 'add-card' } },
+        icon('add', 18), 'Add a card'));
+  }
+
+  function boardEl(b) {
+    const el = document.createElement('div');
+    el.className = 'blk';
+    el.dataset.type = 'board';
+    el.contentEditable = 'false';
+    el.appendChild(h('div', { class: 'kb-cols' }, b.columns.map(columnEl),
+      h('button', {
+        class: 'kb-add-col kb-ui', type: 'button', tabindex: '-1', title: 'Add a column', 'aria-label': 'Add a column',
+        dataset: { key: 'board-add-column', kb: 'add-column' },
+      }, icon('add', 20))));
+    return el;
+  }
+
+  const isIslandEl = el => !!el && el.nodeType === 1 && (el.dataset.type === 'table' || el.dataset.type === 'board' || el.dataset.type === 'picture');
 
   function blockEl(b) {
     if (b.type === 'table') return tableEl(b);
+    if (b.type === 'board') return boardEl(b);
     if (b.type === 'picture') return pictureEl(b);
     const el = document.createElement('div');
     el.className = 'blk';
@@ -252,6 +306,16 @@
     return fmt.table(rows, { head: el.dataset.head === '1', align: String(el.dataset.align || '').split(',') });
   }
 
+  function readBoard(el) {
+    return fmt.board([...el.querySelectorAll('[data-gkb-column]')].map(col => {
+      const title = col.querySelector('[data-gkb-title]');
+      return {
+        title: title ? readCell(title).map(r => ({ ...r, text: r.text.replace(/\n/g, ' ') })) : [],
+        cards: [...col.querySelectorAll('[data-gkb-card]')].map(t => ({ runs: readCell(t) })),
+      };
+    }));
+  }
+
   // Reads one block element - and anything the browser may have left
   // inside it, such as a <br> or a nested <div> - into model blocks.
   function readBlock(el, out) {
@@ -291,6 +355,7 @@
     const blocks = [];
     for (const node of editor.childNodes) {
       if (node.nodeType === 1 && node.dataset.type === 'table') blocks.push(readTable(node));
+      else if (node.nodeType === 1 && node.dataset.type === 'board') blocks.push(readBoard(node));
       else if (node.nodeType === 1 && node.dataset.type === 'picture') blocks.push(fmt.picture(node.dataset.src, Number(node.dataset.width) || 0));
       else if (node.nodeType === 1 && node.classList.contains('blk')) readBlock(node, blocks);
       else if (node.nodeType === 3 && node.data.trim()) blocks.push(fmt.block('p', [{ text: node.data.replace(/ /g, ' ') }]));
@@ -336,8 +401,8 @@
       // on the style button the menu handed it back to, say - and typing
       // would then go nowhere. Both are put back.
       const keep = range() || (saved && els.editor.contains(saved.startContainer) ? saved : null);
-      // In a table, the cell is what takes typing.
-      const host = (keep && cellOf(keep.startContainer)) || els.editor;
+      // In a table or a board, the cell or the card is what takes typing.
+      const host = (keep && hostOf(keep.startContainer)) || els.editor;
       if (root.activeElement !== host) host.focus({ preventScroll: true });
       if (keep) {
         try { select(keep.cloneRange ? keep.cloneRange() : keep); } catch { /* the text changed underneath */ }
@@ -563,8 +628,8 @@
       if (!editable) return;
       restore();
       const r = range();
-      if (!r || cellOf(r.startContainer)) return; // a cell holds text, not lists or headings
-      // A table or a picture the selection runs over stays what it is.
+      if (!r || hostOf(r.startContainer)) return; // a cell or a card holds text, not lists or headings
+      // A table, a board or a picture the selection runs over stays what it is.
       const blocks = rangeBlocks(r).filter(b => !isIslandEl(b));
       if (!blocks.length) return;
       const off = blocks.every(b => b.dataset.type === type) && type !== 'p';
@@ -579,7 +644,7 @@
     function indent(delta) {
       if (!editable) return false;
       const r = range();
-      if (!r || cellOf(r.startContainer)) return false;
+      if (!r || hostOf(r.startContainer)) return false;
       const blocks = rangeBlocks(r).filter(b => fmt.LISTS.has(b.dataset.type));
       if (!blocks.length) return false;
       for (const b of blocks) b.dataset.level = String(Math.max(0, Math.min(fmt.MAX_LEVEL, (Number(b.dataset.level) || 0) + delta)));
@@ -599,7 +664,7 @@
       document.execCommand('removeFormat');
       document.execCommand('unlink');
       const r = range();
-      if (r && !cellOf(r.startContainer)) for (const b of rangeBlocks(r)) if (!isIslandEl(b)) setBlock(b, 'p');
+      if (r && !hostOf(r.startContainer)) for (const b of rangeBlocks(r)) if (!isIslandEl(b)) setBlock(b, 'p');
       changed();
     }
 
@@ -739,7 +804,7 @@
       });
     }
 
-    // The table gone: the cursor to the line after it.
+    // The table (or the board) gone: the cursor to the line after it.
     function removeTable(el) {
       let next = el.nextElementSibling;
       if (!next || isIslandEl(next)) {
@@ -748,6 +813,7 @@
       }
       el.remove();
       lastCell = null;
+      lastText = null;
       els.editor.focus({ preventScroll: true });
       caretInto(next, false);
       return null;
@@ -817,25 +883,31 @@
       });
     }
 
-    // A new table where the cursor is: in place of an empty line, or after
-    // the line it is on; three columns, a heading row and two more.
-    function insertTable() {
-      if (!editable) return;
+    // A new table or board where the cursor is: in place of an empty line,
+    // or after the line it is on, with a line after it. Ctrl+Z straight
+    // afterwards takes it back.
+    function placeIsland(el) {
+      if (!editable) return null;
       restore();
       const r = range();
-      if (!r || cellOf(r.startContainer)) return;
+      if (!r || hostOf(r.startContainer)) return null;
       const blk = blockOf(r.startContainer) || els.editor.lastElementChild;
-      if (!blk) return;
+      if (!blk) return null;
       const undo = pasteUndo;
       const before = snapshot();
-      const rows = Array.from({ length: NEW_TABLE.rows }, () => Array.from({ length: NEW_TABLE.cols }, () => ({ runs: [] })));
-      const el = tableEl(fmt.table(rows, { head: true, align: Array(NEW_TABLE.cols).fill('') }));
       if (blk.dataset.type === 'p' && !blk.textContent) blk.replaceWith(el);
       else blk.after(el);
       if (!el.nextElementSibling || isIslandEl(el.nextElementSibling)) el.after(blockEl(fmt.block('p')));
       changed();
       pasteUndo = [...undo.slice(-19), before];
-      focusCell(el.querySelector('td'));
+      return el;
+    }
+
+    // Three columns, a heading row and two more.
+    function insertTable() {
+      const rows = Array.from({ length: NEW_TABLE.rows }, () => Array.from({ length: NEW_TABLE.cols }, () => ({ runs: [] })));
+      const el = placeIsland(tableEl(fmt.table(rows, { head: true, align: Array(NEW_TABLE.cols).fill('') })));
+      if (el) focusCell(el.querySelector('td'));
     }
 
     // Keys in a cell: Tab and Shift+Tab from cell to cell (Tab in the last
@@ -882,10 +954,10 @@
       return false;
     }
 
-    // Keys on a line beside a table or a picture: the arrows into it -
-    // into a table's cells, onto a picture, selecting it - and Backspace
-    // or Delete into it rather than through it. (A selected picture's own
-    // keys are in pictureKey.)
+    // Keys on a line beside a table, a board or a picture: the arrows into
+    // it - into a table's cells or a board's cards, onto a picture,
+    // selecting it - and Backspace or Delete into it rather than through
+    // it. (A selected picture's own keys are in pictureKey.)
     function besideTable(e, r, blk, mod) {
       if (mod || e.altKey || e.shiftKey || !r.collapsed) return false;
       const prev = blk.previousElementSibling;
@@ -894,6 +966,13 @@
         e.preventDefault();
         if (el.dataset.type === 'picture') {
           selectPicture(el);
+          return true;
+        }
+        if (el.dataset.type === 'board') {
+          // From below, the foot of its first column.
+          const first = el.querySelector('[data-gkb-column]');
+          const texts = first ? first.querySelectorAll('[data-gkb-title], [data-gkb-card]') : [];
+          focusText(last ? texts[texts.length - 1] : texts[0], last);
           return true;
         }
         const cells = el.querySelectorAll('td');
@@ -909,7 +988,7 @@
       }
       if (isIslandEl(prev)) {
         if (e.key === 'ArrowUp' && onEdgeLine(blk, r, false)) {
-          if (prev.dataset.type === 'picture') return into(prev, true);
+          if (prev.dataset.type !== 'table') return into(prev, true);
           // Up into the last row, at its start.
           e.preventDefault();
           const rows = prev.querySelector('table').rows;
@@ -963,6 +1042,435 @@
         if (i) document.execCommand('insertLineBreak');
         if (line) document.execCommand('insertText', false, line);
       });
+    }
+
+    // ── Boards ───────────────────────────────────────────────────────────
+    //
+    // Like a table, an island whose titles and cards are each edited on
+    // their own. Enter adds a card below (on an empty card it ends the
+    // column, as on an empty list item, and the cursor goes below the
+    // board); Shift+Enter is a new line in a card; Tab goes title to card
+    // to card, column by column; the arrows leave a card at its edges.
+    // Alt+arrow keys move a card - up and down, or into the next column -
+    // and, in a title, the column. The board bar, a card's handle and the
+    // buttons under each column do the rest. Each change to a board's
+    // shape, Ctrl+Z straight afterwards takes back.
+
+    // The title or card a node is in, if it is in one.
+    function boardTextOf(node) {
+      for (let n = node; n && n !== els.editor; n = n.parentNode) {
+        if (n.nodeType === 1 && (n.dataset.gkbCard !== undefined || n.dataset.gkbTitle !== undefined)) return n;
+      }
+      return null;
+    }
+    // What takes the typing: a table's cell, or a board's title or card.
+    function hostOf(node) {
+      return cellOf(node) || boardTextOf(node);
+    }
+    const boardElOf = n => n.closest('.blk[data-type="board"]');
+    const isTitle = t => t.dataset.gkbTitle !== undefined;
+    const columnOfText = t => t.closest('[data-gkb-column]');
+    const columnsOf = el => [...el.querySelectorAll('[data-gkb-column]')];
+    // Every title and card, column by column: the order Tab goes in.
+    const textsOf = el => [...el.querySelectorAll('[data-gkb-title], [data-gkb-card]')];
+    const columnName = (col, k) => col.querySelector('[data-gkb-title]').textContent.trim() || `Column ${k + 1}`;
+    let lastText = null; // the title or card last typed in, for the board bar's menus
+
+    function focusText(t, atEnd = false) {
+      if (!t) return;
+      t.focus({ preventScroll: true });
+      caretInto(t, atEnd);
+      lastText = t;
+      (isTitle(t) ? t : t.closest('.kb-card')).scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+
+    // The title or card being worked on: the one with the cursor, or -
+    // while one of the board bar's menus has the focus - the one it was in.
+    function boardNow() {
+      const r = range();
+      const t = r && boardTextOf(r.startContainer);
+      if (t) return t;
+      return lastText && lastText.isConnected && els.editor.contains(lastText) ? lastText : null;
+    }
+
+    // Where the cursor is in a title or card, in characters, and back.
+    function textOffset(t) {
+      const r = range();
+      if (!r || !t.contains(r.startContainer)) return null;
+      const pre = document.createRange();
+      pre.selectNodeContents(t);
+      pre.setEnd(r.startContainer, r.startOffset);
+      return pre.toString().length;
+    }
+    function caretAt(t, offset) {
+      const walker = document.createTreeWalker(t, NodeFilter.SHOW_TEXT);
+      let left = offset;
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (left <= n.data.length) { placeCaret(n, left); return; }
+        left -= n.data.length;
+      }
+      caretInto(t, true);
+    }
+
+    // A change to a board, about the title or card `t`: `fn` gets it and
+    // its board and returns where the cursor goes next - [title or card,
+    // at its end], or `t` itself to stay where it was in it (a card moved
+    // goes on being typed in), or nothing.
+    function boardEdit(t, fn) {
+      if (!editable || !t || !t.isConnected) return;
+      const undo = pasteUndo;
+      const before = snapshot();
+      const keep = textOffset(t);
+      const next = fn(t, boardElOf(t));
+      changed();
+      pasteUndo = [...undo.slice(-19), before];
+      if (next === t && t.isConnected) {
+        t.focus({ preventScroll: true });
+        if (keep === null) caretInto(t, true); else caretAt(t, keep);
+        lastText = t;
+        (isTitle(t) ? t : t.closest('.kb-card')).scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      } else if (next) {
+        focusText(next[0], next[1]);
+      }
+      refreshToolbar();
+    }
+
+    // A new card below or above a card - from a title, at the top of its
+    // column - or (`foot`) at the foot of the column.
+    function addCard(t, where) {
+      boardEdit(t, x => {
+        const list = columnOfText(x).querySelector('.kb-list');
+        if (list.children.length >= fmt.MAX_CARDS) return x;
+        const card = cardEl([]);
+        if (where === 'foot') list.append(card);
+        else if (isTitle(x)) list.prepend(card);
+        else if (where === 'below') x.closest('.kb-card').after(card);
+        else x.closest('.kb-card').before(card);
+        return [card.firstChild, false];
+      });
+    }
+
+    // A card up or down its column, or into the column beside it at the
+    // same height; or, given a column's place, to the top of that column.
+    // A move there is no room for is nothing, not a step for Ctrl+Z.
+    function moveCard(t, dir) {
+      const card = t.closest('.kb-card');
+      if (dir === 'up' || dir === 'down') {
+        const other = dir === 'up' ? card.previousElementSibling : card.nextElementSibling;
+        if (other) boardEdit(t, x => { if (dir === 'up') other.before(card); else other.after(card); return x; });
+        return;
+      }
+      const cols = columnsOf(boardElOf(t));
+      const from = columnOfText(t);
+      const to = cols[typeof dir === 'number' ? dir : cols.indexOf(from) + (dir === 'left' ? -1 : 1)];
+      const list = to && to !== from && to.querySelector('.kb-list');
+      if (!list || list.children.length >= fmt.MAX_CARDS) return;
+      const at = typeof dir === 'number' ? 0 : [...card.parentNode.children].indexOf(card);
+      boardEdit(t, x => { list.insertBefore(card, list.children[at] || null); return x; });
+    }
+
+    // The card gone, the cursor to the end of the one above it (or of the
+    // column's title).
+    function deleteCard(t) {
+      boardEdit(t, (x, el) => {
+        const all = textsOf(el);
+        x.closest('.kb-card').remove();
+        return [all[all.indexOf(x) - 1], true];
+      });
+    }
+
+    // A new column, its title to be typed: left or right of this one, or
+    // at the end.
+    function addBoardColumn(t, where) {
+      boardEdit(t, (x, el) => {
+        if (columnsOf(el).length >= fmt.MAX_BOARD_COLS) return x;
+        const col = columnEl({ title: [], cards: [] });
+        const at = columnOfText(x);
+        if (where === 'end') el.querySelector('.kb-add-col').before(col);
+        else if (where === 'right') at.after(col);
+        else at.before(col);
+        return [col.querySelector('[data-gkb-title]'), false];
+      });
+    }
+
+    function moveBoardColumn(t, delta) {
+      const col = columnOfText(t);
+      const other = delta < 0 ? col.previousElementSibling : col.nextElementSibling;
+      if (!other || !other.matches('[data-gkb-column]')) return;
+      boardEdit(t, x => { if (delta < 0) other.before(col); else other.after(col); return x; });
+    }
+
+    // A column gone with its cards, the cursor to the title of the one
+    // that takes its place; the last one gone, the board goes.
+    function deleteBoardColumn(t) {
+      boardEdit(t, (x, el) => {
+        const cols = columnsOf(el);
+        if (cols.length === 1) return removeTable(el);
+        const k = cols.indexOf(columnOfText(x));
+        cols[k].remove();
+        return [(cols[k + 1] || cols[k - 1]).querySelector('[data-gkb-title]'), true];
+      });
+    }
+
+    function deleteBoard(t) {
+      boardEdit(t, (x, el) => removeTable(el));
+    }
+
+    // To do, Doing and Done, the cursor in an empty card in To do.
+    function insertBoard() {
+      const el = placeIsland(boardEl(fmt.board(NEW_BOARD.map((title, k) => ({ title: [{ text: title }], cards: k ? [] : [{ runs: [] }] })))));
+      if (el) focusText(el.querySelector('[data-gkb-card]'));
+    }
+
+    function cardItems(t) {
+      const card = t.closest('.kb-card');
+      const col = columnOfText(t);
+      return [
+        { label: 'Insert card above', key: 'card-above', onSelect: () => addCard(t, 'above') },
+        { label: 'Insert card below', key: 'card-below', onSelect: () => addCard(t, 'below') },
+        { separator: true },
+        { label: 'Move up', icon: 'up', key: 'card-up', disabled: !card.previousElementSibling, onSelect: () => moveCard(t, 'up') },
+        { label: 'Move down', icon: 'down', key: 'card-down', disabled: !card.nextElementSibling, onSelect: () => moveCard(t, 'down') },
+        { separator: true },
+        { heading: 'Move to' },
+        ...columnsOf(boardElOf(t)).map((c, k) => ({
+          label: columnName(c, k), checked: c === col, disabled: c === col, key: `card-to:${k}`, onSelect: () => moveCard(t, k),
+        })),
+        { separator: true },
+        { label: 'Delete card', key: 'card-delete', danger: true, onSelect: () => deleteCard(t) },
+      ];
+    }
+
+    function columnItems(t) {
+      const cols = columnsOf(boardElOf(t));
+      const k = cols.indexOf(columnOfText(t));
+      const full = cols.length >= fmt.MAX_BOARD_COLS;
+      return [
+        { label: 'Insert column left', key: 'board-col-left', disabled: full, onSelect: () => addBoardColumn(t, 'left') },
+        { label: 'Insert column right', key: 'board-col-right', disabled: full, onSelect: () => addBoardColumn(t, 'right') },
+        { separator: true },
+        { label: 'Move column left', icon: 'prev', key: 'board-col-move-left', disabled: k <= 0, onSelect: () => moveBoardColumn(t, -1) },
+        { label: 'Move column right', icon: 'next', key: 'board-col-move-right', disabled: k >= cols.length - 1, onSelect: () => moveBoardColumn(t, 1) },
+        { separator: true },
+        { label: 'Delete column', key: 'board-col-delete', danger: true, onSelect: () => deleteBoardColumn(t) },
+        { label: 'Delete board', key: 'delete-board', danger: true, onSelect: () => deleteBoard(t) },
+      ];
+    }
+
+    // The buttons on a board: a card's handle (its menu, when it is
+    // clicked rather than dragged), Add a card, and Add a column.
+    function boardButton(b) {
+      if (b.classList.contains('kb-grip')) {
+        const t = b.closest('.kb-card').querySelector('[data-gkb-card]');
+        lastText = t;
+        openMenu(root, b, cardItems(t), { label: 'Card' });
+        return;
+      }
+      const col = b.closest('[data-gkb-column]') || [...b.closest('.kb-cols').querySelectorAll('[data-gkb-column]')].pop();
+      if (!col) return;
+      if (b.dataset.kb === 'add-card') addCard(col.querySelector('[data-gkb-title]'), 'foot');
+      else if (b.dataset.kb === 'add-column') addBoardColumn(col.querySelector('[data-gkb-title]'), 'end');
+    }
+
+    // Keys in a title or a card.
+    function boardKey(e, t, r, mod) {
+      const el = boardElOf(t);
+      const all = textsOf(el);
+      const i = all.indexOf(t);
+      const title = isTitle(t);
+      const go = (x, atEnd) => { e.preventDefault(); focusText(x, atEnd); return true; };
+      const out = below => { e.preventDefault(); leaveTable(el, below); return true; };
+      const arrow = /^Arrow(Up|Down|Left|Right)$/.test(e.key);
+      if (arrow && e.altKey && !mod && !e.shiftKey) {
+        // Not the browser's Back and Forward, which are Alt+Left and Right.
+        e.preventDefault();
+        const dir = e.key.slice(5).toLowerCase();
+        if (!title) moveCard(t, dir);
+        else if (dir === 'left' || dir === 'right') moveBoardColumn(t, dir === 'left' ? -1 : 1);
+        return true;
+      }
+      if (e.key === 'Tab' && !mod && !e.altKey) {
+        if (e.shiftKey) return i > 0 ? go(all[i - 1], true) : out(false);
+        return i < all.length - 1 ? go(all[i + 1], true) : out(true);
+      }
+      if (e.key === 'Enter' && !mod && !e.altKey && !e.isComposing) {
+        e.preventDefault();
+        if (title) {
+          const first = columnOfText(t).querySelector('[data-gkb-card]');
+          if (first) focusText(first, false);
+          else addCard(t, 'below');
+        } else if (e.shiftKey) {
+          document.execCommand('insertLineBreak');
+        } else if (!t.textContent) {
+          boardEdit(t, (x, b) => {
+            x.closest('.kb-card').remove();
+            leaveTable(b, true);
+          });
+        } else {
+          addCard(t, 'below');
+        }
+        return true;
+      }
+      // Nothing joins a card to another, or a title to anything; Backspace
+      // in an empty card deletes it.
+      if (!mod && e.key === 'Backspace' && caretAtBlockStart(r, t)) {
+        e.preventDefault();
+        if (!title && !t.textContent) deleteCard(t);
+        return true;
+      }
+      if (!mod && e.key === 'Delete' && caretAtEnd(r, t)) {
+        e.preventDefault();
+        return true;
+      }
+      if (arrow && !mod && !e.altKey && !e.shiftKey && r.collapsed) {
+        const next = all[i + 1];
+        if (e.key === 'ArrowUp' && onEdgeLine(t, r, false)) return title ? out(false) : go(all[i - 1], true);
+        if (e.key === 'ArrowDown' && onEdgeLine(t, r, true)) return next && !isTitle(next) ? go(next, false) : out(true);
+        if (e.key === 'ArrowLeft' && caretAtBlockStart(r, t)) return i > 0 ? go(all[i - 1], true) : out(false);
+        if (e.key === 'ArrowRight' && caretAtEnd(r, t)) return next ? go(next, false) : out(true);
+      }
+      // Lists and headings are not for boards.
+      if (mod && e.shiftKey && /^Digit[789]$/.test(e.code)) { e.preventDefault(); return true; }
+      return false;
+    }
+
+    // A paste into a title or a card: the text alone, its lines as lines
+    // in a card and run together in a title.
+    function pasteInBoard(doc, text, t) {
+      const one = doc ? fmt.docText(doc) : String(text || '');
+      const lines = String(one).replace(/\r\n?/g, '\n').replace(/\n+$/, '').split('\n');
+      if (isTitle(t)) {
+        document.execCommand('insertText', false, lines.join(' '));
+        return;
+      }
+      lines.forEach((line, i) => {
+        if (i) document.execCommand('insertLineBreak');
+        if (line) document.execCommand('insertText', false, line);
+      });
+    }
+
+    // ── Dragging a card by its handle ──
+    //
+    // The card itself goes where the pointer is - into the column under
+    // it (or the nearest), above the first card whose middle is below it -
+    // so where it is, is where it lands; near their edges the board scrolls
+    // sideways and the note up and down. Let go, it stays, and Ctrl+Z puts
+    // it back; Escape or a lost pointer puts it back at once. A press that
+    // does not move is a click, which opens the card's menu. Mouse, pen
+    // and finger alike: the handle takes no scrolling.
+    let drag = null; // { card, el, id, x0, y0, x, y, home, lifted, frame, before, undo, touch }
+
+    function dragStart(e, grip) {
+      if (!editable || drag || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      const card = grip.closest('.kb-card');
+      drag = {
+        card, el: boardElOf(card), id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY,
+        home: [card.parentNode, card.nextSibling], lifted: false, frame: 0, before: null, undo: null, touch: e.pointerType === 'touch',
+      };
+      document.addEventListener('pointermove', dragMove, true);
+      document.addEventListener('pointerup', dragUp, true);
+      document.addEventListener('pointercancel', dragCancel, true);
+      document.addEventListener('keydown', dragKey, true);
+    }
+
+    function dragMove(e) {
+      const d = drag;
+      if (!d || e.pointerId !== d.id) return;
+      // The button let go where the page could not see it (outside the
+      // window): the drag is over, not carried on by a hovering mouse.
+      if (e.pointerType === 'mouse' && !(e.buttons & 1)) {
+        dragUp(e);
+        return;
+      }
+      d.x = e.clientX;
+      d.y = e.clientY;
+      if (!d.lifted) {
+        if (Math.abs(d.x - d.x0) + Math.abs(d.y - d.y0) < 6) return;
+        // Lifted: from here on it is a drag, not a click.
+        d.lifted = true;
+        d.undo = pasteUndo;
+        d.before = snapshot();
+        closeMenu(root);
+        d.card.classList.add('kb-dragging');
+        d.el.classList.add('kb-dragging-in');
+        try { d.el.setPointerCapture(d.id); } catch { /* the pointer went already */ }
+      }
+      e.preventDefault();
+      if (!d.frame) d.frame = requestAnimationFrame(dragStep);
+    }
+
+    function dragStep() {
+      const d = drag;
+      if (!d) return;
+      d.frame = 0;
+      let col = null;
+      let best = Infinity;
+      for (const c of columnsOf(d.el)) {
+        const r = c.getBoundingClientRect();
+        const off = d.x < r.left ? r.left - d.x : d.x > r.right ? d.x - r.right : 0;
+        if (off < best) { best = off; col = c; }
+      }
+      const list = col && col.querySelector('.kb-list');
+      if (list && (list === d.card.parentNode || list.children.length < fmt.MAX_CARDS)) {
+        let ref = null;
+        for (const k of list.children) {
+          if (k === d.card) continue;
+          const r = k.getBoundingClientRect();
+          if (d.y < r.top + r.height / 2) { ref = k; break; }
+        }
+        if (d.card.parentNode !== list || d.card.nextElementSibling !== ref) list.insertBefore(d.card, ref);
+      }
+      const speed = (p, lo, hi) => {
+        const v = p < lo + 40 ? p - lo - 40 : p > hi - 40 ? p - hi + 40 : 0;
+        return Math.max(-24, Math.min(24, Math.round(v / 3)));
+      };
+      const cols = d.el.querySelector('.kb-cols');
+      const cr = cols.getBoundingClientRect();
+      const er = els.editor.getBoundingClientRect();
+      const was = [cols.scrollLeft, els.editor.scrollTop];
+      cols.scrollLeft += speed(d.x, cr.left, cr.right);
+      els.editor.scrollTop += speed(d.y, er.top, er.bottom);
+      // Still scrolling: again next frame, with the pointer where it is.
+      if (cols.scrollLeft !== was[0] || els.editor.scrollTop !== was[1]) d.frame = requestAnimationFrame(dragStep);
+    }
+
+    function endDrag() {
+      const d = drag;
+      drag = null;
+      cancelAnimationFrame(d.frame);
+      document.removeEventListener('pointermove', dragMove, true);
+      document.removeEventListener('pointerup', dragUp, true);
+      document.removeEventListener('pointercancel', dragCancel, true);
+      document.removeEventListener('keydown', dragKey, true);
+      d.card.classList.remove('kb-dragging');
+      d.el.classList.remove('kb-dragging-in');
+      try { d.el.releasePointerCapture(d.id); } catch { /* not held */ }
+      return d;
+    }
+
+    function dragUp(e) {
+      if (!drag || e.pointerId !== drag.id) return;
+      const d = endDrag();
+      if (!d.lifted) return;
+      if (d.card.parentNode !== d.home[0] || d.card.nextSibling !== d.home[1]) {
+        changed();
+        pasteUndo = [...d.undo.slice(-19), d.before];
+      }
+      // On a phone, no keyboard popping up for a card only moved.
+      if (!d.touch && d.card.isConnected) focusText(d.card.querySelector('[data-gkb-card]'), true);
+    }
+
+    function dragCancel(e) {
+      if (!drag || (e && e.pointerId !== drag.id)) return;
+      const d = endDrag();
+      if (d.lifted && d.home[0].isConnected) d.home[0].insertBefore(d.card, d.home[1]);
+    }
+
+    function dragKey(e) {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragCancel();
     }
 
     // ── Pictures ─────────────────────────────────────────────────────────
@@ -1279,6 +1787,7 @@
       tbButton('outdent', 'Less indent (Shift+Tab)', 'outdent', () => { restore(); indent(-1); }, false),
       tbButton('indent', 'More indent (Tab)', 'indent', () => { restore(); indent(1); }, false),
       tbButton('table', 'Table', 'table', () => insertTable(), false),
+      tbButton('board', 'Board: columns of cards', 'board', () => insertBoard(), false),
       tbButton('picture', 'Picture (or paste or drop one)', 'picture', () => pickPicture(), false),
       els.filePick,
       sep(),
@@ -1308,11 +1817,16 @@
 
     // The table bar: under the toolbar while the cursor is in a cell.
     const keepFocus = e => e.preventDefault();
-    const menuButton = (key, label, items) => {
+    // `now`: what its menu is about - the cell, or the board's title or
+    // card - which `items` gets.
+    const menuButton = (key, label, items, now = cellNow) => {
       const b = h('button', {
         class: 'tb-text', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', dataset: { key },
         onmousedown: keepFocus,
-        onclick: () => { if (editable && cellNow()) openMenu(root, b, items(), { label }); },
+        onclick: () => {
+          const at = editable && now();
+          if (at) openMenu(root, b, items(at), { label });
+        },
       }, label, icon('caret', 18));
       return b;
     };
@@ -1360,6 +1874,22 @@
       tableEdit((td, el) => removeTable(el));
     }
 
+    // The board bar: under the toolbar while the cursor is in a board.
+    els.boardCard = menuButton('board-card', 'Card', t => cardItems(t), boardNow);
+    els.boardbar = h('div', { class: 'ne-boardbar', role: 'toolbar', 'aria-label': 'Board', hidden: true },
+      h('span', { class: 'tb-label', title: 'Enter adds a card; Alt and the arrow keys move one. Drag a card by its handle.' }, icon('board', 18)),
+      els.boardCard,
+      menuButton('board-column', 'Column', t => columnItems(t), boardNow),
+      h('span', { class: 'spacer' }),
+      h('button', {
+        class: 'tb-text tb-danger', type: 'button', title: 'Delete the board (Ctrl+Z brings it back)',
+        dataset: { key: 'fmt-board-delete' }, onmousedown: keepFocus,
+        onclick: () => {
+          const t = editable && boardNow();
+          if (t) deleteBoard(t);
+        },
+      }, icon('delete', 18), 'Delete board'));
+
     function currentType() {
       const r = range() || saved;
       const blk = r && blockOf(r.startContainer);
@@ -1378,12 +1908,18 @@
       }
       for (const t of ['ul', 'ol', 'check']) buttons[t].setAttribute('aria-pressed', String(type === t));
       buttons.link.setAttribute('aria-pressed', String(!!anchorAt(r)));
-      // In a cell: the table bar, and nothing that makes lists or headings.
+      // In a cell: the table bar, and nothing that makes lists or headings;
+      // in a board, the board bar. Neither holds a table or a board.
       const td = cellOf(r.startContainer);
+      const kt = !td && boardTextOf(r.startContainer);
       if (td) lastCell = td;
+      if (kt) lastText = kt;
       els.tablebar.hidden = !td || !editable;
-      for (const k of ['ul', 'ol', 'check', 'outdent', 'indent', 'table']) buttons[k].disabled = !editable || !!td;
-      els.style.disabled = !editable || !!td;
+      els.boardbar.hidden = !kt || !editable;
+      for (const k of ['ul', 'ol', 'check', 'outdent', 'indent', 'table', 'board']) buttons[k].disabled = !editable || !!td || !!kt;
+      els.style.disabled = !editable || !!td || !!kt;
+      // A title has no card to move or delete.
+      if (kt) els.boardCard.disabled = isTitle(kt);
       if (td) {
         const el = tableOf(td);
         els.tableHead.setAttribute('aria-pressed', String(el.dataset.head === '1'));
@@ -1421,7 +1957,9 @@
       const blk = r && blockOf(r.startContainer);
       const td = r && cellOf(r.startContainer);
       if (td && cellKey(e, td, r, mod)) return;
-      if (!td && blk && besideTable(e, r, blk, mod)) return;
+      const kt = !td && r && boardTextOf(r.startContainer);
+      if (kt && boardKey(e, kt, r, mod)) return;
+      if (!td && !kt && blk && besideTable(e, r, blk, mod)) return;
 
       if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'z' && pasteUndo.length) {
         e.preventDefault();
@@ -1532,6 +2070,12 @@
       const at = range();
       if (at && cellOf(at.startContainer)) {
         pasteInCell(doc, text);
+        revealCaret();
+        return;
+      }
+      const kt = at && boardTextOf(at.startContainer);
+      if (kt) {
+        pasteInBoard(doc, text, kt);
         revealCaret();
         return;
       }
@@ -1722,6 +2266,9 @@
       const a = pointAt(snap.start);
       const z = pointAt(snap.end);
       if (a && z) {
+        // In a table or a board, the new cell or card takes the focus.
+        const host = hostOf(a[0]) || els.editor;
+        if (root.activeElement !== host) host.focus({ preventScroll: true });
         const back = document.createRange();
         back.setStart(...a);
         back.setEnd(...z);
@@ -1746,7 +2293,22 @@
       else if (at.top < box.top + 8) els.editor.scrollTop -= box.top - at.top + 24;
     }
 
+    // A board's buttons and handles keep the focus in the text, and a
+    // handle pressed may be the start of a drag.
+    els.editor.addEventListener('mousedown', e => {
+      if (e.target.closest && e.target.closest('.kb-ui')) e.preventDefault();
+    });
+    els.editor.addEventListener('pointerdown', e => {
+      const grip = e.target.closest && e.target.closest('.kb-grip');
+      if (grip) dragStart(e, grip);
+    });
+
     els.editor.addEventListener('click', e => {
+      const ui = e.target.closest && e.target.closest('.kb-ui');
+      if (ui) {
+        if (editable) boardButton(ui);
+        return;
+      }
       const pic = e.target.closest && e.target.closest('.blk[data-type="picture"]');
       if (pic && e.target.closest('.pic-tools, .pic-handle')) return;
       if (pic && editable) {
@@ -1796,7 +2358,10 @@
       els.editor.childNodes.forEach((blk, b) => {
         if (b) text += '\n';
         if (blk.nodeType === 1 && blk.dataset.type === 'picture') return; // its buttons are not the note's words
-        const walker = document.createTreeWalker(blk, NodeFilter.SHOW_TEXT);
+        // Nor are a board's.
+        const words = blk.nodeType === 1 && blk.dataset.type === 'board'
+          ? { acceptNode: n => (n.parentNode.closest('.kb-ui') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) } : null;
+        const walker = document.createTreeWalker(blk, NodeFilter.SHOW_TEXT, words);
         for (let n = walker.nextNode(); n; n = walker.nextNode()) {
           parts.push({ node: n, start: text.length, end: text.length + n.data.length });
           text += n.data;
@@ -1949,12 +2514,20 @@
 
     // ── API ──────────────────────────────────────────────────────────────
 
+    // Cells, titles and cards are each editable on their own, when the
+    // note is.
+    function syncEditable() {
+      for (const x of els.editor.querySelectorAll('td, [data-gkb-title], [data-gkb-card]')) x.contentEditable = editable ? 'true' : 'false';
+    }
+
     function setDoc(doc) {
       pasteUndo = [];
       lastCell = null;
+      lastText = null;
+      if (drag) endDrag();
       deselectPicture();
       els.editor.replaceChildren(...fmt.normaliseDoc(doc).map(blockEl));
-      for (const td of els.editor.querySelectorAll('td')) td.contentEditable = editable ? 'true' : 'false';
+      syncEditable();
       updateEmpty();
       watchPictures();
       drawOutline();
@@ -1999,8 +2572,9 @@
       const z = pointAt(moved(at[1]));
       if (!a || !z) return;
       try {
-        // In a table, the new cell takes the focus the old one had.
-        const host = cellOf(a[0]) || els.editor;
+        // In a table or a board, the new cell or card takes the focus the
+        // old one had.
+        const host = hostOf(a[0]) || els.editor;
         if (root.activeElement !== host) host.focus({ preventScroll: true });
         const back = document.createRange();
         back.setStart(...a);
@@ -2017,9 +2591,11 @@
       for (const b of [...els.toolbar.querySelectorAll('button')]) b.disabled = !editable;
       // The contents only go somewhere in the text: they work regardless.
       if (buttons.contents) buttons.contents.disabled = false;
-      for (const td of els.editor.querySelectorAll('td')) td.contentEditable = editable ? 'true' : 'false';
+      syncEditable();
       if (!editable) {
         els.tablebar.hidden = true;
+        els.boardbar.hidden = true;
+        if (drag) dragCancel();
         deselectPicture();
       }
     }
@@ -2031,6 +2607,7 @@
     }
 
     function destroy() {
+      if (drag) dragCancel();
       clearTimeout(outlineTimer);
       cancelAnimationFrame(outlineFrame);
       if (viewer) viewer.disconnect();
@@ -2044,6 +2621,7 @@
       toolbar: els.toolbar,
       linkbar: els.linkbar,
       tablebar: els.tablebar,
+      boardbar: els.boardbar,
       outline: els.outline,
       setContentsShown,
       setDoc,
