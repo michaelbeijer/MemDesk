@@ -849,7 +849,8 @@ try {
     assert.equal(await np.locator('.ne-body b').innerText(), 'Kestrel');
     assert.equal(await np.locator('.ne-body i').innerText(), 'noon');
     assert.equal(await np.locator('.ne-body a').getAttribute('href'), 'https://example.com/portal');
-    assert.equal(await np.locator('.ne-body a').getAttribute('title'), 'https://example.com/portal');
+    assert.equal(await np.locator('.ne-body a').getAttribute('title'), 'https://example.com/portal\nClick to open it in a new tab');
+    assert.equal(await np.locator('.ne-body a').evaluate(a => getComputedStyle(a).cursor), 'pointer', 'the hand over a link');
     await np.mouse.move(0, 0);
     await np.screenshot({ path: join(SCREENS, 'notes-format.png'), animations: 'disabled' });
   });
@@ -956,6 +957,28 @@ try {
     await input.fill('example.com');
     await input.press('Enter');
     assert.equal(await np.locator('.ne-body a', { hasText: 'example' }).getAttribute('href'), 'https://example.com/');
+    // A click opens it in a new tab, and this page stays where it is; a
+    // drag over its words selects them, and opens nothing.
+    await np.context().route('https://example.com/**', route => route.fulfill({ contentType: 'text/html', body: 'example' }));
+    const here = np.url();
+    const link = np.locator('.ne-body a', { hasText: 'example' });
+    const [tab] = await Promise.all([np.context().waitForEvent('page'), link.click()]);
+    await tab.waitForLoadState();
+    assert.equal(tab.url(), 'https://example.com/');
+    await tab.close();
+    assert.equal(np.url(), here, 'not opened in place of the page');
+    const box = await link.boundingBox();
+    let opened = false;
+    const onPage = () => { opened = true; };
+    np.context().on('page', onPage);
+    await np.mouse.move(box.x + 2, box.y + box.height / 2);
+    await np.mouse.down();
+    await np.mouse.move(box.x + box.width - 2, box.y + box.height / 2, { steps: 5 });
+    await np.mouse.up();
+    await np.waitForTimeout(400);
+    np.context().off('page', onPage);
+    assert.equal(opened, false, 'a drag selects, it does not open');
+    assert.equal(await np.evaluate(() => document.getElementById('gkb-board-host').shadowRoot.getSelection().toString()), 'example');
     await np.keyboard.press('Control+s');
     await savedSoon();
     const html = await gm('messageHtml', await gm('findMessageBySubject', 'Formatting test'));

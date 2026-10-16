@@ -1112,7 +1112,7 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
   pointer-events: none;
 }
 .blk[data-type="check"][data-checked="1"] { color: var(--fg-3); text-decoration: line-through; }
-.ne-body a { color: var(--accent); text-decoration: underline; cursor: text; }
+.ne-body a { color: var(--accent); text-decoration: underline; cursor: pointer; }
 
 /* Formatting toolbar and the link field beneath it. */
 .ne-toolbar {
