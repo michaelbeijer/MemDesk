@@ -1185,7 +1185,90 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 }
 .blk[data-type="table"] td:focus { box-shadow: inset 0 0 0 2px var(--accent); }
 .blk[data-type="table"][data-head="1"] tr:first-child td { background: var(--col); font-weight: 600; }
-.ne-tablebar {
+/* Boards: columns side by side, scrolling sideways when there are more
+   than fit, as the board of mail does; each title and card edited on its
+   own. A card's handle shows on hover (always, where nothing hovers);
+   the buttons go when the note cannot be edited. */
+.blk[data-type="board"] { margin: 8px 0; white-space: normal; line-height: 1.5; }
+.kb-cols { display: flex; align-items: flex-start; gap: 10px; overflow-x: auto; padding: 2px 2px 8px; }
+.kb-col {
+  flex: 1 1 0;
+  min-width: 170px;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 14px;
+  background: var(--col);
+}
+.kb-title {
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  outline: none;
+  cursor: text;
+}
+.kb-title:focus { box-shadow: inset 0 0 0 2px var(--accent); }
+.kb-title:empty::before, .kb-title:has(> br:only-child)::before { content: attr(data-placeholder); color: var(--fg-3); font-weight: 400; }
+.kb-list { display: flex; flex-direction: column; gap: 6px; }
+.kb-card { position: relative; border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-1); }
+.kb-card:focus-within { box-shadow: 0 0 0 2px var(--accent); }
+.kb-text {
+  min-height: 1.5em;
+  padding: 7px 30px 7px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  outline: none;
+  cursor: text;
+}
+.kb-grip {
+  position: absolute;
+  top: 4px;
+  right: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--fg-3);
+  cursor: grab;
+  opacity: 0;
+  touch-action: none;
+}
+.kb-card:hover .kb-grip, .kb-card:focus-within .kb-grip, .kb-grip[aria-expanded="true"] { opacity: 1; }
+.kb-grip:hover { background: var(--hover); color: var(--fg); }
+@media (hover: none) { .kb-grip { opacity: .75; width: 32px; height: 32px; top: 2px; right: 1px; } }
+.kb-card.kb-dragging { box-shadow: var(--shadow-3); opacity: .92; }
+.kb-dragging-in, .kb-dragging-in * { cursor: grabbing !important; user-select: none; }
+.kb-add {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 8px;
+  color: var(--fg-2);
+  font-size: 13px;
+}
+.kb-add:hover { background: var(--hover); color: var(--fg); }
+.kb-add-col {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: var(--fg-2);
+}
+.kb-add-col:hover { background: var(--hover); color: var(--fg); }
+.ne-body[contenteditable="false"] .kb-ui { display: none; }
+.ne-tablebar, .ne-boardbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1273,8 +1356,8 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
   touch-action: none;
 }
 @media (hover: none) { .pic-handle { width: 24px; height: 24px; right: -12px; bottom: -12px; } }
-.ne-tablebar .tb-label { display: inline-flex; padding: 0 6px; color: var(--accent); }
-.ne-tablebar .spacer { flex: 1; }
+.ne-tablebar .tb-label, .ne-boardbar .tb-label { display: inline-flex; padding: 0 6px; color: var(--accent); }
+.ne-tablebar .spacer, .ne-boardbar .spacer { flex: 1; }
 .tb-text {
   display: inline-flex;
   align-items: center;
@@ -1589,7 +1672,7 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .scratch-tile-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .scratch-tile .ne-body { padding: 2px 4px 8px; font-size: 13.5px; line-height: 1.5; }
 .scratch-tile .ne-body[data-empty="1"]::before { top: 2px; left: 4px; }
-.scratch-tile .ne-linkbar, .scratch-tile .ne-tablebar { margin: 0 0 6px; }
+.scratch-tile .ne-linkbar, .scratch-tile .ne-tablebar, .scratch-tile .ne-boardbar { margin: 0 0 6px; }
 .scratch-tile .ne-linkbar .text-input { min-width: 0; }
 .sunday .day-head, .sunday .day-head .dname, .mcell.sunday:not(.today) .mday, .aday.sunday .aday-date { color: var(--c-red); }
 

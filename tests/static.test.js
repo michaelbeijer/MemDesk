@@ -34,6 +34,22 @@ test('no HTML-string sinks anywhere Gmail’s Trusted Types would apply', () => 
   }
 });
 
+test('no function is declared twice at the same depth of a file', () => {
+  // The second would silently replace the first for every caller: the
+  // board's addColumn once took over the table's that way, unnoticed
+  // until a browser test.
+  for (const f of [...files('src', ['.js']), ...files(path.join('addon', 'src'), ['.js']), ...files(path.join('addon', 'app'), ['.js']), ...files('dev', ['.js'])]) {
+    const seen = new Map();
+    read(f).split('\n').forEach((line, i) => {
+      const m = /^( *)(?:async )?function ([A-Za-z_$][\w$]*)\s*\(/.exec(line);
+      if (!m) return;
+      const key = `${m[1].length}:${m[2]}`;
+      assert.ok(!seen.has(key), `${f}:${i + 1}: ${m[2]} is already declared at line ${seen.get(key)}`);
+      seen.set(key, i + 1);
+    });
+  }
+});
+
 test('the display name lives only in the documented rename spots', () => {
   const NAME = manifest.name;
   const allowed = new Set(['manifest.json', 'README.md', path.join('src', 'shared', 'ns.js'), path.join('addon', 'appsscript.json')]);
@@ -73,7 +89,7 @@ test('the preview loads exactly the manifest’s content scripts, in order', () 
 
 test('manifest: version, permissions and a key whose ID the README reports', () => {
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '0.36.0');
+  assert.equal(manifest.version, '0.37.0');
   assert.ok(read('README.md').includes(`badge/version-${manifest.version}-`), 'the README\'s version badge is current');
   assert.equal(require('../src/shared/ns.js').APP_VERSION, manifest.version, 'the logo menu\'s version (src/shared/ns.js) is current');
   assert.deepEqual(manifest.permissions.sort(), ['identity', 'storage']);

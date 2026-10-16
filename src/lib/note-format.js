@@ -3,10 +3,11 @@
 //
 // A formatted note is a list of blocks - paragraphs, three heading
 // sizes, bulleted, numbered and check lists nested up to three deep,
-// tables and pictures - each holding runs of text that may be bold,
-// italic, struck through or a link (a table, rows of cells of them; a
-// picture, none: it is kept in a message of its own, which the block
-// names). That is the whole model; nothing outside it survives a save.
+// tables, boards and pictures - each holding runs of text that may be
+// bold, italic, struck through or a link (a table, rows of cells of
+// them; a board, columns with a title and cards of them; a picture,
+// none: it is kept in a message of its own, which the block names).
+// That is the whole model; nothing outside it survives a save.
 //
 // It is stored in the note's message twice. The HTML part is the real
 // record: Gmail shows it (on the phone too), and this file reads it back
@@ -27,7 +28,7 @@
   const ns = (globalThis.gkb = globalThis.gkb || {});
   const util = (typeof module === 'object' && module.exports) ? require('./util.js') : ns.util;
 
-  const TYPES = new Set(['p', 'h1', 'h2', 'h3', 'ul', 'ol', 'check', 'table', 'picture']);
+  const TYPES = new Set(['p', 'h1', 'h2', 'h3', 'ul', 'ol', 'check', 'table', 'board', 'picture']);
   const LISTS = new Set(['ul', 'ol', 'check']);
   const MAX_LEVEL = 3;
   // A table: at most this many columns and rows; a column is aligned
@@ -35,6 +36,9 @@
   const MAX_COLS = 26;
   const MAX_ROWS = 1000;
   const ALIGNS = new Set(['', 'center', 'right']);
+  // A board: at most this many columns, and cards in a column.
+  const MAX_BOARD_COLS = 20;
+  const MAX_CARDS = 1000;
   const BOX = '☐';     // ☐
   const TICKED = '☑';  // ☑
   const BULLET = '•';  // •
@@ -54,6 +58,12 @@
 
   const emptyCell = () => ({ runs: [] });
 
+  // A board block: `columns`, each { title, cards } - its title runs (one
+  // line), and its cards, each { runs } like a table's cell, top first.
+  function board(columns = [{ title: [], cards: [] }]) {
+    return Object.assign(block('board'), { columns });
+  }
+
   // A picture block: `src`, the id of the message the picture is kept in
   // (notes-logic's pictures) - or, until the note is saved, "new-…", the
   // copy held in the page (src/content/pictures.js); `width`, its share of
@@ -68,8 +78,8 @@
     const n = Math.round(Number(w) || 0);
     return n <= 0 ? 0 : Math.max(10, Math.min(100, n));
   };
-  // Tables and pictures: blocks the text cannot run into.
-  const isIsland = b => b.type === 'table' || b.type === 'picture';
+  // Tables, boards and pictures: blocks the text cannot run into.
+  const isIsland = b => b.type === 'table' || b.type === 'board' || b.type === 'picture';
 
   function emptyDoc() {
     return [block('p')];
@@ -112,18 +122,30 @@
     return table(rows, { head: b.head, align });
   }
 
+  // Within the limits, at least one column; a title is one line. An empty
+  // card stays: it is the user's to delete, like an empty cell.
+  function normaliseBoard(b) {
+    const cols = (Array.isArray(b.columns) ? b.columns : []).filter(c => c && typeof c === 'object').slice(0, MAX_BOARD_COLS);
+    const columns = cols.map(c => ({
+      title: normaliseRuns((Array.isArray(c.title) ? c.title : []).map(r => r && Object.assign({}, r, { text: String(r.text || '').replace(/\n/g, ' ') }))),
+      cards: (Array.isArray(c.cards) ? c.cards : []).filter(k => k && typeof k === 'object').slice(0, MAX_CARDS).map(k => ({ runs: normaliseRuns(k.runs) })),
+    }));
+    if (!columns.length) columns.push({ title: [], cards: [] });
+    return board(columns);
+  }
+
   // Unknown types become paragraphs; a list item may sit at most one level
   // deeper than the list item before it, which is what keeps the HTML a
   // properly nested list and the editor's indents meaningful. A picture
-  // that names no message is left out. A table or a picture is never
-  // last: a line follows it, somewhere to type after it.
+  // that names no message is left out. A table, a board or a picture is
+  // never last: a line follows it, somewhere to type after it.
   function normaliseDoc(doc) {
     const out = [];
     let prevLevel = -1;
     for (const b of Array.isArray(doc) ? doc : []) {
       if (!b || typeof b !== 'object') continue;
-      if (b.type === 'table') {
-        out.push(normaliseTable(b));
+      if (b.type === 'table' || b.type === 'board') {
+        out.push(b.type === 'table' ? normaliseTable(b) : normaliseBoard(b));
         prevLevel = -1;
         continue;
       }
@@ -149,13 +171,16 @@
   const runsText = runs => runs.map(r => r.text).join('');
   // A table's text: a row a line, its cells between " | ".
   const tableText = b => b.rows.map(r => r.map(c => runsText(c.runs).replace(/\n/g, ' ')).join(' | ')).join('\n');
-  const blockText = b => (b.type === 'table' ? tableText(b) : b.type === 'picture' ? '' : runsText(b.runs));
+  // A board's text: each column's title, then its cards, a line each.
+  const boardText = b => b.columns.flatMap(c => [runsText(c.title), ...c.cards.map(k => runsText(k.runs).replace(/\n/g, ' '))]).join('\n');
+  const blockText = b => (b.type === 'table' ? tableText(b) : b.type === 'board' ? boardText(b) : b.type === 'picture' ? '' : runsText(b.runs));
 
   function docText(doc) {
     return doc.map(blockText).join('\n');
   }
 
-  // A table or a picture counts as something written, even with no words.
+  // A table, a board or a picture counts as something written, even with
+  // no words.
   function isEmpty(doc) {
     return doc.every(b => !isIsland(b) && !blockText(b).trim());
   }
@@ -243,6 +268,10 @@
     table: 'border-collapse:collapse;margin:6px 0',
     cell: 'border:1px solid #c4c7c5;padding:4px 8px;vertical-align:top;text-align:left',
     th: 'background:#f1f3f4;font-weight:bold',
+    board: 'border-collapse:separate;border-spacing:8px 0;margin:6px 0;table-layout:fixed;width:100%',
+    column: 'background:#e9eef6;border-radius:12px;padding:8px;vertical-align:top;text-align:left',
+    title: 'padding:2px 4px 6px;font-weight:bold',
+    card: 'margin:0 0 6px;padding:6px 8px;background:#ffffff;border:1px solid #dadce0;border-radius:8px',
     picture: 'margin:6px 0;padding:8px 12px;border:1px dashed #c4c7c5;border-radius:8px;color:#5f6368;font-size:13px',
   };
 
@@ -272,6 +301,17 @@
       (body.length ? `<tbody>${body.map(r => row(r, 'td')).join('')}</tbody>` : '') + '</table>';
   }
 
+  // A board as Gmail and any mail client shows one: a table of one row,
+  // a column a cell, its title in bold above its cards, each card a box.
+  // The data- attributes are what reading it back goes by.
+  function boardHtml(b) {
+    const width = Math.floor(100 / b.columns.length);
+    const column = c => `<td data-gkb-column="1" style="${STYLE.column};width:${width}%">` +
+      `<div data-gkb-title="1" style="${STYLE.title}">${runsHtml(c.title)}</div>` +
+      c.cards.map(k => `<div data-gkb-card="1" style="${STYLE.card}">${runsHtml(k.runs) || '<br>'}</div>`).join('') + '</td>';
+    return `<table data-gkb-board="1" style="${STYLE.board}"><tbody><tr>${b.columns.map(column).join('')}</tr></tbody></table>`;
+  }
+
   function toHtml(docIn) {
     const doc = normaliseDoc(docIn);
     const stack = []; // open lists, one per level: { tag, check }
@@ -279,9 +319,9 @@
     const close = () => { out += `</li></${stack.pop().tag}>`; };
 
     for (const b of doc) {
-      if (b.type === 'table') {
+      if (b.type === 'table' || b.type === 'board') {
         while (stack.length) close();
-        out += `${tableHtml(b)}\n`;
+        out += `${b.type === 'table' ? tableHtml(b) : boardHtml(b)}\n`;
         continue;
       }
       if (b.type === 'picture') {
@@ -339,13 +379,20 @@
     return b.rows.map(r => r.map(cell).join(' | ')).join('\n');
   }
 
+  // A board as plain text: each column's title on a line, its cards as
+  // bullets under it.
+  function boardPlain(b) {
+    return b.columns.map(c => [`${runsPlain(c.title).trim() || 'Untitled'}:`,
+      ...c.cards.map(k => `  ${BULLET} ${runsPlain(k.runs).replace(/\n/g, ' ').trim()}`)].join('\n')).join('\n');
+  }
+
   function toPlain(docIn) {
     const doc = normaliseDoc(docIn);
     const counters = [0, 0, 0, 0];
     return doc.map(b => {
-      if (b.type === 'table') {
+      if (b.type === 'table' || b.type === 'board') {
         counters.fill(0);
-        return tablePlain(b);
+        return b.type === 'table' ? tablePlain(b) : boardPlain(b);
       }
       if (b.type === 'picture') {
         counters.fill(0);
@@ -490,6 +537,12 @@
     let gap = false;          // a <p> just closed with space below it
     let ours = false;         // inside a note's own HTML, where paragraphs are lines
     let hold = 0;             // inside a picture's own markup, which holds no text: its depth in <div>s
+    // The open board, if any: { b, tag, depth, divs, col, target, at }. Its
+    // text goes into its columns' titles and cards - `target`, the runs
+    // being written, which end with the <div> `at` deep - and nothing else
+    // in it is the note's: not its buttons, nor the space between cards.
+    // It ends with the tag it started with (`tag`, `depth` of them open).
+    let brd = null;
 
     const level = () => Math.max(0, lists.length - 1);
     const open = (type, extra) => {
@@ -554,6 +607,77 @@
       }));
     };
 
+    // A line break in the title or card being written, unless it is empty
+    // or just had one.
+    const boardBreak = () => {
+      const runs = brd.target;
+      if (runs && runs.length && !/\n$/.test(runs[runs.length - 1].text)) runs.push(run('\n'));
+    };
+    // A column, its title or a card starting: what follows is written there.
+    const boardPart = a => {
+      if (a['data-gkb-column'] !== undefined) {
+        brd.col = { title: [], cards: [] };
+        brd.b.columns.push(brd.col);
+        brd.target = null;
+        return true;
+      }
+      const title = a['data-gkb-title'] !== undefined;
+      if (!title && a['data-gkb-card'] === undefined) return false;
+      if (!brd.col) {
+        brd.col = { title: [], cards: [] };
+        brd.b.columns.push(brd.col);
+      }
+      if (title) brd.target = brd.col.title;
+      else {
+        const card = { runs: [] };
+        brd.col.cards.push(card);
+        brd.target = card.runs;
+      }
+      brd.at = brd.divs;
+      return true;
+    };
+    const finishBoard = () => {
+      const t = brd;
+      brd = null;
+      cur = null;
+      if (!t.b.columns.length) blocks.splice(blocks.indexOf(t.b), 1);
+    };
+    // A tag inside a board: true if it is dealt with here, false for the
+    // marks and links, which are read as anywhere else.
+    const boardTag = (name, isClose, selfClosing, a) => {
+      if (name === brd.tag && name !== 'div') {
+        if (!selfClosing) brd.depth += isClose ? -1 : 1;
+        if (!brd.depth) finishBoard();
+        return true;
+      }
+      if (name === 'div') {
+        if (selfClosing) return true;
+        if (isClose) {
+          if (!brd.divs) {
+            if (brd.tag === 'div') finishBoard();
+            return true;
+          }
+          if (brd.target && brd.divs === brd.at) brd.target = null;
+          else boardBreak();
+          brd.divs--;
+          return true;
+        }
+        brd.divs++;
+        if (!boardPart(a)) boardBreak();
+        return true;
+      }
+      if (!isClose && boardPart(a)) return true;
+      if (name === 'br') {
+        if (brd.target) brd.target.push(run('\n'));
+        return true;
+      }
+      if (HEADINGS[name] || PARA.has(name) || name === 'li' || name === 'tr' || name === 'td' || name === 'th') {
+        boardBreak();
+        return true;
+      }
+      return !(name === 'a' || INLINE[name]);
+    };
+
     let m;
     TOKEN_RE.lastIndex = 0;
     while ((m = TOKEN_RE.exec(String(html || '')))) {
@@ -569,6 +693,11 @@
           // Word's list marker ("·", "1.", "a)"): not text, but it says
           // whether the list is bulleted or numbered.
           if (cur && cur.wordList) cur.marker += util.decodeEntities(whole);
+          continue;
+        }
+        if (brd) {
+          const text = util.decodeEntities(whole === '<' ? '<' : whole).replace(/[ \t\r\n\f]+/g, ' ');
+          if (brd.target && (brd.target.length || /[^ \t\r\n\f]/.test(text))) brd.target.push(run(text));
           continue;
         }
         if (pre) {
@@ -624,6 +753,18 @@
       }
       if (skip) continue;
       const a = isClose ? {} : attrsOf(rawAttrs);
+
+      // ── Boards: as a note's HTML has them, or copied out of the editor ──
+      if (brd) {
+        if (boardTag(name, isClose, selfClosing, a)) continue;
+      } else if (!isClose && !tbl && (a['data-gkb-board'] !== undefined || (name === 'div' && a['data-type'] === 'board'))) {
+        end();
+        gap = false;
+        brd = { b: board([]), tag: name, depth: 1, divs: 0, col: null, target: null, at: 0 };
+        blocks.push(brd.b);
+        if (selfClosing) finishBoard();
+        continue;
+      }
 
       if (name === 'br') {
         if (tbl) {
@@ -843,6 +984,7 @@
       // Anything else (img, u, sup, code, …): its text is kept, the tag is not.
     }
     if (tbl) finishTable();
+    if (brd) finishBoard();
     for (const k of Object.keys(marks)) marks[k] = Math.max(0, marks[k]);
 
     // Tidy each block: collapse the whitespace HTML would collapse, then
@@ -860,6 +1002,10 @@
     for (const b of blocks) {
       if (b.type === 'table') {
         b.rows.forEach(r => r.forEach(c => tidyRuns(c.runs)));
+        continue;
+      }
+      if (b.type === 'board') {
+        b.columns.forEach(c => { tidyRuns(c.title); c.cards.forEach(k => tidyRuns(k.runs)); });
         continue;
       }
       if (b.type === 'picture') continue;
@@ -1022,6 +1168,18 @@
     return kept.length === 1 && isTable(kept[0]) ? kept[0] : null;
   }
 
+  // The runs of a table of one cell, or of a board of one card or one
+  // column's title: what copying a bit of either's text gives.
+  function loneRuns(doc) {
+    const kept = doc.filter(b => !fmtBlank(b));
+    const one = kept.length === 1 ? kept[0] : null;
+    if (one && isTable(one)) return one.rows.length === 1 && one.rows[0].length === 1 ? one.rows[0][0].runs : null;
+    if (!one || one.type !== 'board' || one.columns.length !== 1) return null;
+    const col = one.columns[0];
+    if (col.cards.length + (col.title.length ? 1 : 0) > 1) return null;
+    return col.cards.length ? col.cards[0].runs : col.title;
+  }
+
   // What a paste becomes: the clipboard's HTML, read like mail; or, when
   // that brings no formatting and the text is Markdown (from a chat
   // assistant, say), the Markdown read as formatting. Empty lines at
@@ -1032,10 +1190,10 @@
     if (doc && isEmpty(doc)) doc = null;
     if ((!doc || !hasFormatting(doc)) && looksLikeMarkdown(text)) doc = fromMarkdown(text);
     if (!doc) return null;
-    // One cell copied on its own is its text, not a table of one.
-    const one = onlyTable(doc);
-    if (one && one.rows.length === 1 && one.rows[0].length === 1) {
-      const runs = one.rows[0][0].runs;
+    // One cell copied on its own is its text, not a table of one; one
+    // card, not a board of one.
+    const runs = loneRuns(doc);
+    if (runs) {
       const lines = [[]];
       for (const r of runs) {
         r.text.split('\n').forEach((piece, k) => {
@@ -1200,6 +1358,7 @@
     picture, pictureSrcs, renamePictures, isIsland,
     toHtml, toPlain, fromPlain, parseHtml, docFromParts, fromMarkdown, looksLikeMarkdown, hasFormatting, pasteDoc,
     mergeDocs, sameDoc, table, onlyTable, tableText, MAX_COLS, MAX_ROWS,
+    board, boardText, MAX_BOARD_COLS, MAX_CARDS,
   };
 
   ns.noteFormat = api;

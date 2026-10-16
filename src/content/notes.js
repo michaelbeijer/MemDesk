@@ -1253,7 +1253,7 @@
         : c.scratch ? `Jot anything down. It saves as you type, as a note in Gmail under “${notesStore.labelName()}”.` : 'Write here…');
 
     els.findSlot = h('div', { class: 'ne-find-slot' });
-    els.editor.replaceChildren(els.bar, els.bannerSlot, els.findSlot, title, ed.toolbar, ed.linkbar, ed.tablebar,
+    els.editor.replaceChildren(els.bar, els.bannerSlot, els.findSlot, title, ed.toolbar, ed.linkbar, ed.tablebar, ed.boardbar,
       h('div', { class: 'ne-main' }, ed.element, ed.outline));
     drawBar();
     drawFind();
@@ -1543,7 +1543,7 @@
     ed.setEditable(s.bodyState === 'ready',
       s.bodyState === 'loading' ? 'Loading…' : s.bodyState === 'error' ? `Couldn’t load the scratchpad: ${s.error}`
         : 'Jot anything down. It saves as you type.');
-    T.body.replaceChildren(ed.linkbar, ed.tablebar, ed.element);
+    T.body.replaceChildren(ed.linkbar, ed.tablebar, ed.boardbar, ed.element);
     drawStatus();
   }
 

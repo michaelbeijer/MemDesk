@@ -398,6 +398,54 @@ await r.step('a table on the phone: from the toolbar, filled cell by cell with T
   await t.page.context().close();
 });
 
+await r.step('a board on the phone: from the toolbar, cards typed in, one dragged to Done with a finger, saved as columns', async () => {
+  const t = await openApp();
+  await scratchReady(t.page);
+  await q(t.page, '[data-key="note-new"]').tap();
+  await q(t.page, '[data-key="note-title"]').fill('Jobs this week');
+  await q(t.page, '[data-key="note-title"]').press('Enter');
+  await q(t.page, '[data-key="fmt-board"]').scrollIntoViewIfNeeded();
+  await q(t.page, '[data-key="fmt-board"]').tap();
+  await q(t.page, '.ne-boardbar').waitFor();
+  for (const k of ['Patent for Kestrel', 'Enter', 'Glossary check']) {
+    if (k === 'Enter') await t.page.keyboard.press(k);
+    else await t.page.keyboard.type(k);
+  }
+  const grid = () => q(t.page, '.ne-body .blk[data-type="board"]').evaluate(el =>
+    [...el.querySelectorAll('[data-gkb-column]')].map(c => [c.querySelector('[data-gkb-title]').innerText.replace(/\n$/, ''),
+      ...[...c.querySelectorAll('[data-gkb-card]')].map(x => x.innerText.replace(/\n$/, ''))]));
+  assert.deepEqual(await grid(), [['To do', 'Patent for Kestrel', 'Glossary check'], ['Doing'], ['Done']]);
+  // Nothing hovers on a phone: the handles are always there.
+  const grip = q(t.page, '.kb-card').filter({ hasText: 'Patent for Kestrel' }).locator('.kb-grip');
+  assert.ok(Number(await grip.evaluate(el => getComputedStyle(el).opacity)) > 0.5, 'the handle shows without hovering');
+  // A finger on the handle, moved to Done: touch events, as a phone sends them.
+  const done = q(t.page, '.kb-col').nth(2);
+  await done.scrollIntoViewIfNeeded();
+  await grip.scrollIntoViewIfNeeded();
+  const g = await grip.boundingBox();
+  const d = await done.boundingBox();
+  const cdp = await t.page.context().newCDPSession(t.page);
+  const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+  await touch('touchStart', g.x + g.width / 2, g.y + g.height / 2);
+  for (let i = 1; i <= 10; i++) {
+    await touch('touchMove', g.x + (d.x + d.width / 2 - g.x) * i / 10, g.y + (d.y + d.height - 8 - g.y) * i / 10);
+    await t.page.waitForTimeout(20);
+  }
+  await touch('touchEnd');
+  await until(async () => JSON.stringify((await grid())[2]) === JSON.stringify(['Done', 'Patent for Kestrel']), 'dragged to Done');
+  assert.deepEqual((await grid())[0], ['To do', 'Glossary check']);
+  assert.equal(await t.page.evaluate(() => {
+    const a = document.querySelector('#gkb-app-host').shadowRoot.activeElement;
+    return !!a && a.dataset && a.dataset.gkbCard !== undefined && a.textContent === 'Patent for Kestrel';
+  }), false, 'no keyboard popping up for a card only moved');
+  await t.page.screenshot({ path: join(SCREENS, 'app-note-board.png'), animations: 'disabled' });
+  await until(async () => /^Saved/.test(await q(t.page, '.ne-status').first().innerText()), 'saved', 10000);
+  await settled(t.page);
+  const box = t.phone.fake.box;
+  assert.match(box.messageText(box.findMessageBySubject('Jobs this week')), /To do:\n {2}• Glossary check\nDoing:\nDone:\n {2}• Patent for Kestrel/);
+  await t.page.context().close();
+});
+
 await r.step('pictures on the phone: read through the script; one picked from the photos is made smaller and saved as its own message; deleted, it goes to Trash', async () => {
   const t = await openApp({ search: '?pictures' });
   const box = t.phone.fake.box;
