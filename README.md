@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.37.1" src="https://img.shields.io/badge/version-0.37.1-6D28D9">
+  <img alt="Version 0.37.2" src="https://img.shields.io/badge/version-0.37.2-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -143,7 +143,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.37.1 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.37.2 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -322,7 +322,10 @@ computers. All of it is kept per Gmail account.
   `1. `, `[] `, `[x] ` or `#`, `##`, `###` and a space at the start of a line
   turns it into that list or heading. Enter on an empty list item ends the list;
   Backspace at the start of a list item or heading turns it back into text.
-  Ctrl-click a link to open it.
+  Click a link (on a phone, tap it) to open it in a new tab, in a note and
+  on a board's cards alike. To change a link's words, drag over them to
+  select them, or put the cursor beside the link and move into it with the
+  arrow keys; Ctrl+K then changes where it goes.
 - **Contents.** The **Contents** button at the end of the toolbar lists the
   note's headings at the right of the text, indented by level: click one to go
   to it, with the cursor there too. The heading of the part being read is

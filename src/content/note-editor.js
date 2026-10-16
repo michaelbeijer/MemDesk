@@ -82,6 +82,9 @@
     else delete el.dataset.checked;
   }
 
+  // A link's tooltip: where it goes, and that a click goes there.
+  const linkTitle = href => `${href.replace(/^mailto:/, '')}\nClick to open it in a new tab`;
+
   function inlineNodes(runs) {
     const out = [];
     for (let i = 0; i < runs.length;) {
@@ -99,7 +102,7 @@
         group.push(node);
         j++;
       }
-      if (href) out.push(h('a', { href, title: href }, group));
+      if (href) out.push(h('a', { href, title: linkTitle(href) }, group));
       else out.push(...group);
       i = j;
     }
@@ -577,7 +580,7 @@
       for (const a of els.editor.querySelectorAll('a[href]')) {
         const href = fmt.safeHref(a.getAttribute('href'));
         if (!href) a.replaceWith(...a.childNodes);
-        else if (a.title !== href) a.title = href;
+        else if (a.title !== linkTitle(href)) a.title = linkTitle(href);
       }
       if (!els.editor.children.length) {
         els.editor.appendChild(blockEl(fmt.block('p')));
@@ -711,7 +714,7 @@
       const a = anchorAt(r);
       if (r.collapsed && a) {
         a.setAttribute('href', href);
-        a.title = href;
+        a.title = linkTitle(href);
       } else if (r.collapsed) {
         // Nothing selected: the address itself becomes the link text.
         const text = href.replace(/^mailto:/, '');
@@ -2298,7 +2301,11 @@
     els.editor.addEventListener('mousedown', e => {
       if (e.target.closest && e.target.closest('.kb-ui')) e.preventDefault();
     });
+    // Where the last press was: a click that ends somewhere else was a
+    // drag, selecting text, not a click on a link.
+    let pressedAt = null;
     els.editor.addEventListener('pointerdown', e => {
+      pressedAt = [e.clientX, e.clientY];
       const grip = e.target.closest && e.target.closest('.kb-grip');
       if (grip) dragStart(e, grip);
     });
@@ -2318,9 +2325,15 @@
         return;
       }
       if (selPic) deselectPicture();
+      // A click on a link opens it in a new tab - while the note can be
+      // edited too, and never in this one, which would leave the page.
+      // Not when the click ended a drag over its words, or with Shift,
+      // which selects: that is how its words are edited.
       const a = e.target.closest && e.target.closest('a[href]');
-      if (a && (e.ctrlKey || e.metaKey)) {
+      if (a) {
         e.preventDefault();
+        const dragged = e.detail > 0 && pressedAt && Math.abs(e.clientX - pressedAt[0]) + Math.abs(e.clientY - pressedAt[1]) > 4;
+        if (e.shiftKey || e.altKey || e.detail > 1 || dragged) return;
         window.open(a.href, '_blank', 'noopener');
         return;
       }
@@ -2331,6 +2344,14 @@
         const at = (Number(blk.dataset.level) || 0) * INDENT_PX;
         if (x >= at && x < at + 26) toggleCheck(blk);
       }
+    });
+
+    // The middle button opens a link in a new tab too, as anywhere.
+    els.editor.addEventListener('auxclick', e => {
+      const a = e.button === 1 && e.target.closest && e.target.closest('a[href]');
+      if (!a) return;
+      e.preventDefault();
+      window.open(a.href, '_blank', 'noopener');
     });
 
     const onSelection = () => {
