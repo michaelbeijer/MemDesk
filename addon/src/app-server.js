@@ -139,11 +139,11 @@
   }
 
   // A newer version of the note a save starts from, saved on another
-  // device since this page read it - or, for the scratchpad when the page
-  // knew of none, the one there already.
+  // device since this page read it - or, for the scratchpad or the
+  // favourites when the page knew of none, the one there already.
   function newerThan(ctx, previous, noteId) {
     if (previous) return previous.own ? store.newerVersion(ctx, previous) : null;
-    if (noteId !== notesLogic.SCRATCHPAD_ID) return null;
+    if (!notesLogic.FIXED_IDS.has(noteId)) return null;
     return store.newerVersion(ctx, { own: true, noteId, messageId: '', inNotes: false, trashed: false, updated: 0 });
   }
 

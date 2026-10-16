@@ -76,6 +76,36 @@ test('the scratchpad has a fixed id; no other id can be asked for', () => {
   assert.notEqual(notes.noteIdFor({ own: false, noteId: '' }, ''), '', 'an email turned into a note gets a new id');
 });
 
+test('the favourites: a fixed id, a message anyone can read, read back; added and taken out', () => {
+  assert.match(notes.FAVOURITES_ID, /^[a-z0-9]{12,40}$/);
+  assert.equal(notes.noteIdFor(null, notes.FAVOURITES_ID), notes.FAVOURITES_ID, 'a first save of the favourites');
+  const items = [{ note: 'n:abcdefabcdef12' }, { folder: 'Label_28' }, { note: 'm:19a0c0de101e50' }];
+  const text = notes.favouritesText(items);
+  assert.match(text, /^Your favourite notes and folders, kept here so that every computer and phone shows the same ones\./);
+  assert.doesNotMatch(text, /MemDesk/, 'the name only where the rename list says');
+  assert.deepEqual(notes.favouritesFromText(text), items);
+  // Built as a note and read back from its message.
+  const raw = notes.buildNoteRaw({ noteId: notes.FAVOURITES_ID, title: notes.FAVOURITES_TITLE, body: text, account: 'me@example.com', date: at });
+  assert.equal(notes.noteIdOfRaw(raw), notes.FAVOURITES_ID);
+  assert.deepEqual(notes.favouritesFromText(bodyOf(decode(raw))), items);
+  // Unreadable is not "none": null, so nothing is written over it by mistake.
+  assert.equal(notes.favouritesFromText('no list here'), null);
+  assert.equal(notes.favouritesFromText('{ broken'), null);
+  assert.deepEqual(notes.favouritesFromText('{"v":1,"items":[]}'), []);
+  // Only well-formed ones, each once.
+  assert.deepEqual(notes.normaliseFavourites([{ note: 'n:abcdefabcdef12' }, { note: 'n:abcdefabcdef12' }, { note: '<script>' },
+    { folder: 'Label 1' }, { folder: 'Label_1', note: 'x' }, null, 'junk', { folder: 'Label_2' }]),
+  [{ note: 'n:abcdefabcdef12' }, { folder: 'Label_2' }]);
+  assert.equal(notes.normaliseFavourites(Array.from({ length: notes.FAVOURITES_MAX + 10 }, (_, i) => ({ folder: `Label_${i}` }))).length, notes.FAVOURITES_MAX);
+  // Added at the end, once; taken out wherever it is.
+  const more = notes.withFavourite(items, { folder: 'Label_9' }, true);
+  assert.deepEqual(more.at(-1), { folder: 'Label_9' });
+  assert.deepEqual(notes.withFavourite(more, { folder: 'Label_9' }, true), more, 'added twice is there once');
+  assert.deepEqual(notes.withFavourite(items, { folder: 'Label_28' }, false), [items[0], items[2]]);
+  assert.deepEqual(notes.withFavourite(items, { folder: 'Label_404' }, false), items, 'taking out one that is not there changes nothing');
+  assert.equal(notes.favouriteKey({ note: 'n:abcdefabcdef12' }) === notes.favouriteKey({ folder: 'n:abcdefabcdef12' }), false);
+});
+
 test('note ids are lower-case alphanumerics the builder accepts', () => {
   const id = notes.newNoteId();
   assert.match(id, /^[a-z0-9]{20}$/);

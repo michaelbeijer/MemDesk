@@ -1433,13 +1433,13 @@ try {
 
   // ── Folders ──
 
-  const folderId = name => np.locator('.folder-row', { has: np.locator('.folder-title', { hasText: new RegExp(`^${name}$`) }) })
+  const folderId = name => np.locator('.folder-row:not(.fav-row)', { has: np.locator('.folder-title', { hasText: new RegExp(`^${name}$`) }) })
     .first().getAttribute('data-folder');
-  const folderTitles = () => np.locator('.folder-row .folder-title').allInnerTexts();
-  const folderCount = async name => Number(await np.locator('.folder-row', { has: np.locator('.folder-title', { hasText: new RegExp(`^${name}$`) }) })
+  const folderTitles = () => np.locator('.folder-row:not(.fav-row) .folder-title').allInnerTexts();
+  const folderCount = async name => Number(await np.locator('.folder-row:not(.fav-row)', { has: np.locator('.folder-title', { hasText: new RegExp(`^${name}$`) }) })
     .first().locator('.folder-count').textContent()); // textContent: hovering a row hides its count
   const openFolderMenu = async name => {
-    const row = np.locator('.folder-row', { has: np.locator('.folder-title', { hasText: new RegExp(`^${name}$`) }) }).first();
+    const row = np.locator('.folder-row:not(.fav-row)', { has: np.locator('.folder-title', { hasText: new RegExp(`^${name}$`) }) }).first();
     await row.hover();
     await row.locator('.folder-menu').click();
     await np.locator('.menu').waitFor();
@@ -1594,6 +1594,53 @@ try {
     await np.locator('[data-key="folder-input"]').press('Escape');
     await np.locator('[data-key="folder:all"]').click();
     await until(async () => JSON.stringify(await np.evaluate(k => window.chrome.storage.local.dump()[k], key)) === '[]', 'nothing folded now');
+  });
+
+  await r.step('favourites: a note starred on its bar and a folder from its menu, at the top of the folders, opened from there; one message in Gmail, never listed as a note', async () => {
+    const favTitles = () => np.locator('.fav-row .folder-title').allInnerTexts();
+    const kept = async () => {
+      const l = await live('favourites000000');
+      return l.length === 1 ? JSON.parse(l[0].text.slice(l[0].text.indexOf('{'))).items : null;
+    };
+    assert.equal(await np.locator('.fav-head').count(), 0, 'none yet, so no heading');
+    await np.locator('.note-item', { hasText: 'Launch checklist' }).click();
+    const noteKey = await np.locator('.note-item', { hasText: 'Launch checklist' }).getAttribute('data-note');
+    const star = np.locator('[data-key="note-favourite"]');
+    await star.waitFor();
+    assert.equal(await star.getAttribute('aria-pressed'), 'false');
+    assert.equal(await star.getAttribute('title'), 'Add to favourites');
+    await star.click();
+    assert.equal(await star.getAttribute('aria-pressed'), 'true', 'at once');
+    assert.deepEqual(await favTitles(), ['Launch checklist']);
+    await openFolderMenu('Cooking');
+    assert.equal(await np.locator('.menu [data-key="folder-favourite"]').innerText(), 'Add to favourites');
+    await np.locator('.menu [data-key="folder-favourite"]').click();
+    assert.deepEqual(await favTitles(), ['Launch checklist', 'Cooking'], 'in the order starred');
+    assert.equal(await np.locator('.folder-items > :first-child').innerText(), 'FAVOURITES', 'at the top, under a heading');
+    const cooking = await folderId('Cooking');
+    await until(async () => JSON.stringify(await kept()) === JSON.stringify([{ note: noteKey }, { folder: cooking }]), 'kept in Gmail, as one message');
+    assert.ok((await live('favourites000000'))[0].labels.includes('_Notes'));
+    assert.ok(!(await noteTitles()).includes('Favourites'), 'not a note on the list');
+    await np.mouse.move(0, 0);
+    await np.screenshot({ path: join(SCREENS, 'notes-favourites.png'), animations: 'disabled' });
+
+    // From the favourites: a folder shows its notes, a note opens.
+    await np.locator('.fav-row', { hasText: 'Cooking' }).locator('.folder-btn').click();
+    assert.match(await np.locator('.notes-scope').innerText(), /^Cooking · /);
+    await np.locator('.fav-row', { hasText: 'Launch checklist' }).locator('.folder-btn').click();
+    await until(async () => (await np.locator('[data-key="note-title"]').inputValue()) === 'Launch checklist', 'opened from there');
+    // Out again: by the star on its row, and by the one on the note's bar.
+    await np.locator('.fav-row', { hasText: 'Cooking' }).hover();
+    await np.locator('.fav-row', { hasText: 'Cooking' }).locator('.fav-star').click();
+    assert.deepEqual(await favTitles(), ['Launch checklist']);
+    await openFolderMenu('Cooking');
+    assert.equal(await np.locator('.menu [data-key="folder-favourite"]').innerText(), 'Add to favourites', 'the menu says so too');
+    await np.keyboard.press('Escape');
+    await star.click();
+    assert.deepEqual(await favTitles(), []);
+    assert.equal(await np.locator('.fav-head').count(), 0);
+    await until(async () => JSON.stringify(await kept()) === '[]', 'saved as none, the older versions in Trash');
+    await np.locator('[data-key="folder:all"]').click();
   });
 
   await r.step('a plain note from before formatting opens with its lists; closing saves it, formatted', async () => {

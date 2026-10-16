@@ -46,6 +46,7 @@
   const STALE_MS = 60 * 1000;
 
   const SCRATCH_KEY = `n:${notesLogic.SCRATCHPAD_ID}`;
+  const FAVOURITES_KEY = `n:${notesLogic.FAVOURITES_ID}`;
 
   const N = {
     ctx: null,          // { root, onStateError, onLoaded, closeBoard, barChanged }
@@ -74,6 +75,11 @@
     terms: [],          // searchLogic.queryTerms() of the search that is showing
     hits: new Map(),    // `${messageId}|${terms}` → { count, excerpts }
     findIndex: 0,       // which match in the open note is the current one
+    favs: { note: null, items: [], known: false }, // the favourites' message, and what it holds, once read
+    favPending: new Map(), // favourite key → { item, on }: changes made here, not saved yet
+    favChain: Promise.resolve(), // changes to the favourites, saved one after another
+    favRead: Promise.resolve(),  // the favourites' message being read
+    favSeq: 0,          // which reading of it is the latest asked for
   };
 
   let searchTimer = 0;
@@ -194,7 +200,8 @@
     const copy = notesStore.cached ? notesStore.cached() : null;
     if (!copy) return null;
     if (copy.notes) {
-      N.notes = copy.notes;
+      favouritesListed(copy.notes.find(n => n.key === FAVOURITES_KEY) || null);
+      N.notes = copy.notes.filter(n => n.key !== FAVOURITES_KEY);
       N.truncated = !!copy.truncated;
       N.folders = copy.folders || [];
       N.status = 'ready';
@@ -254,7 +261,17 @@
           N.scratchNote = scratch;
           N.scratchKnown = true;
         }
-        N.notes = r.notes;
+        // The favourites are kept as a note, which is not one to list.
+        if (!query) {
+          let favs = r.notes.find(n => n.key === FAVOURITES_KEY) || null;
+          if (!favs && r.truncated) {
+            const found = await notesStore.list(hooks.getAccount(), notesLogic.FAVOURITES_TITLE);
+            favs = found.notes.find(n => n.key === FAVOURITES_KEY) || null;
+            if (query !== N.query) return;
+          }
+          favouritesListed(favs);
+        }
+        N.notes = r.notes.filter(n => n.key !== FAVOURITES_KEY);
         N.truncated = r.truncated;
         N.folders = r.folders || [];
         const terms = searchLogic.queryTerms(query);
@@ -800,7 +817,7 @@
   function drawFolders() {
     if (!els.folderItems) return;
     const tally = counts();
-    const rows = [folderRow(null, N.notes.length)];
+    const rows = [...favouriteRows(tally), folderRow(null, N.notes.length)];
     const edit = N.folderEdit;
     if (edit && edit.mode === 'new' && !edit.parentId) rows.push(editRow(0));
     const current = N.folder ? folderById(N.folder) : null;
@@ -862,6 +879,9 @@
         onclick: e => openMenu(N.ctx.root, e.currentTarget, [
           { label: 'Rename', icon: 'edit', key: 'folder-rename', onSelect: () => startFolderEdit({ mode: 'rename', folderId: id }) },
           { label: 'New subfolder', icon: 'add', key: 'folder-sub', onSelect: () => startFolderEdit({ mode: 'new', parentId: id }) },
+          isFavourite({ folder: id })
+            ? { label: 'Remove from favourites', icon: 'star', key: 'folder-favourite', onSelect: () => setFavourite({ folder: id }, false) }
+            : { label: 'Add to favourites', icon: 'starOutline', key: 'folder-favourite', onSelect: () => setFavourite({ folder: id }, true) },
           { separator: true },
           {
             label: count || children ? 'Delete (empty it first)' : 'Delete', icon: 'delete', danger: true, key: 'folder-delete',
@@ -1043,6 +1063,147 @@
     els.foot.textContent = N.truncated
       ? 'Showing the 100 most recent. Search to find older ones.'
       : `Kept in Gmail under “${notesStore.labelName()}”`;
+  }
+
+  // ── Favourites ───────────────────────────────────────────────────────
+  //
+  // Notes and folders starred, at the top of the folders pane: a note
+  // opens, a folder shows its notes. They are one message in Gmail
+  // (notesLogic's favourites), the same on every computer and phone. A
+  // change shows at once and is saved behind it, on top of the newest
+  // version: read again first where the store would not say another
+  // device saved one since (the extension), retried on it where it does
+  // (the phone app). A note or folder that has gone is simply not shown.
+
+  // The favourites as they are here: the message's, and the changes not
+  // saved yet.
+  function favouriteItems() {
+    let items = N.favs.items;
+    for (const p of N.favPending.values()) items = notesLogic.withFavourite(items, p.item, p.on);
+    return items;
+  }
+
+  const isFavourite = item => favouriteItems().some(it => notesLogic.favouriteKey(it) === notesLogic.favouriteKey(item));
+
+  async function readFavourites(note) {
+    if (!note) return [];
+    return notesLogic.favouritesFromText(fmt.docText(await notesStore.body(note))) || [];
+  }
+
+  // What the list says the favourites' message is now: read, unless it is
+  // the one read already. Only the latest reading asked for counts.
+  function favouritesListed(note) {
+    const id = note ? note.messageId : '';
+    if (N.favs.known && id === (N.favs.note ? N.favs.note.messageId : '')) return N.favRead;
+    const seq = ++N.favSeq;
+    N.favRead = readFavourites(note).then(items => {
+      if (seq !== N.favSeq) return;
+      N.favs = { note, items, known: true };
+      drawFolders();
+      if (N.current && !N.current.scratch) drawBar();
+    }, err => {
+      if (seq === N.favSeq) console.warn(`Couldn’t read the favourites: ${err.message}`);
+    });
+    return N.favRead;
+  }
+
+  function setFavourite(item, on) {
+    const key = notesLogic.favouriteKey(item);
+    const mine = { item, on };
+    N.favPending.set(key, mine);
+    favouritesChanged();
+    N.favChain = N.favChain.then(async () => {
+      try {
+        if (!notesStore.checksConflicts) await load({ force: true });
+        await N.favRead;
+        if (!N.favs.known) throw new Error('they could not be read from Gmail');
+        for (let tries = 0; ; tries++) {
+          const items = notesLogic.withFavourite(N.favs.items, item, on);
+          if (JSON.stringify(items) === JSON.stringify(N.favs.items)) break;
+          try {
+            const saved = await notesStore.save(hooks.getAccount(), N.favs.note, {
+              title: notesLogic.FAVOURITES_TITLE, doc: fmt.fromPlain(notesLogic.favouritesText(items)),
+              folderId: '', noteId: notesLogic.FAVOURITES_ID,
+            });
+            N.favSeq++;
+            N.favs = { note: saved, items, known: true };
+            break;
+          } catch (err) {
+            // Saved on another device since: this change, on top of that.
+            if (err.code !== 'conflict' || !err.newer || tries >= 3) throw err;
+            N.favSeq++;
+            N.favs = { note: err.newer, items: await readFavourites(err.newer), known: true };
+          }
+        }
+      } catch (err) {
+        if (api.STATE_CODES.has(err.code)) stateError(err);
+        else toast(N.ctx.root, `Couldn’t change your favourites: ${err.message}`, { kind: 'error' });
+      } finally {
+        if (N.favPending.get(key) === mine) N.favPending.delete(key);
+        favouritesChanged();
+      }
+    });
+    return N.favChain;
+  }
+
+  function favouritesChanged() {
+    drawFolders();
+    if (N.current && !N.current.scratch) drawBar();
+  }
+
+  // The favourites that are still about, as rows - with a heading, and a
+  // line under them - or nothing at all.
+  function favouriteRows(tally) {
+    const shown = favouriteItems().map(it => (it.note
+      ? { item: it, note: N.notes.find(n => n.key === it.note) }
+      : { item: it, folder: folderById(it.folder) })).filter(x => x.note || x.folder);
+    if (!shown.length) return [];
+    return [
+      h('div', { class: 'fav-head', 'aria-hidden': 'true', text: 'Favourites' }),
+      ...shown.map(x => favouriteRow(x, tally)),
+      h('div', { class: 'fav-end', role: 'separator' }),
+    ];
+  }
+
+  function favouriteRow({ item, note, folder }, tally) {
+    const key = notesLogic.favouriteKey(item);
+    const title = note ? note.title : folder.title;
+    const current = note ? !!(N.current && N.current.key === note.key) : N.folder === folder.id;
+    const row = h('div', { class: 'folder-row fav-row', role: 'listitem', dataset: { fav: key } },
+      h('span', { class: 'folder-twisty', 'aria-hidden': 'true' }),
+      h('button', {
+        class: 'folder-btn', type: 'button', 'aria-current': current ? 'true' : null,
+        'aria-label': `Favourite: ${title}`, title: note ? `Open “${title}”` : folder.name,
+        dataset: { key: `fav:${key}` },
+        onclick: () => (note ? openFavourite(note) : selectFolder(folder.id)),
+      },
+        icon(note ? 'note' : 'folder', 18),
+        h('span', { class: 'folder-title', text: title }),
+        folder ? h('span', { class: 'folder-count', text: N.status === 'ready' ? String(tally.get(folder.id) || 0) : '' }) : null),
+      h('button', {
+        class: 'icon-btn folder-menu fav-star', type: 'button', 'aria-label': `Remove ${title} from the favourites`,
+        title: 'Remove from favourites', dataset: { key: `fav-remove:${key}` },
+        onclick: () => setFavourite(item, false),
+      }, icon('star', 18)));
+    row.style.setProperty('--depth', '0');
+    return row;
+  }
+
+  // On a phone, the folders fold away and the note has the screen.
+  function openFavourite(note) {
+    setFoldersOpen(false);
+    openNote(note);
+    setView();
+  }
+
+  // The star on a note's bar.
+  function favouriteButton(note) {
+    const on = isFavourite({ note: note.key });
+    return h('button', {
+      class: 'icon-btn ne-fav', type: 'button', 'aria-pressed': String(on),
+      'aria-label': on ? 'Remove from favourites' : 'Add to favourites', title: on ? 'Remove from favourites' : 'Add to favourites',
+      dataset: { key: 'note-favourite' }, onclick: () => setFavourite({ note: note.key }, !on),
+    }, icon(on ? 'star' : 'starOutline'));
   }
 
   // ── The editor ───────────────────────────────────────────────────────
@@ -1289,6 +1450,7 @@
       }, icon('back')),
       els.status,
       h('div', { class: 'spacer' }),
+      c.note ? favouriteButton(c.note) : null,
       h('button', {
         class: 'ne-folder', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false',
         title: 'Move to another folder', dataset: { key: 'note-folder' },
@@ -1456,6 +1618,12 @@
         N.notes = [saved, ...N.notes.filter(n => n.key !== oldKey && n.key !== saved.key)];
         // A first save is one more note: the counts by the folders change.
         if (!before) drawFolders();
+        // An email filed as a note is a note of ours now, by another key:
+        // a favourite still.
+        if (!wasOurs && oldKey !== saved.key && isFavourite({ note: oldKey })) {
+          setFavourite({ note: oldKey }, false);
+          setFavourite({ note: saved.key }, true);
+        }
         if (!wasOurs && N.current === c) drawBar();
         if (!c.dirty) keepDraft(c);
       } catch (err) {
