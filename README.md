@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.37.0" src="https://img.shields.io/badge/version-0.37.0-6D28D9">
+  <img alt="Version 0.37.1" src="https://img.shields.io/badge/version-0.37.1-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -143,7 +143,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.37.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.37.1 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -373,8 +373,13 @@ computers. All of it is kept per Gmail account.
   thousands of cards, and slows down near that limit. In Gmail a board shows
   as columns of cards side by side; in plain text, each column's title with
   its cards as bullets under it. If the same note is changed on two devices
-  at once and both changed the board, the note keeps both versions of the
-  board, one under the other, so nothing is lost.
+  at once and both changed the board, the board is merged card by card: a
+  card moved on your phone and one added on your computer both stand, each
+  card goes where it was moved (the newer version's move wins if both moved
+  it), a card moved on one device and deleted on the other stays where it
+  was moved, and a card added at the foot of a column stays at its foot. A
+  card whose words were changed on one device and moved on the other can
+  appear twice, once each way; nothing written on either is lost.
 - **Pictures.** The picture button on the toolbar (on a phone: the photos or
   the camera), a paste of a picture copied on its own (a screenshot, "Copy
   image") or a picture dragged onto the note puts it in on a line of its own,

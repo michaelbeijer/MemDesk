@@ -633,6 +633,52 @@ await r.step('a save that would overwrite a newer version from another phone mer
   await keep.close();
 });
 
+await r.step('a board changed on two phones at once - a card moved on one, a card added on the other - is one board with both changes', async () => {
+  const boardsOn = p => q(p, '.ne-body .blk[data-type="board"]').evaluateAll(els => els.map(el =>
+    [...el.querySelectorAll('[data-gkb-column]')].map(c => [c.querySelector('[data-gkb-title]').innerText.replace(/\n$/, ''),
+      ...[...c.querySelectorAll('[data-gkb-card]')].map(x => x.innerText.replace(/\n$/, ''))])));
+  const saved = (p, what) => until(async () => /^Saved/.test(await q(p, '.ne-status').first().innerText()), what, 10000);
+  const a = await openApp({ phone });
+  await scratchReady(a.page);
+  await q(a.page, '[data-key="note-new"]').tap();
+  await q(a.page, '[data-key="note-title"]').fill('Board on two phones');
+  await q(a.page, '[data-key="note-title"]').press('Enter');
+  await q(a.page, '[data-key="fmt-board"]').scrollIntoViewIfNeeded();
+  await q(a.page, '[data-key="fmt-board"]').tap();
+  await q(a.page, '.ne-boardbar').waitFor();
+  await a.page.keyboard.type('Call Sam');
+  await a.page.keyboard.press('Enter');
+  await a.page.keyboard.type('Quote for Ingrid');
+  await saved(a.page, 'saved on A');
+  await settled(a.page);
+  // B opens it as it is now.
+  const b = await openApp({ phone });
+  await scratchReady(b.page);
+  await pickFolder(b.page, 'All notes');
+  await q(b.page, '.note-item').filter({ hasText: 'Board on two phones' }).tap();
+  await q(b.page, '.ne-body [data-gkb-card]').first().waitFor();
+  // A moves Call Sam to Done.
+  await q(a.page, '.ne-body [data-gkb-card]').filter({ hasText: /^Call Sam$/ }).tap();
+  await a.page.keyboard.press('Alt+ArrowRight');
+  await a.page.keyboard.press('Alt+ArrowRight');
+  assert.deepEqual(await boardsOn(a.page), [[['To do', 'Quote for Ingrid'], ['Doing'], ['Done', 'Call Sam']]]);
+  await saved(a.page, 'the move saved on A');
+  await settled(a.page);
+  // B, which has not heard of the move, adds a card in Doing: its save
+  // meets A's newer version and the two boards are merged card by card.
+  await q(b.page, '.ne-body .kb-col').nth(1).locator('[data-key="board-add-card"]').tap();
+  await b.page.keyboard.type('Proofread');
+  const both = [[['To do', 'Quote for Ingrid'], ['Doing', 'Proofread'], ['Done', 'Call Sam']]];
+  await until(async () => JSON.stringify(await boardsOn(b.page)) === JSON.stringify(both), 'one board on B, with both changes');
+  await saved(b.page, 'saved on B');
+  await settled(b.page);
+  const box = phone.fake.box;
+  assert.match(box.messageText(box.findMessageBySubject('Board on two phones')),
+    /^To do:\n {2}• Quote for Ingrid\nDoing:\n {2}• Proofread\nDone:\n {2}• Call Sam\n?$/, 'saved as one board');
+  await a.page.context().close();
+  await b.page.context().close();
+});
+
 // ── The board ──
 
 const column = (p, title) => q(p, 'section.column').filter({ has: p.locator('.col-title').filter({ hasText: new RegExp(`^${title}$`) }) });
