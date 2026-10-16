@@ -51,12 +51,70 @@
   const SCRATCHPAD_ID = 'scratchpad000000';
   const SCRATCHPAD_TITLE = 'Scratchpad';
 
+  // The favourites: the notes and folders starred, kept the same way - a
+  // note-shaped message with a fixed id under the notes label, which the
+  // list of notes leaves out - so that every computer and phone shows the
+  // same ones. Its text says what it is, then the list, as JSON.
+  const FAVOURITES_ID = 'favourites000000';
+  const FAVOURITES_TITLE = 'Favourites';
+  const FAVOURITES_NOTE = 'Your favourite notes and folders, kept here so that every computer and phone ' +
+    'shows the same ones. Changing them replaces this message; please leave it where it is.';
+  const FAVOURITES_MAX = 200;
+  const FIXED_IDS = new Set([SCRATCHPAD_ID, FAVOURITES_ID]);
+
   // The id a save writes under: the note's own, once it has one; for a
-  // first save, the scratchpad's if that is what is being saved, and
-  // otherwise a new one. No other id can be asked for.
+  // first save, the scratchpad's or the favourites' if that is what is
+  // being saved, and otherwise a new one. No other id can be asked for.
   function noteIdFor(previous, wanted) {
     if (previous && previous.own && ID_RE.test(String(previous.noteId || ''))) return previous.noteId;
-    return wanted === SCRATCHPAD_ID ? SCRATCHPAD_ID : newNoteId();
+    return FIXED_IDS.has(wanted) ? wanted : newNoteId();
+  }
+
+  // A favourite is { note: key } - the note's list key, which stays the
+  // same through every version of it - or { folder: label id }, which
+  // stays the same when the folder is renamed.
+  const favouriteKey = it => (it.note ? `note:${it.note}` : `folder:${it.folder}`);
+  const KEY_RE = /^(n:[a-z0-9]{12,40}|m:[A-Za-z0-9]{6,40})$/;
+  const LABEL_RE = /^[A-Za-z0-9_]{1,64}$/;
+
+  // Only well-formed ones, each once, in order, at most FAVOURITES_MAX.
+  function normaliseFavourites(items) {
+    const out = [];
+    const seen = new Set();
+    for (const it of Array.isArray(items) ? items : []) {
+      if (!it || typeof it !== 'object') continue;
+      const item = 'note' in it ? (typeof it.note === 'string' && KEY_RE.test(it.note) ? { note: it.note } : null)
+        : typeof it.folder === 'string' && LABEL_RE.test(it.folder) ? { folder: it.folder } : null;
+      if (!item || seen.has(favouriteKey(item))) continue;
+      seen.add(favouriteKey(item));
+      out.push(item);
+    }
+    return out.slice(-FAVOURITES_MAX);
+  }
+
+  function favouritesText(items) {
+    return `${FAVOURITES_NOTE}\n\n${JSON.stringify({ v: 1, items: normaliseFavourites(items) })}`;
+  }
+
+  // The favourites the text holds; null if it holds none that can be read.
+  function favouritesFromText(text) {
+    const t = String(text || '');
+    const start = t.indexOf('{');
+    const end = t.lastIndexOf('}');
+    if (start < 0 || end < start) return null;
+    try {
+      const parsed = JSON.parse(t.slice(start, end + 1));
+      return parsed && Array.isArray(parsed.items) ? normaliseFavourites(parsed.items) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // The favourites with `item` added (at the end) or taken out.
+  function withFavourite(items, item, on) {
+    const key = favouriteKey(item);
+    const rest = normaliseFavourites(items).filter(it => favouriteKey(it) !== key);
+    return on ? normaliseFavourites(rest.concat([item])) : rest;
   }
 
   // ── Encoding ─────────────────────────────────────────────────────────
@@ -565,6 +623,7 @@
     NOTE_HEADER, NOTE_SENDER, DEFAULT_LABEL, MAX_BODY, MAX_TITLE, FORBIDDEN_INSERT_LABELS, FOLDER_NAME_MAX,
     folderTree, folderOf, moveFolderDiff, validateFolderTitle, renamePlan, isDeletableFolder,
     SCRATCHPAD_ID, SCRATCHPAD_TITLE, newNoteId, noteIdFor, encodeHeaderText, decodeHeaderText, base64UrlEncode, base64UrlDecode,
+    FAVOURITES_ID, FAVOURITES_TITLE, FAVOURITES_MAX, FIXED_IDS, favouriteKey, normaliseFavourites, favouritesText, favouritesFromText, withFavourite,
     titleFor, buildNoteRaw, noteIdOfRaw, isNoteInsert,
     htmlToText, extractText, messageParts, noteFromMessage, dedupeNotes,
     PICTURE_HEADER, PICTURE_TYPES, MAX_PICTURE,

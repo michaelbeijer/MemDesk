@@ -679,6 +679,36 @@ await r.step('a board changed on two phones at once - a card moved on one, a car
   await b.page.context().close();
 });
 
+await r.step('favourites on a phone: a note starred on one phone is at the top of the folders on another, and opens from there', async () => {
+  const kept = () => {
+    const l = live(phone, 'favourites000000');
+    return l.length === 1 ? JSON.parse(l[0].text.slice(l[0].text.indexOf('{'))).items : null;
+  };
+  const a = await openApp({ phone });
+  await scratchReady(a.page);
+  await pickFolder(a.page, 'All notes');
+  await q(a.page, '.note-item').filter({ hasText: 'Launch checklist' }).tap();
+  const star = q(a.page, '[data-key="note-favourite"]');
+  await star.waitFor();
+  await star.tap();
+  assert.equal(await star.getAttribute('aria-pressed'), 'true');
+  await settled(a.page);
+  await until(() => (kept() || []).length === 1, 'kept in Gmail', 10000);
+
+  const b = await openApp({ phone });
+  await scratchReady(b.page);
+  await q(b.page, '[data-key="folders-toggle"]').tap();
+  await until(async () => JSON.stringify(await q(b.page, '.fav-row .folder-title').allInnerTexts()) === '["Launch checklist"]', 'on the other phone');
+  await b.page.screenshot({ path: join(SCREENS, 'app-favourites.png'), animations: 'disabled' });
+  await q(b.page, '.fav-row .folder-btn').tap();
+  await until(async () => (await q(b.page, '.ne-title').inputValue()) === 'Launch checklist', 'opened from there');
+  await q(b.page, '[data-key="note-favourite"]').tap();
+  await settled(b.page);
+  await until(() => JSON.stringify(kept()) === '[]', 'and taken out again', 10000);
+  await a.page.context().close();
+  await b.page.context().close();
+});
+
 // ── The board ──
 
 const column = (p, title) => q(p, 'section.column').filter({ has: p.locator('.col-title').filter({ hasText: new RegExp(`^${title}$`) }) });

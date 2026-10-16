@@ -808,6 +808,12 @@ button.folder-twisty:hover { background: var(--hover); color: var(--fg); }
 .folder-items[data-nested] .folder-error { padding-left: 58px; }
 /* Folded, with the folder being looked at inside it. */
 .folder-btn.holds-current { color: var(--fg); font-weight: 500; }
+/* Favourites: at the top of the folders, under a small heading, with a
+   line between them and the rest; their stars in Gmail's star yellow. */
+.fav-head { flex: none; padding: 6px 10px 2px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); }
+.fav-end { flex: none; height: 1px; margin: 6px 6px; background: var(--border-strong); opacity: .6; }
+.fav-star { color: var(--star); }
+.ne-fav[aria-pressed="true"] { color: var(--star); }
 .notes-scope { flex: none; padding: 0 20px 6px; font-size: 12px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .notes-list {
   flex: 0 0 320px;

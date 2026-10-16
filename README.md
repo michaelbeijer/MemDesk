@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.37.2" src="https://img.shields.io/badge/version-0.37.2-6D28D9">
+  <img alt="Version 0.38.0" src="https://img.shields.io/badge/version-0.38.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -57,7 +57,8 @@ can sort, boards of cards you drag between columns, and pictures you size
 with a drag. Notes save as you type, and a
 paste from Word, Google Docs, Excel, a web page or Markdown arrives
 formatted, a table as a table; paste a screenshot and it is in. Folders nest
-as deep as you like, and fold away when the tree gets long.
+as deep as you like, and fold away when the tree gets long; star the notes
+and folders you use most and they wait at the top, on every device.
 
 <img src="images/notes.jpg" width="100%" alt="The notes: nested folders on the left, the list in the middle, a checklist note open on the right">
 
@@ -143,7 +144,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.37.2 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.38.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -285,6 +286,17 @@ computers. All of it is kept per Gmail account.
   folder is a Gmail label under `_Notes` - `_Notes/Work`,
   `_Notes/Work/Clients` - so the same tree shows in Gmail's label list on the
   phone.
+- **Favourites** sit at the top of the folders, above **All notes**: the
+  notes and folders you star, in the order you starred them. Star a note with
+  the star at the top of it (it turns yellow), and a folder with **Add to
+  favourites** in its **⋯** menu. Click a favourite note to open it, or a
+  favourite folder to see its notes; the star on a favourite's row takes it
+  off again, as does the note's own star or the folder's menu. They are the
+  same on every computer and phone: MemDesk keeps them in one message,
+  "Favourites", under `_Notes` (never in your Inbox, never sent, and never
+  shown in the list of notes), and changing them replaces it. A favourite
+  note you delete, or folder you remove, just stops showing. On a phone they
+  are at the top of the folders, behind the button that says where you are.
 - The list in the middle shows your notes, newest first, with their first lines.
 - The **Scratchpad** is pinned at the top of it, and open on the right
   whenever no other note is: the notes open on it, with the cursor in it, so
