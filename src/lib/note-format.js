@@ -1225,7 +1225,8 @@
   // `theirs` the newer version. A stretch only one side changed takes
   // that side's blocks; a stretch both changed keeps theirs and then
   // whatever of mine they do not already have, so nothing typed on
-  // either is lost - at worst a paragraph appears twice.
+  // either is lost - at worst a paragraph appears twice. A board both
+  // changed is merged card by card (mergeBoards), not kept twice.
 
   const blockKey = b => JSON.stringify(b);
   const sameDoc = (a, b) => JSON.stringify(normaliseDoc(a)) === JSON.stringify(normaliseDoc(b));
@@ -1262,6 +1263,184 @@
     return pairs;
   }
 
+  // ── Merging a board ──
+  //
+  // A board both sides changed, card by card. Columns are matched by
+  // title, then by the cards they share, then in order; cards by their
+  // text (of two cards that read the same, the second is the second).
+  // A card goes to the column the side that moved it put it in - theirs,
+  // if both moved it - and one moved on one side and deleted on the other
+  // stays, where it was moved. A column one side deleted goes, unless the
+  // other renamed it or a card ends up in it. The cards' order in each
+  // column, and the columns' order, is that of the side that changed it
+  // (theirs, if both did), with what only the other side has each before
+  // the card or column it comes before there - at the end if nothing
+  // does, so a card added at the foot stays at the foot. A card whose
+  // text changed is one card gone and another come, so at worst a card
+  // appears twice: nothing written on either side is lost. { board,
+  // clean }: clean is false when the same card, column or order was
+  // changed both ways.
+  function mergeBoards(base, mine, theirs) {
+    let clean = true;
+    const sameRuns = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const sameList = (a, b) => a.length === b.length && a.every((x, k) => x === b[k]);
+    const titleKey = c => runsText(c.title).trim().toLowerCase();
+    // Each card's id, column by column: its runs, and how many cards with
+    // the same runs come before it.
+    const cardIds = b => {
+      const seen = new Map();
+      return b.columns.map(c => c.cards.map(k => {
+        const key = JSON.stringify(k.runs);
+        const n = seen.get(key) || 0;
+        seen.set(key, n + 1);
+        return `${key}#${n}`;
+      }));
+    };
+    const ids = [base, mine, theirs].map(cardIds);
+    // A side's columns as ids: base's own (b0, b1, ...), matched by title,
+    // then by the cards they share, then in order; the rest new on that
+    // side (m0, t2, ...).
+    const columnIds = (b, cards, side) => {
+      const out = new Array(b.columns.length).fill(null);
+      const free = new Set(base.columns.map((_, j) => j));
+      const take = (i, j) => { out[i] = `b${j}`; free.delete(j); };
+      b.columns.forEach((c, i) => {
+        for (const j of free) {
+          if (titleKey(base.columns[j]) === titleKey(c)) { take(i, j); return; }
+        }
+      });
+      b.columns.forEach((c, i) => {
+        if (out[i]) return;
+        const has = new Set(cards[i]);
+        let best = -1;
+        let most = 0;
+        for (const j of free) {
+          const n = ids[0][j].filter(id => has.has(id)).length;
+          if (n > most) { most = n; best = j; }
+        }
+        if (best >= 0) take(i, best);
+      });
+      b.columns.forEach((c, i) => {
+        if (out[i]) return;
+        const [j] = free;
+        if (j !== undefined) take(i, j);
+        else out[i] = `${side}${i}`;
+      });
+      return out;
+    };
+    const cols = [base.columns.map((_, j) => `b${j}`), columnIds(mine, ids[1], 'm'), columnIds(theirs, ids[2], 't')];
+    // A column new on both sides, with the same title, is one column.
+    cols[1].forEach((id, i) => {
+      if (id[0] !== 'm') return;
+      const k = cols[2].findIndex((t, j) => t[0] === 't' && titleKey(theirs.columns[j]) === titleKey(mine.columns[i]));
+      if (k >= 0) cols[2][k] = id;
+    });
+    // Each side: where each card is, each column's cards and its title.
+    const runsOf = new Map();
+    const [B, M, T] = [base, mine, theirs].map((b, s) => {
+      const where = new Map();
+      const lists = new Map();
+      const titles = new Map();
+      cols[s].forEach((col, i) => {
+        lists.set(col, ids[s][i]);
+        titles.set(col, b.columns[i].title);
+        ids[s][i].forEach((id, k) => {
+          where.set(id, col);
+          runsOf.set(id, b.columns[i].cards[k].runs);
+        });
+      });
+      return { order: cols[s], where, lists, titles };
+    });
+
+    // Where each card ends up: the column, or nowhere.
+    const final = new Map();
+    for (const id of runsOf.keys()) {
+      const b = B.where.get(id);
+      const m = M.where.get(id);
+      const t = T.where.get(id);
+      let to;
+      if (b === undefined) {
+        to = t !== undefined ? t : m;
+        if (m !== undefined && t !== undefined && m !== t) clean = false;
+      } else if (m === b) {
+        to = t;
+      } else if (t === b || t === m) {
+        to = m;
+      } else {
+        clean = false;
+        to = t === undefined ? m : t;
+      }
+      if (to !== undefined) final.set(id, to);
+    }
+    const inColumn = new Map();
+    for (const [id, col] of final) {
+      if (!inColumn.has(col)) inColumn.set(col, new Set());
+      inColumn.get(col).add(id);
+    }
+
+    // The columns that stay: all new ones, and base's unless one side
+    // deleted it and the other neither renamed it nor has a card in it.
+    const keep = new Set();
+    for (const col of new Set([...B.order, ...M.order, ...T.order])) {
+      const inM = M.lists.has(col);
+      const inT = T.lists.has(col);
+      if (!B.lists.has(col) || (inM && inT)) { keep.add(col); continue; }
+      const other = inM ? M : inT ? T : null;
+      if (inColumn.has(col) || (other && !sameRuns(other.titles.get(col), B.titles.get(col)))) {
+        clean = false;
+        keep.add(col);
+      }
+    }
+
+    // An order out of three versions of it, of the ids in `wanted`.
+    const weave = (b, m, t, wanted) => {
+      const ms = new Set(m);
+      const ts = new Set(t);
+      const all = new Set(b.filter(id => ms.has(id) && ts.has(id)));
+      const shared = list => list.filter(id => all.has(id));
+      const was = shared(b);
+      const mineMoved = !sameList(shared(m), was);
+      const theirsMoved = !sameList(shared(t), was);
+      if (mineMoved && theirsMoved && !sameList(shared(m), shared(t))) clean = false;
+      const [first, second] = mineMoved && !theirsMoved ? [m, t] : [t, m];
+      // A list linked both ways, between a head ('') and an end (END).
+      const END = '\u0000';
+      const next = new Map([['', END]]);
+      const prev = new Map([[END, '']]);
+      const putBefore = (at, id) => {
+        const p = prev.get(at);
+        next.set(p, id);
+        prev.set(id, p);
+        next.set(id, at);
+        prev.set(at, id);
+      };
+      for (const id of first) if (wanted.has(id) && !next.has(id)) putBefore(END, id);
+      let after = END;
+      for (let k = second.length - 1; k >= 0; k--) {
+        const id = second[k];
+        if (next.has(id)) after = id;
+        else if (wanted.has(id)) { putBefore(after, id); after = id; }
+      }
+      for (const id of wanted) if (!next.has(id)) putBefore(END, id);
+      const out = [];
+      for (let id = next.get(''); id !== END; id = next.get(id)) out.push(id);
+      return out;
+    };
+
+    const columns = weave(B.order, M.order, T.order, keep).map(col => {
+      const [tb, tm, tt] = [B.titles.get(col), M.titles.get(col), T.titles.get(col)];
+      let title;
+      if (tm === undefined) title = tt;
+      else if (tt === undefined) title = tm;
+      else if (tb === undefined || sameRuns(tm, tb)) title = tt;
+      else if (sameRuns(tt, tb) || sameRuns(tt, tm)) title = tm;
+      else { clean = false; title = tt; }
+      const order = weave(B.lists.get(col) || [], M.lists.get(col) || [], T.lists.get(col) || [], inColumn.get(col) || new Set());
+      return { title, cards: order.map(id => ({ runs: runsOf.get(id) })) };
+    });
+    return { board: board(columns.length ? columns : [{ title: [], cards: [] }]), clean };
+  }
+
   // { doc, map, clean }: the merged blocks; for each of mine's blocks,
   // where it is in them (so a cursor can stay put); and whether no
   // stretch was changed on both sides.
@@ -1288,15 +1467,40 @@
     const map = new Array(mine.length).fill(-1);
     let clean = true;
     const same = (x, y) => x.length === y.length && x.every((v, k) => v === y[k]);
-    let b0 = 0;
-    let m0 = 0;
-    let t0 = 0;
-    for (const a of anchors.concat([kb.length])) {
-      const m1 = a < kb.length ? toMine.get(a) : km.length;
-      const t1 = a < kb.length ? toTheirs.get(a) : kt.length;
-      const B = kb.slice(b0, a);
+    const isBoard = b => b.type === 'board';
+    const boardsIn = (list, from, to) => {
+      const at = [];
+      for (let k = from; k < to; k++) if (isBoard(list[k])) at.push(k);
+      return at;
+    };
+
+    // The stretch between two anchors: base[b0, b1), mine[m0, m1) and
+    // theirs[t0, t1).
+    function stretch(b0, b1, m0, m1, t0, t1) {
+      const B = kb.slice(b0, b1);
       const M = km.slice(m0, m1);
       const T = kt.slice(t0, t1);
+      if (!same(M, B) && !same(T, B) && !same(M, T)) {
+        // Both changed it, and it has as many boards on each side: each
+        // board merged with its counterparts, in order, and the stretches
+        // between them on their own.
+        const bb = boardsIn(base, b0, b1);
+        const mb = boardsIn(mine, m0, m1);
+        const tb = boardsIn(theirs, t0, t1);
+        if (bb.length && bb.length === mb.length && bb.length === tb.length) {
+          let [pb, pm, pt] = [b0, m0, t0];
+          bb.forEach((b, k) => {
+            stretch(pb, b, pm, mb[k], pt, tb[k]);
+            const r = mergeBoards(base[b], mine[mb[k]], theirs[tb[k]]);
+            if (!r.clean) clean = false;
+            map[mb[k]] = out.length;
+            out.push(r.board);
+            [pb, pm, pt] = [b + 1, mb[k] + 1, tb[k] + 1];
+          });
+          stretch(pb, b1, pm, m1, pt, t1);
+          return;
+        }
+      }
       const start = out.length;
       if (same(M, B) && !same(T, B)) {
         // Only they changed this stretch.
@@ -1342,6 +1546,15 @@
           else { map[k] = out.length; out.push(mine[k]); }
         }
       }
+    }
+
+    let b0 = 0;
+    let m0 = 0;
+    let t0 = 0;
+    for (const a of anchors.concat([kb.length])) {
+      const m1 = a < kb.length ? toMine.get(a) : km.length;
+      const t1 = a < kb.length ? toTheirs.get(a) : kt.length;
+      stretch(b0, a, m0, m1, t0, t1);
       if (a < kb.length) { map[m1] = out.length; out.push(mine[m1]); }
       b0 = a + 1;
       m0 = m1 + 1;
@@ -1357,7 +1570,7 @@
     block, emptyDoc, normaliseRuns, normaliseDoc, docText, isEmpty, safeHref,
     picture, pictureSrcs, renamePictures, isIsland,
     toHtml, toPlain, fromPlain, parseHtml, docFromParts, fromMarkdown, looksLikeMarkdown, hasFormatting, pasteDoc,
-    mergeDocs, sameDoc, table, onlyTable, tableText, MAX_COLS, MAX_ROWS,
+    mergeDocs, mergeBoards, sameDoc, table, onlyTable, tableText, MAX_COLS, MAX_ROWS,
     board, boardText, MAX_BOARD_COLS, MAX_CARDS,
   };
 

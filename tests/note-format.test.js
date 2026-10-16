@@ -680,14 +680,138 @@ test('boards from mail that is not ours, half-written, or inside a table: nothin
   assert.equal(fmt.tableText(t[0]).split('\n')[0], 'in a cell | b');
 });
 
-test('boards merge as whole blocks: both versions are kept, never one lost', () => {
+// Boards merged card by card: [columns as [title, cards...]], and clean.
+const mergeBoard = (base, mine, theirs) => {
+  const r = fmt.mergeBoards(...[base, mine, theirs].map(b => fmt.normaliseDoc([b])[0]));
+  return [cardsOf(r.board), r.clean];
+};
+const B3 = () => Board(Col('To do', 'Call Sam', 'Quote for Ingrid', 'Patent'), Col('Doing', 'Glossary'), Col('Done', 'Invoice'));
+
+test('boards merge card by card: a card moved on the phone and one added on the computer both stand', () => {
+  const base = B3();
+  const phone = Board(Col('To do', 'Quote for Ingrid', 'Patent'), Col('Doing', 'Glossary'), Col('Done', 'Call Sam', 'Invoice'));
+  const desk = Board(Col('To do', 'Call Sam', 'Quote for Ingrid', 'Patent'), Col('Doing', 'Glossary', 'Proofread'), Col('Done', 'Invoice'));
+  assert.deepEqual(mergeBoard(base, desk, phone), [[['To do', 'Quote for Ingrid', 'Patent'], ['Doing', 'Glossary', 'Proofread'], ['Done', 'Call Sam', 'Invoice']], true]);
+  assert.deepEqual(mergeBoard(base, phone, desk), [[['To do', 'Quote for Ingrid', 'Patent'], ['Doing', 'Glossary', 'Proofread'], ['Done', 'Call Sam', 'Invoice']], true], 'either way round');
+  // Through mergeDocs, with text changed around it on one side: one board, not two.
+  const r = fmt.mergeDocs([P('Week'), base], [P('Week 42'), desk], [P('Week'), phone]);
+  assert.equal(r.clean, true);
+  assert.deepEqual(r.doc.map(b => b.type), ['p', 'board', 'p']);
+  assert.deepEqual(r.doc[0].runs, [T('Week 42')]);
+  assert.deepEqual(cardsOf(r.doc[1]), [['To do', 'Quote for Ingrid', 'Patent'], ['Doing', 'Glossary', 'Proofread'], ['Done', 'Call Sam', 'Invoice']]);
+  assert.equal(r.map[1], 1, 'the cursor in the board stays in it');
+  // A line added under the board on one side as well: still one board.
+  const more = fmt.mergeDocs([P('Week'), base], [P('Week'), desk, P('More to say')], [P('Week'), phone]);
+  assert.deepEqual(more.doc.filter(b => b.type === 'board').length, 1);
+  assert.deepEqual(more.doc.filter(b => b.type === 'p').map(b => fmt.docText([b])).filter(Boolean), ['Week', 'More to say']);
+});
+
+test('boards merge card by card: deletions on either side, reorders, an edited card, one side only', () => {
+  const base = B3();
+  // Each side deletes a different card.
+  assert.deepEqual(mergeBoard(base,
+    Board(Col('To do', 'Call Sam', 'Patent'), Col('Doing', 'Glossary'), Col('Done', 'Invoice')),
+    Board(Col('To do', 'Call Sam', 'Quote for Ingrid', 'Patent'), Col('Doing', 'Glossary'), Col('Done'))),
+  [[['To do', 'Call Sam', 'Patent'], ['Doing', 'Glossary'], ['Done']], true]);
+  // One side reorders a column, the other adds to its foot: the new order, with the new card.
+  assert.deepEqual(mergeBoard(base,
+    Board(Col('To do', 'Patent', 'Call Sam', 'Quote for Ingrid'), Col('Doing', 'Glossary'), Col('Done', 'Invoice')),
+    Board(Col('To do', 'Call Sam', 'Quote for Ingrid', 'Patent', 'New one'), Col('Doing', 'Glossary'), Col('Done', 'Invoice'))),
+  [[['To do', 'Patent', 'Call Sam', 'Quote for Ingrid', 'New one'], ['Doing', 'Glossary'], ['Done', 'Invoice']], true]);
+  // A card's text changed on one side while the other moved it: both kept - at worst twice, never lost.
+  assert.deepEqual(mergeBoard(base,
+    Board(Col('To do', 'Call Sam today', 'Quote for Ingrid', 'Patent'), Col('Doing', 'Glossary'), Col('Done', 'Invoice')),
+    Board(Col('To do', 'Quote for Ingrid', 'Patent'), Col('Doing', 'Glossary', 'Call Sam'), Col('Done', 'Invoice'))),
+  [[['To do', 'Call Sam today', 'Quote for Ingrid', 'Patent'], ['Doing', 'Glossary', 'Call Sam'], ['Done', 'Invoice']], false]);
+  // Only one side changed it: that side's board, exactly.
+  const mine = Board(Col('To do', 'Patent'), Col('Doing', 'Quote for Ingrid', 'Glossary'), Col('Done', 'Invoice', 'Call Sam'));
+  assert.deepEqual(mergeBoard(base, mine, base), [cardsOf(mine), true]);
+  assert.deepEqual(mergeBoard(base, base, mine), [cardsOf(mine), true]);
+});
+
+test('boards merge card by card: the same card moved both ways, moved and deleted, and identical cards', () => {
+  const base = B3();
+  // Moved to different columns on each side: theirs wins, and the merge says it was not clean.
+  assert.deepEqual(mergeBoard(base,
+    Board(Col('To do', 'Quote for Ingrid', 'Patent'), Col('Doing', 'Glossary', 'Call Sam'), Col('Done', 'Invoice')),
+    Board(Col('To do', 'Quote for Ingrid', 'Patent'), Col('Doing', 'Glossary'), Col('Done', 'Call Sam', 'Invoice'))),
+  [[['To do', 'Quote for Ingrid', 'Patent'], ['Doing', 'Glossary'], ['Done', 'Call Sam', 'Invoice']], false]);
+  // Deleted on one side, moved on the other: it stays, where it was moved.
+  for (const [mine, theirs] of [
+    [Board(Col('To do', 'Quote for Ingrid', 'Patent'), Col('Doing', 'Glossary'), Col('Done', 'Invoice')),
+      Board(Col('To do', 'Quote for Ingrid', 'Patent'), Col('Doing', 'Glossary', 'Call Sam'), Col('Done', 'Invoice'))],
+    [Board(Col('To do', 'Quote for Ingrid', 'Patent'), Col('Doing', 'Glossary', 'Call Sam'), Col('Done', 'Invoice')),
+      Board(Col('To do', 'Quote for Ingrid', 'Patent'), Col('Doing', 'Glossary'), Col('Done', 'Invoice'))],
+  ]) {
+    assert.deepEqual(mergeBoard(base, mine, theirs)[0][1], ['Doing', 'Glossary', 'Call Sam']);
+  }
+  // Two cards that read the same stay two; one of them moved, the other deleted elsewhere.
+  const twins = Board(Col('To do', 'Check', 'Check', 'Other'), Col('Done'));
+  assert.deepEqual(mergeBoard(twins,
+    Board(Col('To do', 'Check', 'Other'), Col('Done', 'Check')),
+    Board(Col('To do', 'Check', 'Check'), Col('Done'))),
+  [[['To do', 'Check'], ['Done', 'Check']], true]);
+  // The same card added on both sides, in the same column: one card.
+  assert.deepEqual(mergeBoard(base,
+    Board(Col('To do', 'Call Sam', 'Quote for Ingrid', 'Patent', 'Ring Kim'), Col('Doing', 'Glossary'), Col('Done', 'Invoice')),
+    Board(Col('To do', 'Call Sam', 'Quote for Ingrid', 'Patent', 'Ring Kim'), Col('Doing', 'Glossary'), Col('Done', 'Invoice'))),
+  [[['To do', 'Call Sam', 'Quote for Ingrid', 'Patent', 'Ring Kim'], ['Doing', 'Glossary'], ['Done', 'Invoice']], true]);
+});
+
+test('boards merge card by card: columns added, renamed, moved and deleted', () => {
+  const base = B3();
+  // A column renamed on one side, one added at the end on the other.
+  assert.deepEqual(mergeBoard(base,
+    Board(Col('To do', 'Call Sam', 'Quote for Ingrid', 'Patent'), Col('In progress', 'Glossary'), Col('Done', 'Invoice')),
+    Board(Col('To do', 'Call Sam', 'Quote for Ingrid', 'Patent'), Col('Doing', 'Glossary'), Col('Done', 'Invoice'), Col('Waiting', 'Reply from Kim'))),
+  [[['To do', 'Call Sam', 'Quote for Ingrid', 'Patent'], ['In progress', 'Glossary'], ['Done', 'Invoice'], ['Waiting', 'Reply from Kim']], true]);
+  // An empty column renamed is that column, not a new one.
+  const empty = Board(Col('To do', 'a'), Col('Doing'), Col('Done'));
+  assert.deepEqual(mergeBoard(empty, Board(Col('To do', 'a'), Col('Started'), Col('Done')), Board(Col('To do', 'a', 'b'), Col('Doing'), Col('Done'))),
+    [[['To do', 'a', 'b'], ['Started'], ['Done']], true]);
+  // A column moved on one side, a card added to it on the other.
+  assert.deepEqual(mergeBoard(base,
+    Board(Col('Done', 'Invoice'), Col('To do', 'Call Sam', 'Quote for Ingrid', 'Patent'), Col('Doing', 'Glossary')),
+    Board(Col('To do', 'Call Sam', 'Quote for Ingrid', 'Patent'), Col('Doing', 'Glossary'), Col('Done', 'Invoice', 'Paid'))),
+  [[['Done', 'Invoice', 'Paid'], ['To do', 'Call Sam', 'Quote for Ingrid', 'Patent'], ['Doing', 'Glossary']], true]);
+  // Deleted, with its cards, on one side and untouched on the other: gone.
+  assert.deepEqual(mergeBoard(base,
+    Board(Col('To do', 'Call Sam', 'Quote for Ingrid', 'Patent'), Col('Done', 'Invoice')),
+    Board(Col('To do', 'Call Sam', 'Quote for Ingrid'), Col('Doing', 'Glossary'), Col('Done', 'Invoice'))),
+  [[['To do', 'Call Sam', 'Quote for Ingrid'], ['Done', 'Invoice']], true]);
+  // Deleted on one side while the other added a card to it: it stays, with that card.
+  assert.deepEqual(mergeBoard(base,
+    Board(Col('To do', 'Call Sam', 'Quote for Ingrid', 'Patent'), Col('Done', 'Invoice')),
+    Board(Col('To do', 'Call Sam', 'Quote for Ingrid', 'Patent'), Col('Doing', 'Glossary', 'Terms'), Col('Done', 'Invoice'))),
+  [[['To do', 'Call Sam', 'Quote for Ingrid', 'Patent'], ['Doing', 'Terms'], ['Done', 'Invoice']], false]);
+  // The same new column on both sides is one column.
+  const added = Board(Col('To do', 'Call Sam', 'Quote for Ingrid', 'Patent'), Col('Doing', 'Glossary'), Col('Done', 'Invoice'), Col('Later'));
+  assert.deepEqual(mergeBoard(base, added, added)[0].map(c => c[0]), ['To do', 'Doing', 'Done', 'Later']);
+});
+
+test('boards merge: a board added on one side while the other changed one stays as both; a big board merges in good time', () => {
+  // Not as many boards on each side: the board-by-board merge does not
+  // guess which is which, and keeps both versions, as before.
   const base = [P('a'), Board(Col('To do', 'x'))];
-  const mine = [P('a'), Board(Col('To do', 'x', 'mine'))];
+  const mine = [P('a'), Board(Col('New')), Board(Col('To do', 'x', 'mine'))];
   const theirs = [P('a'), Board(Col('To do'), Col('Done', 'x'))];
   const r = fmt.mergeDocs(base, mine, theirs);
   assert.equal(r.clean, false);
-  assert.deepEqual(r.doc.filter(b => b.type === 'board').map(cardsOf), [[['To do'], ['Done', 'x']], [['To do', 'x', 'mine']]]);
-  const one = fmt.mergeDocs(base, [P('a, mine'), base[1]], theirs);
-  assert.equal(one.clean, true);
-  assert.deepEqual(one.doc.filter(b => b.type === 'board').map(cardsOf), [[['To do'], ['Done', 'x']]]);
+  assert.equal(r.doc.filter(b => b.type === 'board').length, 3, 'nothing lost');
+  // Twenty columns of a thousand cards, changed on both sides.
+  const big = n => fmt.board(Array.from({ length: 20 }, (_, c) => ({ title: [T(`Column ${c}`)], cards: Array.from({ length: n }, (_, k) => ({ runs: [T(`Card ${c}.${k}`)] })) })));
+  const b = big(1000);
+  const m = big(1000);
+  m.columns[0].cards.reverse();
+  m.columns[5].cards.push({ runs: [T('mine')] });
+  const t = big(1000);
+  t.columns[19].cards.unshift(t.columns[3].cards.splice(10, 1)[0]);
+  const t0 = Date.now();
+  const out = fmt.mergeBoards(b, m, t);
+  assert.ok(Date.now() - t0 < 3000, `20,000 cards merged in ${Date.now() - t0} ms`);
+  assert.equal(out.clean, true);
+  assert.equal(out.board.columns[0].cards[0].runs[0].text, 'Card 0.999');
+  assert.equal(out.board.columns[5].cards.at(-1).runs[0].text, 'mine');
+  assert.equal(out.board.columns[19].cards[0].runs[0].text, 'Card 3.10');
+  assert.equal(out.board.columns.reduce((n, c) => n + c.cards.length, 0), 20001);
 });
