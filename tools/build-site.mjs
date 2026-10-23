@@ -4,13 +4,14 @@
 //
 //   node tools/build-site.mjs [--out=_site]
 //
-// Puts together what GitHub Pages serves: site/index.html as it is, the
-// privacy policy made into a page from PRIVACY.md (so there is one text,
-// not two), the help pages (docs/) made from docs/*.md, the icons and
-// README pictures the pages show, and the demo (demo/, demo/phone/), made
-// of the real code and its fakes. Nothing is written into the repository
-// itself; .github/workflows/pages.yml runs this on every push to main and
-// publishes the result.
+// Puts together what GitHub Pages serves: site/index.html, the privacy
+// policy made into a page from PRIVACY.md (so there is one text, not
+// two), the help pages (docs/) made from docs/*.md, the icons and README
+// pictures the pages show, and the demo (demo/, demo/phone/), made of the
+// real code and its fakes. Each page gets the tags a link preview is made
+// from (Link previews, below), and the site gets their picture. Nothing
+// is written into the repository itself; .github/workflows/pages.yml runs
+// this on every push to main and publishes the result.
 // ─────────────────────────────────────────────────────────────────────
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -99,16 +100,76 @@ export function markdown(md, { ids = false, link, picture = (src, alt) => `<img 
 
 const APP_NAME = /APP_NAME = '([^']+)'/.exec(read('src/shared/ns.js'))[1];
 
+// ── Link previews ──
+//
+// What WhatsApp, LinkedIn, Slack, iMessage and X show when someone pastes
+// a link to a page: its title, its description, and one picture for the
+// whole site, images/og-image.jpg (drawn by tools/og-image.py), served as
+// img/og-image.jpg. Without a picture of the right shape they stretch the
+// icon. The addresses are whole, because the apps read the page from
+// elsewhere.
+
+const SITE = 'https://memdesk.app/';
+export const SOCIAL_IMAGE = 'og-image.jpg';
+const SOCIAL_ALT = `${APP_NAME} - your board, your notes and your week, inside Gmail - above the board, the notes and the calendar in three Chrome windows, with the phone app's week in front of them`;
+
+// The page `html` at `path` ('' is the landing page, a folder ends in
+// '/'), with the tags put in after its description, made from the title
+// and the description it has: so the preview says what the page says.
+export function withSocial(html, path) {
+  const title = /<title>([^<]+)<\/title>/.exec(html);
+  const description = /<meta name="description" content="([^"]+)">/.exec(html);
+  if (!title || !description) throw new Error(`build-site: /${path} needs a title and a description, for its link preview`);
+  if (/<meta (property="og:|name="twitter:)/.test(html)) throw new Error(`build-site: /${path} has link-preview tags of its own; they are made here`);
+  const name = title[1].replace(/"/g, '&quot;'); // a page's text, now in an attribute
+  const image = `${SITE}img/${SOCIAL_IMAGE}`;
+  const { width, height } = jpegSize(readFileSync(join(REPO, 'images', SOCIAL_IMAGE)));
+  const tags = [
+    ['property', 'og:type', 'website'],
+    ['property', 'og:site_name', esc(APP_NAME)],
+    ['property', 'og:title', name],
+    ['property', 'og:description', description[1]],
+    ['property', 'og:url', SITE + path],
+    ['property', 'og:image', image],
+    ['property', 'og:image:width', width],
+    ['property', 'og:image:height', height],
+    ['property', 'og:image:alt', esc(SOCIAL_ALT)],
+    ['name', 'twitter:card', 'summary_large_image'],
+    ['name', 'twitter:title', name],
+    ['name', 'twitter:description', description[1]],
+    ['name', 'twitter:image', image],
+  ].map(([attr, key, value]) => `<meta ${attr}="${key}" content="${value}">`);
+  return once(html, description[0], [description[0], ...tags].join('\n'));
+}
+
+// A Markdown page's description: its first paragraph of words before any
+// heading under its title - not the date under it, a picture or a list -
+// without Markdown's marks. A page that starts straight on its headings
+// has the help overview's.
+function intro(md) {
+  const para = md.split(/^## /m)[0].split(/\n\s*\n/).map(p => p.trim())
+    .find(p => p && !/^(#|!\[|- |\d+\. )/.test(p) && !/^\*[^*]+\*$/.test(p));
+  return para && para.replace(/\s+/g, ' ').replace(/\[([^\]]+)\]\([^)\s]+\)/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1').replace(/`([^`]+)`/g, '$1');
+}
+
+function describe(md) {
+  const text = intro(md) || intro(read('docs/README.md'));
+  if (!text) throw new Error('build-site: docs/README.md needs a first paragraph, for the pages that have none of their own');
+  return text;
+}
+
 // The privacy page: the landing page's look, plainer.
 function privacyPage() {
   const md = read('PRIVACY.md');
   const title = /^# (.+)$/m.exec(md)[1];
-  return `<!DOCTYPE html>
+  return withSocial(`<!DOCTYPE html>
 <html lang="en-GB">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
+<meta name="description" content="${esc(describe(md))}">
 <link rel="icon" href="../icon.svg" type="image/svg+xml">
 <link rel="icon" href="../icon-32.png" sizes="32x32" type="image/png">
 <style>
@@ -138,7 +199,7 @@ ${markdown(md)}
 <footer><div><a href="../">${esc(APP_NAME)}</a> · <a href="https://github.com/michaelbeijer/MemDesk/blob/main/PRIVACY.md">This policy on GitHub</a></div></footer>
 </body>
 </html>
-`;
+`, 'privacy/');
 }
 
 // ── The help pages ──
@@ -227,12 +288,13 @@ function docsPage(i) {
     prev ? `<a class="prev" href="${to(prev)}" rel="prev"><span>Previous</span>${esc(prev.title)}</a>` : '',
     next ? `<a class="next" href="${to(next)}" rel="next"><span>Next</span>${esc(next.title)}</a>` : '',
   ].join('');
-  return `<!DOCTYPE html>
+  return withSocial(`<!DOCTYPE html>
 <html lang="en-GB">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
+<meta name="description" content="${esc(describe(md))}">
 <link rel="icon" href="${site}icon.svg" type="image/svg+xml">
 <link rel="icon" href="${site}icon-32.png" sizes="32x32" type="image/png">
 <style>
@@ -315,7 +377,7 @@ ${contents}
 <footer><div><a href="${site}">${esc(APP_NAME)}</a> · <a href="${site}privacy/">Privacy</a> · <a href="${GITHUB}/blob/main/docs/${page.file}">This page on GitHub</a></div></footer>
 </body>
 </html>
-`;
+`, `${page.dir}/`);
 }
 
 function buildDocs(out) {
@@ -379,7 +441,7 @@ function computerPage() {
   const scripts = html.match(/<script src="\.\.\/src\/[^"]+"><\/script>/g) || [];
   if (scripts.length !== CONTENT_SCRIPTS.length) throw new Error('build-site: the preview does not load the manifest’s content scripts');
   html = html.replace(/<script src="\.\.\/src\//g, '<script src="src/');
-  return once(html, '</body>', '<script src="demo.js"></script>\n</body>');
+  return withSocial(once(html, '</body>', '<script src="demo.js"></script>\n</body>'), 'demo/');
 }
 
 function serverPage() {
@@ -431,7 +493,7 @@ function buildDemo(out) {
   copy('dev/apps-script-services.js', 'apps-script-services.js');
   copy('site/demo/demo.css', 'demo.css');
   copy('site/demo/demo.js', 'demo.js');
-  writeFileSync(join(demo, 'phone', 'index.html'), once(read('site/demo/phone.html'), '<!-- demo bar -->', demoBar(true)));
+  writeFileSync(join(demo, 'phone', 'index.html'), withSocial(once(read('site/demo/phone.html'), '<!-- demo bar -->', demoBar(true)), 'demo/phone/'));
   writeFileSync(join(demo, 'phone', 'app.html'), appHtml({
     before: '<link rel="stylesheet" href="../demo.css">\n<script src="../demo.js"></script>\n<script src="run.js"></script>\n',
   }));
@@ -444,10 +506,10 @@ export function build(out) {
   rmSync(out, { recursive: true, force: true });
   mkdirSync(join(out, 'img'), { recursive: true });
   mkdirSync(join(out, 'privacy'), { recursive: true });
-  copyFileSync(join(REPO, 'site', 'index.html'), join(out, 'index.html'));
+  writeFileSync(join(out, 'index.html'), withSocial(read('site/index.html'), ''));
   writeFileSync(join(out, 'privacy', 'index.html'), privacyPage());
   for (const f of ICONS) copyFileSync(join(REPO, 'icons', f), join(out, f));
-  for (const f of PICTURES) copyFileSync(join(REPO, 'images', f), join(out, 'img', f));
+  for (const f of [...PICTURES, SOCIAL_IMAGE]) copyFileSync(join(REPO, 'images', f), join(out, 'img', f));
   buildDocs(out);
   buildDemo(out);
   return out;

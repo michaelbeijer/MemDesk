@@ -887,7 +887,7 @@ The display name appears in exactly these places:
 The licence (`LICENSE`), the guides (`INSTALL.md`, `SETUP.md`, `PUBLISHING.md`, `PRIVACY.md`),
 the help pages (`docs/`), `store/listing.md` and the website (`site/index.html`, and the demo's `site/demo/`) use the name in their
 text, and link to the repository by its address. The pictures take the name from `APP_NAME`: run
-`tools/readme-shots.mjs` again.
+`tools/readme-shots.mjs` again, then `tools/og-image.py` for the link-preview picture.
 
 Nothing internal carries the name: not the `gkb` namespace, the storage keys
 (`clientId`, `columns:<email>`, `order:<email>`), the CSS classes or the element
@@ -1014,6 +1014,20 @@ is the same drawing, kept in step by a test.
 preview, and the real phone app, against the fake mailbox in its tidy
 `?showcase` mode, framed in a browser window and phones, into `images/`.
 
+### The link-preview picture
+
+A link to any page of memdesk.app, pasted into WhatsApp, LinkedIn, Slack,
+iMessage or X, shows `images/og-image.jpg`: the top of the landing page made
+smaller - the logo and the name, the heading, and the hero picture below them.
+`python tools/og-image.py` draws it with Pillow and numpy, in Roboto (Windows
+has it). Run it again when the icon, the hero picture, the heading or the name
+changes; it stops, rather than write a picture, if the heading is not the one
+it knows, if the words leave the middle 630 × 630 (WhatsApp sometimes shows
+only that square) or if the file would reach 300 KB (above which WhatsApp shows
+none). `tools/build-site.mjs` puts the `og:` and `twitter:` tags in every
+page, from its own title and description, and `tests/site.test.js` checks
+them.
+
 ## Layout
 
 ```
@@ -1066,10 +1080,11 @@ site/                      the website, memdesk.app; site/demo/ the demo's bar a
 docs/                      the help pages, memdesk.app/docs/: the manual for the person
                            using it, one Markdown file a page (README.md the overview)
 icons/icon.svg             the icon; icon-*.png are rendered from it
-images/                    the README's pictures
+images/                    the README's pictures, and the link preview's
 tools/icon-svg.py          draws icons/icon.svg
 tools/make-icons.mjs       renders the icon PNGs
 tools/readme-shots.mjs     takes the README's pictures
+tools/og-image.py          draws images/og-image.jpg, the link preview's picture
 tools/build-addon.mjs      builds addon/Code.gs
 tools/build-site.mjs       builds the website, its help pages and its demo
 SETUP.md                   step-by-step setup of your own copy

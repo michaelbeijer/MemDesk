@@ -43,6 +43,7 @@ when it changes) into their Apps Script project.
 | Website (memdesk.app, GitHub Pages via Actions) | `site/index.html`, `tools/build-site.mjs`, `.github/workflows/pages.yml` |
 | The demo (memdesk.app/demo/): the preview and the phone app with `Code.gs` in the page | `site/demo/`, built by `tools/build-site.mjs`; Apps Script's services in `dev/apps-script-services.js` (shared with `tests/helpers/apps-script.js`) |
 | README / store pictures | `tools/readme-shots.mjs` → `images/`, `store/` |
+| Link previews (og:/twitter: tags on every page, one 1200×630 picture under 300 KB) | tags: `withSocial` in `tools/build-site.mjs`; picture: `python tools/og-image.py` → `images/og-image.jpg` (redraw after a new hero picture, heading, icon or name) |
 | Icon | `tools/icon-svg.py` → `icons/icon.svg` → `tools/make-icons.mjs`; `LOGO` in `src/content/ui.js` must match |
 
 ## Rules that tests enforce (and that must not be broken)

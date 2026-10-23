@@ -103,6 +103,80 @@ test('the website leads to the demo, and to the help', () => {
   assert.ok(foot.includes('<a href="docs/">Help</a>'), 'and at the foot');
 });
 
+// ── Link previews ──
+
+// The pages people pass on (not the demo phone's two frames), and the
+// tags WhatsApp, LinkedIn, Slack, iMessage and X make a preview from.
+const PREVIEWED = ['index.html', 'privacy/index.html', ...DOC_PAGES, 'demo/index.html', 'demo/phone/index.html'];
+const SOCIAL = ['og:type', 'og:site_name', 'og:title', 'og:description', 'og:url', 'og:image', 'og:image:width', 'og:image:height', 'og:image:alt',
+  'twitter:card', 'twitter:title', 'twitter:description', 'twitter:image'];
+
+function socialTags(rel) {
+  const tags = {};
+  for (const [, key, value] of page(rel).matchAll(/<meta (?:property|name)="((?:og|twitter):[a-z_:]+)" content="([^"]*)">/g)) {
+    assert.ok(!(key in tags), `${rel}: ${key} only once`);
+    tags[key] = value;
+  }
+  return tags;
+}
+
+test('every page has a link preview of its own: its title, its description, its address, and the site’s picture', () => {
+  const image = 'https://memdesk.app/img/og-image.jpg';
+  const name = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8')).name;
+  const alts = new Set();
+  for (const rel of PREVIEWED) {
+    const html = page(rel);
+    const tags = socialTags(rel);
+    assert.deepEqual(Object.keys(tags).sort(), [...SOCIAL].sort(), `${rel}: every tag, and nothing else under og: or twitter:`);
+    assert.equal((html.match(/<meta [^>]*\b(property|name)="(og|twitter):/g) || []).length, SOCIAL.length, `${rel}: none of them twice`);
+    const title = /<title>([^<]+)<\/title>/.exec(html)[1];
+    const description = /<meta name="description" content="([^"]+)">/.exec(html);
+    assert.ok(description && description[1].length >= 40, `${rel} has a description`);
+    assert.equal(tags['og:title'], title, `${rel}: the page’s own title`);
+    assert.equal(tags['twitter:title'], title, rel);
+    assert.equal(tags['og:description'], description[1], `${rel}: the page’s own description`);
+    assert.equal(tags['twitter:description'], description[1], rel);
+    assert.equal(tags['og:url'], `https://memdesk.app/${rel.replace(/index\.html$/, '')}`, `${rel}: its own address`);
+    assert.equal(tags['og:image'], image, rel);
+    assert.equal(tags['twitter:image'], image, rel);
+    assert.equal(tags['og:type'], 'website', rel);
+    assert.equal(tags['og:site_name'], name, rel);
+    assert.equal(tags['twitter:card'], 'summary_large_image', rel);
+    assert.deepEqual([tags['og:image:width'], tags['og:image:height']], ['1200', '630'], rel);
+    assert.ok(tags['og:image:alt'].length >= 40, `${rel}: the picture says what it shows`);
+    alts.add(tags['og:image:alt']);
+    assert.ok(html.indexOf('name="twitter:image"') < html.indexOf('</head>'), `${rel}: in the head`);
+  }
+  assert.equal(alts.size, 1, 'one picture, described the same way everywhere');
+  // It shows the landing page's heading, so its description quotes it:
+  // a new heading means a new picture (tools/og-image.py) and new words.
+  const heading = /<h1>([^<]+)<\/h1>/.exec(page('index.html'))[1].replace(/\.$/, '').toLowerCase();
+  assert.ok([...alts][0].toLowerCase().includes(heading), `the picture’s description has the heading, “${heading}”`);
+  // The picture is there, as tools/og-image.py made it, the size the tags
+  // say (read from its own frame header), and under the 300 KB above which
+  // WhatsApp shows none.
+  const jpeg = fs.readFileSync(path.join(OUT, 'img', 'og-image.jpg'));
+  assert.deepEqual(jpeg, fs.readFileSync(path.join(ROOT, 'images', 'og-image.jpg')));
+  assert.ok(jpeg.length < 300000, `${jpeg.length} bytes`);
+  let at = 2;
+  while (jpeg[at] === 0xff && !(jpeg[at + 1] >= 0xc0 && jpeg[at + 1] <= 0xc2)) at += 2 + jpeg.readUInt16BE(at + 2);
+  assert.equal(jpeg[at], 0xff, 'a JPEG frame header');
+  assert.deepEqual([jpeg.readUInt16BE(at + 7), jpeg.readUInt16BE(at + 5)], [1200, 630], 'width and height');
+});
+
+test('a page with no title or description, or with preview tags of its own, stops the build', async () => {
+  const { withSocial } = await import(pathToFileURL(path.join(ROOT, 'tools', 'build-site.mjs')).href);
+  const head = '<title>A page</title>\n<meta name="description" content="What it is about.">\n';
+  assert.match(withSocial(head, 'a/'), /<meta property="og:url" content="https:\/\/memdesk\.app\/a\/">/);
+  // A title with a quote in it stays one attribute.
+  assert.match(withSocial('<title>A "quoted" page</title>\n<meta name="description" content="x">', ''), /<meta property="og:title" content="A &quot;quoted&quot; page">/);
+  assert.throws(() => withSocial('<title>A page</title>', 'a/'), /needs a title and a description/);
+  assert.throws(() => withSocial('<meta name="description" content="What it is about.">', 'a/'), /needs a title and a description/);
+  assert.throws(() => withSocial(`${head}<meta property="og:image" content="https://memdesk.app/img/hero.jpg">`, 'a/'), /tags of its own/);
+  assert.throws(() => withSocial(`${head}<meta name="twitter:card" content="summary">`, 'a/'), /tags of its own/);
+  assert.throws(() => withSocial(`${head}${head}`, 'a/'), /once/, 'two descriptions');
+});
+
 // ── The help pages ──
 
 // The contents beside a page: where each entry leads, which is this page,
