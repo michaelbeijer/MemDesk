@@ -6,15 +6,17 @@
 //
 // Renders icons/icon.svg (drawn by tools/icon-svg.py) with Chromium to
 // icons/icon-{16,32,48,128}.png for Chrome's toolbar, extensions page and
-// web store, and icons/icon-192.png for the Gmail add-on's logo and the
-// phone app's favicon, which Android also uses for the home-screen icon.
+// web store, icons/icon-192.png for the Gmail add-on's logo and the
+// phone app's favicon, which Android also uses for the home-screen icon,
+// and icons/icon-512.png, which tools/og-image.py makes smaller for the
+// link-preview picture.
 // ─────────────────────────────────────────────────────────────────────
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { REPO, loadPlaywright, findChromium } from '../tests/e2e/lib.mjs';
 
-export const SIZES = [16, 32, 48, 128, 192];
+export const SIZES = [16, 32, 48, 128, 192, 512];
 
 const svg = readFileSync(join(REPO, 'icons', 'icon.svg'), 'utf8');
 const { chromium } = await loadPlaywright();
