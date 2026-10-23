@@ -104,14 +104,17 @@ const APP_NAME = /APP_NAME = '([^']+)'/.exec(read('src/shared/ns.js'))[1];
 //
 // What WhatsApp, LinkedIn, Slack, iMessage and X show when someone pastes
 // a link to a page: its title, its description, and one picture for the
-// whole site, images/og-image.jpg (drawn by tools/og-image.py), served as
-// img/og-image.jpg. Without a picture of the right shape they stretch the
-// icon. The addresses are whole, because the apps read the page from
-// elsewhere.
+// whole site, images/og-image.jpg (drawn by tools/og-image.py: the logo,
+// large), served as img/og-image.jpg. Without a picture of the right shape
+// they stretch the icon. The addresses are whole, because the apps read
+// the page from elsewhere.
 
 const SITE = 'https://memdesk.app/';
 export const SOCIAL_IMAGE = 'og-image.jpg';
-const SOCIAL_ALT = `${APP_NAME} - your board, your notes and your week, inside Gmail - above the board, the notes and the calendar in three Chrome windows, with the phone app's week in front of them`;
+// Raised when the picture changes: the apps keep the picture they fetched
+// for an address, so a new picture needs a new address.
+const SOCIAL_VERSION = 2;
+const SOCIAL_ALT = `${APP_NAME}'s logo: the letters Md in white on a violet circle`;
 
 // The page `html` at `path` ('' is the landing page, a folder ends in
 // '/'), with the tags put in after its description, made from the title
@@ -122,7 +125,7 @@ export function withSocial(html, path) {
   if (!title || !description) throw new Error(`build-site: /${path} needs a title and a description, for its link preview`);
   if (/<meta (property="og:|name="twitter:)/.test(html)) throw new Error(`build-site: /${path} has link-preview tags of its own; they are made here`);
   const name = title[1].replace(/"/g, '&quot;'); // a page's text, now in an attribute
-  const image = `${SITE}img/${SOCIAL_IMAGE}`;
+  const image = `${SITE}img/${SOCIAL_IMAGE}?v=${SOCIAL_VERSION}`;
   const { width, height } = jpegSize(readFileSync(join(REPO, 'images', SOCIAL_IMAGE)));
   const tags = [
     ['property', 'og:type', 'website'],

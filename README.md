@@ -887,7 +887,7 @@ The display name appears in exactly these places:
 The licence (`LICENSE`), the guides (`INSTALL.md`, `SETUP.md`, `PUBLISHING.md`, `PRIVACY.md`),
 the help pages (`docs/`), `store/listing.md` and the website (`site/index.html`, and the demo's `site/demo/`) use the name in their
 text, and link to the repository by its address. The pictures take the name from `APP_NAME`: run
-`tools/readme-shots.mjs` again, then `tools/og-image.py` for the link-preview picture.
+`tools/readme-shots.mjs` again.
 
 Nothing internal carries the name: not the `gkb` namespace, the storage keys
 (`clientId`, `columns:<email>`, `order:<email>`), the CSS classes or the element
@@ -1017,16 +1017,16 @@ preview, and the real phone app, against the fake mailbox in its tidy
 ### The link-preview picture
 
 A link to any page of memdesk.app, pasted into WhatsApp, LinkedIn, Slack,
-iMessage or X, shows `images/og-image.jpg`: the top of the landing page made
-smaller - the logo and the name, the heading, and the hero picture below them.
-`python tools/og-image.py` draws it with Pillow and numpy, in Roboto (Windows
-has it). Run it again when the icon, the hero picture, the heading or the name
-changes; it stops, rather than write a picture, if the heading is not the one
-it knows, if the words leave the middle 630 × 630 (WhatsApp sometimes shows
-only that square) or if the file would reach 300 KB (above which WhatsApp shows
-none). `tools/build-site.mjs` puts the `og:` and `twitter:` tags in every
-page, from its own title and description, and `tests/site.test.js` checks
-them.
+iMessage or X, shows `images/og-image.jpg`: the logo, large, on the landing
+page's violet. WhatsApp's small preview is the middle of the picture shrunk to
+about 115 pixels, where anything smaller than the logo cannot be read; the
+apps print the page's title beside it. `python tools/og-image.py` draws it
+with Pillow and numpy, from `icons/icon-512.png`. Run it again when the icon
+changes, and raise `SOCIAL_VERSION` in `tools/build-site.mjs`, because the
+apps keep the picture they fetched. It stops, rather than write a picture,
+if the file would reach 300 KB (above which WhatsApp shows none).
+`tools/build-site.mjs` puts the `og:` and `twitter:` tags in every page, from
+its own title and description, and `tests/site.test.js` checks them.
 
 ## Layout
 

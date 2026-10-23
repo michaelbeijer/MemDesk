@@ -121,7 +121,7 @@ function socialTags(rel) {
 }
 
 test('every page has a link preview of its own: its title, its description, its address, and the site’s picture', () => {
-  const image = 'https://memdesk.app/img/og-image.jpg';
+  const image = 'https://memdesk.app/img/og-image.jpg?v=2';
   const name = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8')).name;
   const alts = new Set();
   for (const rel of PREVIEWED) {
@@ -148,10 +148,8 @@ test('every page has a link preview of its own: its title, its description, its 
     assert.ok(html.indexOf('name="twitter:image"') < html.indexOf('</head>'), `${rel}: in the head`);
   }
   assert.equal(alts.size, 1, 'one picture, described the same way everywhere');
-  // It shows the landing page's heading, so its description quotes it:
-  // a new heading means a new picture (tools/og-image.py) and new words.
-  const heading = /<h1>([^<]+)<\/h1>/.exec(page('index.html'))[1].replace(/\.$/, '').toLowerCase();
-  assert.ok([...alts][0].toLowerCase().includes(heading), `the picture’s description has the heading, “${heading}”`);
+  // It shows the logo, so its description names the app.
+  assert.ok([...alts][0].includes(name), `the picture’s description names ${name}`);
   // The picture is there, as tools/og-image.py made it, the size the tags
   // say (read from its own frame header), and under the 300 KB above which
   // WhatsApp shows none.
