@@ -657,10 +657,10 @@ await r.step('a board changed on two phones at once - a card moved on one, a car
   await pickFolder(b.page, 'All notes');
   await q(b.page, '.note-item').filter({ hasText: 'Board on two phones' }).tap();
   await q(b.page, '.ne-body [data-gkb-card]').first().waitFor();
-  // A moves Call Sam to Done.
-  await q(a.page, '.ne-body [data-gkb-card]').filter({ hasText: /^Call Sam$/ }).tap();
-  await a.page.keyboard.press('Alt+ArrowRight');
-  await a.page.keyboard.press('Alt+ArrowRight');
+  // A moves Call Sam to Done, from its handle's menu (a tap on the card
+  // opens it in its box).
+  await q(a.page, '.ne-body .kb-card').filter({ hasText: /^Call Sam$/ }).locator('.kb-grip').tap();
+  await q(a.page, '.menu [data-key="card-to:2"]').tap();
   assert.deepEqual(await boardsOn(a.page), [[['To do', 'Quote for Ingrid'], ['Doing'], ['Done', 'Call Sam']]]);
   await saved(a.page, 'the move saved on A');
   await settled(a.page);

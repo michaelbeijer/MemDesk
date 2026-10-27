@@ -381,16 +381,22 @@ computers. All of it is kept per Gmail account.
   same card menu, a **Column** menu (insert a column left or right, move it,
   delete it, delete the board) and **Delete board**. **Ctrl+Z** straight
   after any of these, or after a drag, takes it back; **Esc** during a drag
-  puts the card back at once. A board wider than the note scrolls sideways,
-  and while you drag a card near its edge it scrolls for you. Cards hold text
+  puts the card back at once. Columns are at least 272 pixels wide; a board
+  wider than the note slides sideways - drag its background with the mouse,
+  or use the scroll bar, a trackpad or **Shift** with the mouse wheel - and
+  while you drag a card near its edge it scrolls for you. Cards hold text
   with bold, italic, strike-through and links; a title is one line. A card
-  of more than one line shows its **front**, its first line, with a line
-  under it saying how many more lines it has ("2 more lines"), so a board
-  of long cards still reads at a glance: put what the card is about on its
-  first line. Click the card, or go into it with **Tab** or the arrow keys,
-  and the whole card opens to read and edit; it folds again when you leave
-  it. A search shows a card whole when the match is on its back. Only the
-  view folds: every line is saved, and Gmail shows the whole card. A board
+  has a **front** and a **back**: the board shows only the front, with a
+  line under it saying how many lines the back holds ("2 more lines"), so a
+  board of long cards still reads at a glance. Click a card and it opens in
+  a box over the board, its front and its back each in a field of its own
+  (**Enter** in the front goes on to the back), written into the card as
+  you type; ×, **Done**, **Esc** or a click beside the box closes it. From
+  the keyboard (**Tab** from a column's title, or the arrow keys) a card is
+  edited on the board itself, shown whole. A search shows a card whole when
+  the match is on its back. A card is saved as it always was, the front its
+  first line, so every card made before has both, and Gmail shows the whole
+  card. A board
   holds up to 20 columns of up to 1,000 cards each; it stays quick into the
   thousands of cards, and slows down near that limit. In Gmail a board shows
   as columns of cards side by side; in plain text, each column's title with

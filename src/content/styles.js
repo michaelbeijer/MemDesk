@@ -1199,7 +1199,7 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .kb-cols { display: flex; align-items: flex-start; gap: 10px; overflow-x: auto; padding: 2px 2px 8px; }
 .kb-col {
   flex: 1 1 0;
-  min-width: 170px;
+  min-width: 272px; /* a card wide enough to read: more columns slide sideways */
   max-width: 320px;
   display: flex;
   flex-direction: column;
@@ -1254,6 +1254,28 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
   cursor: pointer;
 }
 .kb-card.kb-folds:hover::after { color: var(--fg); }
+/* A card on the board opens in its box at a click: the pointer says so. */
+.kb-card:not(:focus-within) > .kb-text[contenteditable="true"] { cursor: pointer; }
+.kb-cols.kb-panning, .kb-cols.kb-panning * { cursor: grabbing; user-select: none; }
+/* The card box: its front, the line the board shows, and its back. */
+.card-box { width: min(640px, calc(100vw - 32px)); }
+.card-box .dialog-body { gap: 6px; }
+.kb-box-label { margin-top: 6px; font-size: 12px; font-weight: 500; color: var(--fg-3); }
+.kb-box-field {
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  font-size: 15px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  outline: none;
+  cursor: text;
+}
+.kb-box-field:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.kb-box-front { font-size: 17px; font-weight: 500; }
+.kb-box-back { min-height: 180px; }
+.kb-box-field a { color: var(--accent); text-decoration: underline; cursor: pointer; }
 .kb-grip {
   position: absolute;
   top: 4px;

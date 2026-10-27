@@ -398,7 +398,7 @@
   // the note's headings beside it (the notes view, not the calendar's
   // tile): a button for them on the toolbar, and `outline` to place.
   // `onPicture(src, { trashed })`: a picture has been read, to show.
-  function create({ root, onChange, contents = null, onPicture = null }) {
+  function create({ root, onChange, contents = null, onPicture = null, dialog = null }) {
     const els = {};
     let saved = null;     // the last selection inside the editor
     let editable = false;
@@ -1469,6 +1469,131 @@
       if (fresh.length) foldSoon(fresh);
     }
 
+    // ── The card box ─────────────────────────────────────────────────────
+    //
+    // A click on a card opens it in a box over the board: its front - the
+    // line the board shows - and its back, every line after it, each in a
+    // field of its own and written into the card as they are typed. The
+    // card is saved as it always was, its front its first line, so Gmail,
+    // the phone app and every card made before have a front and a back
+    // already. The board's own dialog holds it: its scrim, Esc and Tab.
+    // Without one, a click on a card edits it on the board.
+
+    let box = null; // the card open in the box
+
+    // A card's runs as its front - its first line with words - and its
+    // back, every line after it.
+    function splitCard(runs) {
+      const lines = [[]];
+      for (const r of runs) {
+        r.text.split('\n').forEach((part, k) => {
+          if (k) lines.push([]);
+          if (part) lines[lines.length - 1].push({ ...r, text: part });
+        });
+      }
+      const first = lines.findIndex(l => l.some(r => r.text.trim()));
+      if (first < 0) return { front: [], back: [] };
+      return { front: lines[first], back: lines.slice(first + 1).flatMap((l, k) => (k ? [{ text: '\n' }, ...l] : l)) };
+    }
+
+    function openCard(t) {
+      if (box) dialog.close();
+      const { front, back } = splitCard(readCell(t));
+      const col = columnOfText(t);
+      const field = (key, runs) => {
+        const el = h('div', {
+          class: `kb-box-field kb-box-${key}`, role: 'textbox', 'aria-multiline': String(key === 'back'),
+          'aria-labelledby': `gkb-card-${key}-label`, dataset: { key: `card-${key}` },
+        });
+        el.contentEditable = 'true';
+        fillCell(el, runs);
+        return el;
+      };
+      const frontEl = field('front', front);
+      const backEl = field('back', back);
+      // Into the card as it is typed: the note saves as it always does.
+      const write = () => {
+        if (!t.isConnected) return;
+        const f = readCell(frontEl).map(r => ({ ...r, text: r.text.replace(/\n/g, ' ') }));
+        const b = readCell(backEl);
+        fillCell(t, b.length ? [...f, { text: '\n' }, ...b] : f);
+        changed();
+      };
+      const onKey = e => {
+        const mod = e.ctrlKey || e.metaKey;
+        if (e.key === 'Enter' && !mod && !e.altKey && !e.isComposing) {
+          // The front is one line: Enter there goes on to the back.
+          e.preventDefault();
+          if (e.currentTarget === frontEl) {
+            backEl.focus();
+            caretInto(backEl, false);
+          } else document.execCommand('insertLineBreak');
+        } else if (mod && !e.altKey && e.key.toLowerCase() === 's') {
+          e.preventDefault(); // saved as it is typed; not the browser's Save page
+        }
+      };
+      const onPaste = e => {
+        e.preventDefault();
+        const text = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
+        document.execCommand('insertText', false, e.currentTarget === frontEl ? text.replace(/\s*\n\s*/g, ' ') : text.replace(/\r\n?/g, '\n'));
+      };
+      // A link opens in a new tab, as in the note - not on a drag over its
+      // words, nor with Shift, which select them to edit.
+      const onLink = e => {
+        const a = e.target.closest && e.target.closest('a[href]');
+        if (!a || e.shiftKey || e.altKey || e.detail > 1 || String(selection())) return;
+        e.preventDefault();
+        window.open(a.href, '_blank', 'noopener');
+      };
+      for (const el of [frontEl, backEl]) {
+        el.addEventListener('input', write);
+        el.addEventListener('keydown', onKey);
+        el.addEventListener('paste', onPaste);
+        el.addEventListener('click', onLink);
+      }
+      const it = { t };
+      box = it;
+      const name = col ? columnName(col, columnsOf(boardElOf(t)).indexOf(col)) : 'Card';
+      dialog.show(h('div', { class: 'dialog card-box', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'gkb-card-box-heading' },
+        h('div', { class: 'dialog-head' },
+          h('h2', { id: 'gkb-card-box-heading', text: name }),
+          h('button', {
+            class: 'icon-btn', type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', dataset: { key: 'card-box-close' },
+            onclick: () => dialog.close(),
+          }, icon('close'))),
+        h('div', { class: 'dialog-body' },
+          h('div', { class: 'kb-box-label', id: 'gkb-card-front-label', text: 'Front' }), frontEl,
+          h('div', { class: 'kb-box-label', id: 'gkb-card-back-label', text: 'Back' }), backEl),
+        h('div', { class: 'dialog-foot' },
+          h('span', { class: 'note', text: 'The board shows the front. Saved as you type.' }),
+          h('button', { class: 'btn btn-text', type: 'button', text: 'Done', dataset: { key: 'card-box-done' }, onclick: () => dialog.close() }))),
+      {
+        // However it closes: the card folds to its front as it now reads.
+        onClose: () => {
+          if (box !== it) return;
+          box = null;
+          if (t.isConnected) foldCards([t]);
+        },
+      });
+      backEl.focus();
+      caretInto(backEl, true);
+    }
+
+    // A new note, or the editor gone: the box goes with the card in it.
+    function closeCard() {
+      if (box) dialog.close();
+    }
+
+    // The card a click on the board opens: not one being typed in there
+    // already (by the keyboard, or just added), nor a click on a link.
+    function cardToOpen(e) {
+      const card = e.target.closest && e.target.closest('.kb-card');
+      if (!card || !editable || e.target.closest('a[href], .kb-ui') || card.contains(root.activeElement)) return null;
+      // Without a box, only a click beside the words: one on them edits there.
+      if (!dialog && !e.target.classList.contains('kb-card')) return null;
+      return card.querySelector('[data-gkb-card]');
+    }
+
     // Keys in a title or a card.
     function boardKey(e, t, r, mod) {
       const el = boardElOf(t);
@@ -2494,7 +2619,7 @@
     // handle pressed may be the start of a drag.
     els.editor.addEventListener('mousedown', e => {
       if (e.target.closest && e.target.closest('.kb-ui')) e.preventDefault();
-      else if (e.target.classList && e.target.classList.contains('kb-card')) e.preventDefault(); // opened on the click
+      else if (cardToOpen(e)) e.preventDefault(); // opened on the click, not typed in on the board
     });
     // A card left folds again, to its front as it now reads.
     els.editor.addEventListener('focusout', e => {
@@ -2507,7 +2632,32 @@
       pressedAt = [e.clientX, e.clientY];
       const grip = e.target.closest && e.target.closest('.kb-grip');
       if (grip) dragStart(e, grip);
+      else panStart(e);
     });
+
+    // A board wider than the note slides sideways when its background -
+    // not a card, a title or a button - is dragged with the mouse, as on
+    // Trello: its scroll bar is under its longest column, often below the
+    // screen. A finger scrolls it already.
+    function panStart(e) {
+      if (e.pointerType !== 'mouse' || e.button !== 0 || !e.target.matches || !e.target.matches('.kb-cols, .kb-col, .kb-list')) return;
+      const cols = e.target.closest('.kb-cols');
+      if (!cols || cols.scrollWidth <= cols.clientWidth) return;
+      e.preventDefault();
+      const x0 = e.clientX;
+      const left0 = cols.scrollLeft;
+      const move = ev => { cols.scrollLeft = left0 - (ev.clientX - x0); };
+      // Let go however it ends: the button up, or the capture lost.
+      const end = () => {
+        cols.classList.remove('kb-panning');
+        cols.removeEventListener('pointermove', move);
+        cols.removeEventListener('lostpointercapture', end);
+      };
+      cols.addEventListener('pointermove', move);
+      cols.addEventListener('lostpointercapture', end);
+      cols.classList.add('kb-panning');
+      cols.setPointerCapture(e.pointerId);
+    }
 
     els.editor.addEventListener('click', e => {
       const ui = e.target.closest && e.target.closest('.kb-ui');
@@ -2515,10 +2665,10 @@
         if (editable) boardButton(ui);
         return;
       }
-      // A click on a card but not its words - on "2 more lines" under a
-      // folded one - opens it.
-      if (e.target.classList && e.target.classList.contains('kb-card')) {
-        if (editable) focusText(e.target.querySelector('[data-gkb-card]'), true);
+      const card = cardToOpen(e);
+      if (card) {
+        if (dialog) openCard(card);
+        else focusText(card, true);
         return;
       }
       const pic = e.target.closest && e.target.closest('.blk[data-type="picture"]');
@@ -2760,6 +2910,7 @@
       deselectPicture();
       if (sizer) sizer.disconnect(); // the columns going out are not watched any more
       stopLater();
+      closeCard();
       els.editor.replaceChildren(...fmt.normaliseDoc(doc).map(blockEl));
       syncEditable();
       updateEmpty();
@@ -2848,6 +2999,7 @@
       if (viewer) viewer.disconnect();
       if (sizer) sizer.disconnect();
       stopLater();
+      closeCard();
       document.removeEventListener('selectionchange', onSelection);
       clearHighlights();
       closeMenu(root);
