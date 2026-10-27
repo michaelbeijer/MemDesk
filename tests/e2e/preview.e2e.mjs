@@ -2539,10 +2539,14 @@ try {
     await p.keyboard.press('t');
     await until(async () => (await calTitle(p)) === thisWeek, 'back to today');
 
-    // A day in the small month goes to its week.
-    const next = await p.evaluate(() => window.__fakeCalendar.day(8));
-    await p.locator(`[data-key="cal-mini:${next}"]`).first().click();
-    await until(async () => (await weekText(p)).includes('MedTech translators’ conference'), 'that week');
+    // A day in the small month goes to its week: next week's Tuesday, or
+    // last week's in the last week of a month, when the small month ends
+    // with this week (it always holds four weeks or more).
+    const [next, last] = await p.evaluate(() => [window.__fakeCalendar.day(8), window.__fakeCalendar.day(-6)]);
+    const mini = d => p.locator(`[data-key="cal-mini:${d}"]`);
+    const [target, event] = (await mini(next).count()) ? [next, 'MedTech translators’ conference'] : [last, 'Dentist'];
+    await mini(target).first().click();
+    await until(async () => (await weekText(p)).includes(event), 'that week');
     const pref = await p.evaluate(async () => (await chrome.storage.local.get('pref:test@example.com:calendarView'))['pref:test@example.com:calendarView']);
     assert.equal(pref, 'week', 'the view is remembered');
     await p.context().close();
