@@ -3806,6 +3806,29 @@ try {
     await p.context().close();
   });
 
+  await r.step('a tab left over from before an update: the tabs still switch, and each says to reload Gmail', async () => {
+    const p = await openPage();
+    await openBoard(p);
+    // What Chrome does to the scripts in an open tab when the extension
+    // is reloaded: the storage areas go, and messages throw.
+    await p.evaluate(() => {
+      chrome.storage.local = undefined;
+      chrome.storage.sync = undefined;
+      delete chrome.runtime.id;
+      chrome.runtime.sendMessage = () => { throw new Error('Extension context invalidated.'); };
+    });
+    const says = async what => /Reload this Gmail tab/.test(await p.locator(what).allInnerTexts().then(t => t.join(' ')));
+    for (const view of ['notes', 'calendar', 'board']) {
+      await p.locator(`[data-key="view:${view}"]`).click();
+      await until(async () => (await p.locator(`[data-key="view:${view}"]`).getAttribute('aria-selected')) === 'true', `${view} selected`);
+      // The board keeps the cards it had; its next refresh says it.
+      if (view !== 'board') await until(() => says('.overlay'), `${view} says to reload`);
+    }
+    await p.locator('[aria-label="Refresh"]').click();
+    await until(() => says('.toast'), 'the board’s refresh says to reload');
+    await p.context().close();
+  });
+
   await r.step('no console errors anywhere', async () => {
     assert.deepEqual(errors, []);
   });

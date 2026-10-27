@@ -131,9 +131,9 @@
     const prefs = {
       async get(name) {
         const key = KEYS.pref(hooks.getAccount(), name);
-        return (await chrome.storage.local.get(key))[key];
+        return (await store.storageArea('local').get(key))[key];
       },
-      set: (name, value) => chrome.storage.local.set({ [KEYS.pref(hooks.getAccount(), name)]: value }),
+      set: (name, value) => saveLocal({ [KEYS.pref(hooks.getAccount(), name)]: value }),
     };
 
     ns.notes.init(Object.assign({
@@ -204,7 +204,7 @@
     if (!S.viewLoaded) {
       S.viewLoaded = true;
       try {
-        const got = await chrome.storage.local.get(KEYS.view);
+        const got = await store.storageArea('local').get(KEYS.view);
         if (VIEWS.includes(got[KEYS.view])) S.view = got[KEYS.view];
         else if (frame && frame.view) S.view = frame.view;
       } catch { /* extension reloaded; handled just below */ }
@@ -329,8 +329,15 @@
     closeMenu(root);
     S.search = null;
     S.view = view;
-    chrome.storage.local.set({ [KEYS.view]: view }).catch(() => {});
+    saveLocal({ [KEYS.view]: view }).catch(() => {});
     showView();
+  }
+
+  // A write to this computer's storage that fails as a rejection, never
+  // a throw: in a tab left over from before the extension was reloaded,
+  // the storage is gone, and a throw would stop the caller.
+  async function saveLocal(items) {
+    await store.storageArea('local').set(items);
   }
 
   // The dock's buttons: open on that tab, switch to it, or - when it
