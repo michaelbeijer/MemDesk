@@ -1260,6 +1260,8 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 /* The card box: its front, the line the board shows, and its back. */
 .card-box { width: min(640px, calc(100vw - 32px)); }
 .card-box .dialog-body { gap: 6px; }
+.card-box .ne-toolbar, .card-box .ne-linkbar { margin: 0; }
+.card-box .ne-linkbar .text-input { min-width: 0; }
 .kb-box-label { margin-top: 6px; font-size: 12px; font-weight: 500; color: var(--fg-3); }
 .kb-box-field {
   padding: 8px 12px;

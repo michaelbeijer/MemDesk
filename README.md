@@ -391,7 +391,9 @@ computers. All of it is kept per Gmail account.
   board of long cards still reads at a glance. Click a card and it opens in
   a box over the board, its front and its back each in a field of its own
   (**Enter** in the front goes on to the back), written into the card as
-  you type; ×, **Done**, **Esc** or a click beside the box closes it. From
+  you type, under a toolbar of its own for what a card can hold: bold,
+  italic, strike-through, links (**Ctrl+K**) and clear formatting. ×,
+  **Done**, **Esc** or a click beside the box closes it. From
   the keyboard (**Tab** from a column's title, or the arrow keys) a card is
   edited on the board itself, shown whole. A search shows a card whole when
   the match is on its back. A card is saved as it always was, the front its

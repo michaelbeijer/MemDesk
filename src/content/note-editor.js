@@ -697,82 +697,129 @@
       changed();
     }
 
-    function anchorAt(r) {
-      let n = r && r.startContainer;
-      while (n && n !== els.editor) {
-        if (n.nodeType === 1 && n.tagName === 'A') return n;
-        n = n.parentNode;
-      }
-      return null;
-    }
-
     // ── Links ────────────────────────────────────────────────────────────
+    //
+    // A link bar: the address of the link at the cursor - or of a new one,
+    // for the words selected or, with none, the address itself - typed in
+    // a field of its own. The field takes the focus from the text, so the
+    // selection is put back before the link is made. The note has one
+    // under its toolbar, the card box one of its own. `live`: the
+    // selection in its text, while it is there; `last`: the one before the
+    // focus left; `host`: what a range's text is typed in, which takes the
+    // focus back; `after`: what follows a change.
+    function linkBar({ key, live, last, host, after }) {
+      let at = null; // the selection it was opened on
 
-    function openLink() {
-      if (!editable) return;
-      const r = range() || saved;
-      if (!r) return;
-      saved = r.cloneRange();
-      const a = anchorAt(r);
-      els.linkInput.value = a ? a.getAttribute('href') : '';
-      els.linkError.textContent = '';
-      els.linkRemove.hidden = !a;
-      els.linkbar.hidden = false;
-      els.linkInput.focus();
-      els.linkInput.select();
-    }
-
-    function closeLink({ refocus = true } = {}) {
-      if (els.linkbar.hidden) return;
-      els.linkbar.hidden = true;
-      if (refocus) restore();
-    }
-
-    function applyLink() {
-      const href = fmt.safeHref(els.linkInput.value);
-      if (!href) {
-        els.linkError.textContent = 'That is not a web or email address.';
-        return;
-      }
-      closeLink();
-      const r = range();
-      if (!r) return;
-      const a = anchorAt(r);
-      if (r.collapsed && a) {
-        a.setAttribute('href', href);
-        a.title = linkTitle(href);
-      } else if (r.collapsed) {
-        // Nothing selected: the address itself becomes the link text.
-        const text = href.replace(/^mailto:/, '');
-        document.execCommand('insertText', false, text);
-        const after = range();
-        if (after) {
-          const sel = document.createRange();
-          sel.setStart(after.startContainer, Math.max(0, after.startOffset - text.length));
-          sel.setEnd(after.startContainer, after.startOffset);
-          select(sel);
-          document.execCommand('createLink', false, href);
-          const end = range();
-          if (end) { end.collapse(false); select(end); }
+      const anchor = r => {
+        const stop = r && host(r);
+        for (let n = r && r.startContainer; n && n !== stop; n = n.parentNode) {
+          if (n.nodeType === 1 && n.tagName === 'A') return n;
         }
-      } else {
-        document.execCommand('createLink', false, href);
+        return null;
+      };
+
+      function back() {
+        const r = live() || at;
+        const el = r && host(r);
+        if (!el) return;
+        if (root.activeElement !== el) el.focus({ preventScroll: true });
+        if (el.contains(r.startContainer)) {
+          try { select(r.cloneRange()); } catch { /* the text changed underneath */ }
+        }
       }
-      changed();
+
+      function open() {
+        if (!editable) return;
+        const r = live() || last();
+        if (!r) return;
+        at = r.cloneRange();
+        const a = anchor(r);
+        input.value = a ? a.getAttribute('href') : '';
+        error.textContent = '';
+        remove.hidden = !a;
+        el.hidden = false;
+        input.focus();
+        input.select();
+      }
+
+      function close() {
+        if (el.hidden) return;
+        el.hidden = true;
+        back();
+      }
+
+      function apply() {
+        const href = fmt.safeHref(input.value);
+        if (!href) {
+          error.textContent = 'That is not a web or email address.';
+          return;
+        }
+        close();
+        const r = live();
+        if (!r) return;
+        const a = anchor(r);
+        if (r.collapsed && a) {
+          a.setAttribute('href', href);
+          a.title = linkTitle(href);
+        } else if (r.collapsed) {
+          // Nothing selected: the address itself becomes the link text.
+          const text = href.replace(/^mailto:/, '');
+          document.execCommand('insertText', false, text);
+          const typed = live();
+          if (typed) {
+            const sel = document.createRange();
+            sel.setStart(typed.startContainer, Math.max(0, typed.startOffset - text.length));
+            sel.setEnd(typed.startContainer, typed.startOffset);
+            select(sel);
+            document.execCommand('createLink', false, href);
+            const end = live();
+            if (end) { end.collapse(false); select(end); }
+          }
+        } else {
+          document.execCommand('createLink', false, href);
+        }
+        after();
+      }
+
+      function unlink() {
+        close();
+        const a = anchor(live());
+        if (a) {
+          const sel = document.createRange();
+          sel.selectNodeContents(a);
+          select(sel);
+        }
+        document.execCommand('unlink');
+        after();
+      }
+
+      const input = h('input', {
+        class: 'text-input', type: 'text', placeholder: 'Web address or email', 'aria-label': 'Link address',
+        spellcheck: 'false', dataset: { key: `${key}-input` },
+        onkeydown: e => {
+          if (e.key === 'Enter') { e.preventDefault(); apply(); }
+          if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+        },
+      });
+      const error = h('span', { class: 'link-error', role: 'alert' });
+      const remove = h('button', { class: 'btn btn-text', type: 'button', text: 'Remove link', dataset: { key: `${key}-remove` }, onclick: unlink });
+      const el = h('div', { class: 'ne-linkbar', hidden: true },
+        icon('link', 18), input,
+        h('button', { class: 'btn btn-tonal', type: 'button', text: 'Apply', dataset: { key: `${key}-apply` }, onclick: apply }),
+        remove,
+        h('button', { class: 'btn btn-text', type: 'button', text: 'Cancel', onclick: () => close() }),
+        error);
+      return { el, open, anchor };
     }
 
-    function removeLink() {
-      closeLink();
-      const r = range();
-      const a = anchorAt(r);
-      if (a) {
-        const sel = document.createRange();
-        sel.selectNodeContents(a);
-        select(sel);
-      }
-      document.execCommand('unlink');
-      changed();
-    }
+    const noteLink = linkBar({
+      key: 'fmt-link',
+      live: range,
+      last: () => (saved && els.editor.contains(saved.startContainer) ? saved : null),
+      host: r => hostOf(r.startContainer) || els.editor,
+      after: changed,
+    });
+    els.linkbar = noteLink.el;
 
     // ── Tables ───────────────────────────────────────────────────────────
 
@@ -1473,7 +1520,9 @@
     //
     // A click on a card opens it in a box over the board: its front - the
     // line the board shows - and its back, every line after it, each in a
-    // field of its own and written into the card as they are typed. The
+    // field of its own and written into the card as they are typed, under
+    // a toolbar for what a card can hold: bold, italic, strike-through and
+    // links - not lists or headings, which a card has no place for. The
     // card is saved as it always was, its front its first line, so Gmail,
     // the phone app and every card made before have a front and a back
     // already. The board's own dialog holds it: its scrim, Esc and Tab.
@@ -1519,6 +1568,57 @@
         fillCell(t, b.length ? [...f, { text: '\n' }, ...b] : f);
         changed();
       };
+
+      // Its toolbar: what a card can hold - bold, italic, strike-through
+      // and links - in the field the cursor is in, or was in last.
+      const fieldOf = n => (frontEl.contains(n) ? frontEl : backEl.contains(n) ? backEl : null);
+      const live = () => {
+        const sel = selection();
+        const r = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+        return r && fieldOf(r.startContainer) && fieldOf(r.startContainer) === fieldOf(r.endContainer) ? r : null;
+      };
+      let at = null; // the selection in a field, kept while the focus is elsewhere
+      const link = linkBar({ key: 'card-link', live, last: () => at, host: r => fieldOf(r.startContainer), after: write });
+      const tools = {};
+      const tool = (key, label, iconName, run, toggle = true) => (tools[key] = h('button', {
+        class: 'tb-btn', type: 'button', title: label, 'aria-label': label, 'aria-pressed': toggle ? 'false' : null,
+        dataset: { key: `card-fmt-${key}` },
+        onmousedown: e => e.preventDefault(), // the focus stays in the field
+        onclick: () => { into(); run(); refresh(); },
+      }, icon(iconName, 20)));
+      const toolbar = h('div', { class: 'ne-toolbar', role: 'toolbar', 'aria-label': 'Formatting' },
+        tool('bold', 'Bold (Ctrl+B)', 'bold', () => document.execCommand('bold')),
+        tool('italic', 'Italic (Ctrl+I)', 'italic', () => document.execCommand('italic')),
+        tool('strike', 'Strike-through', 'strike', () => document.execCommand('strikeThrough')),
+        sep(),
+        tool('link', 'Link (Ctrl+K)', 'link', () => link.open()),
+        tool('clear', 'Clear formatting', 'clear', () => { document.execCommand('removeFormat'); document.execCommand('unlink'); }, false));
+      // A button pressed with the focus on another (Tab to Close, say):
+      // the cursor back where it was first.
+      const into = () => {
+        const r = live() || (at && fieldOf(at.startContainer) ? at : null);
+        const el = r ? fieldOf(r.startContainer) : backEl;
+        if (root.activeElement !== el) el.focus({ preventScroll: true });
+        if (r) {
+          try { select(r.cloneRange()); } catch { /* the text changed underneath */ }
+        } else caretInto(el, true);
+      };
+      const refresh = () => {
+        const r = live();
+        if (!r) return;
+        at = r.cloneRange();
+        for (const [key, cmd] of [['bold', 'bold'], ['italic', 'italic'], ['strike', 'strikeThrough']]) {
+          let on = false;
+          try { on = document.queryCommandState(cmd); } catch { /* not supported */ }
+          tools[key].setAttribute('aria-pressed', String(on));
+        }
+        tools.link.setAttribute('aria-pressed', String(!!link.anchor(r)));
+      };
+      const onSelection = () => {
+        if (!boxEl.isConnected) gone(); // closed some other way than its own
+        else refresh();
+      };
+
       const onKey = e => {
         const mod = e.ctrlKey || e.metaKey;
         if (e.key === 'Enter' && !mod && !e.altKey && !e.isComposing) {
@@ -1530,6 +1630,11 @@
           } else document.execCommand('insertLineBreak');
         } else if (mod && !e.altKey && e.key.toLowerCase() === 's') {
           e.preventDefault(); // saved as it is typed; not the browser's Save page
+        } else if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
+          e.preventDefault();
+          link.open();
+        } else if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'u') {
+          e.preventDefault(); // no underline in the model
         }
       };
       const onPaste = e => {
@@ -1553,8 +1658,12 @@
       }
       const it = { t };
       box = it;
+      const gone = () => {
+        document.removeEventListener('selectionchange', onSelection);
+        if (box === it) box = null;
+      };
       const name = col ? columnName(col, columnsOf(boardElOf(t)).indexOf(col)) : 'Card';
-      dialog.show(h('div', { class: 'dialog card-box', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'gkb-card-box-heading' },
+      const boxEl = h('div', { class: 'dialog card-box', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'gkb-card-box-heading' },
         h('div', { class: 'dialog-head' },
           h('h2', { id: 'gkb-card-box-heading', text: name }),
           h('button', {
@@ -1562,19 +1671,21 @@
             onclick: () => dialog.close(),
           }, icon('close'))),
         h('div', { class: 'dialog-body' },
+          toolbar, link.el,
           h('div', { class: 'kb-box-label', id: 'gkb-card-front-label', text: 'Front' }), frontEl,
           h('div', { class: 'kb-box-label', id: 'gkb-card-back-label', text: 'Back' }), backEl),
         h('div', { class: 'dialog-foot' },
           h('span', { class: 'note', text: 'The board shows the front. Saved as you type.' }),
-          h('button', { class: 'btn btn-text', type: 'button', text: 'Done', dataset: { key: 'card-box-done' }, onclick: () => dialog.close() }))),
-      {
+          h('button', { class: 'btn btn-text', type: 'button', text: 'Done', dataset: { key: 'card-box-done' }, onclick: () => dialog.close() })));
+      dialog.show(boxEl, {
         // However it closes: the card folds to its front as it now reads.
         onClose: () => {
           if (box !== it) return;
-          box = null;
+          gone();
           if (t.isConnected) foldCards([t]);
         },
       });
+      document.addEventListener('selectionchange', onSelection);
       backEl.focus();
       caretInto(backEl, true);
     }
@@ -2113,29 +2224,12 @@
       tbButton('picture', 'Picture (or paste or drop one)', 'picture', () => pickPicture(), false),
       els.filePick,
       sep(),
-      tbButton('link', 'Link (Ctrl+K)', 'link', () => openLink()),
+      tbButton('link', 'Link (Ctrl+K)', 'link', () => noteLink.open()),
       tbButton('clear', 'Clear formatting', 'clear', () => clearFormatting(), false));
     if (contents) {
       els.toolbar.append(h('span', { class: 'tb-sep tb-contents-sep', 'aria-hidden': 'true' }),
         tbButton('contents', 'Contents: the note’s headings, beside it', 'contents', () => toggleContents()));
     }
-
-    els.linkInput = h('input', {
-      class: 'text-input', type: 'text', placeholder: 'Web address or email', 'aria-label': 'Link address',
-      spellcheck: 'false', dataset: { key: 'fmt-link-input' },
-      onkeydown: e => {
-        if (e.key === 'Enter') { e.preventDefault(); applyLink(); }
-        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeLink(); }
-      },
-    });
-    els.linkError = h('span', { class: 'link-error', role: 'alert' });
-    els.linkRemove = h('button', { class: 'btn btn-text', type: 'button', text: 'Remove link', dataset: { key: 'fmt-link-remove' }, onclick: removeLink });
-    els.linkbar = h('div', { class: 'ne-linkbar', hidden: true },
-      icon('link', 18), els.linkInput,
-      h('button', { class: 'btn btn-tonal', type: 'button', text: 'Apply', dataset: { key: 'fmt-link-apply' }, onclick: applyLink }),
-      els.linkRemove,
-      h('button', { class: 'btn btn-text', type: 'button', text: 'Cancel', onclick: () => closeLink() }),
-      els.linkError);
 
     // The table bar: under the toolbar while the cursor is in a cell.
     const keepFocus = e => e.preventDefault();
@@ -2229,7 +2323,7 @@
         buttons[key].setAttribute('aria-pressed', String(on));
       }
       for (const t of ['ul', 'ol', 'check']) buttons[t].setAttribute('aria-pressed', String(type === t));
-      buttons.link.setAttribute('aria-pressed', String(!!anchorAt(r)));
+      buttons.link.setAttribute('aria-pressed', String(!!noteLink.anchor(r)));
       // In a cell: the table bar, and nothing that makes lists or headings;
       // in a board, the board bar. Neither holds a table or a board.
       const td = cellOf(r.startContainer);
@@ -2301,7 +2395,7 @@
       }
       if (mod && !e.shiftKey && !e.altKey) {
         const k = e.key.toLowerCase();
-        if (k === 'k') { e.preventDefault(); openLink(); return; }
+        if (k === 'k') { e.preventDefault(); noteLink.open(); return; }
         if (k === 'u') { e.preventDefault(); return; } // no underline in the model
         if (e.key === 'Enter' && blk && blk.dataset.type === 'check') { e.preventDefault(); toggleCheck(blk); return; }
       }

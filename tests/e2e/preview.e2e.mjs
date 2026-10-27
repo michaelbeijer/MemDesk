@@ -1553,6 +1553,39 @@ try {
     await keys([' today', 'Enter']);
     assert.equal(await inBox(), 'card-back', 'Enter in the front: to the back');
     assert.deepEqual((await boardGrid())[1].slice(-1), [`${first} today\nask about fees\nbefore noon`]);
+
+    // The box's toolbar: what a card can hold, in the field the cursor is in.
+    const tool = k => box.locator(`[data-key="card-fmt-${k}"]`);
+    await np.keyboard.press('Shift+End');
+    await tool('bold').click();
+    assert.equal(await back.locator('b, strong').innerText(), 'ask about fees', 'Bold: the words selected');
+    await until(async () => (await tool('bold').getAttribute('aria-pressed')) === 'true', 'Bold shown pressed');
+    assert.equal(await inBox(), 'card-back', 'the cursor stays in the back');
+    await tool('link').click();
+    const linkInput = box.locator('[data-key="card-link-input"]');
+    assert.equal(await inBox(), 'card-link-input', 'Link: its address field');
+    await linkInput.fill('https://example.com/fees');
+    await linkInput.press('Enter');
+    await until(async () => (await back.locator('a[href="https://example.com/fees"]').count()) === 1, 'a link on the words');
+    assert.equal(await inBox(), 'card-back', 'and the cursor back in the back');
+    assert.equal(await cardBox('Call the bank').locator('a[href="https://example.com/fees"]').count(), 1, 'on the card too');
+    // Esc in its address field closes the field, not the box.
+    await np.keyboard.press('Home');
+    await np.keyboard.press('ArrowRight');
+    await np.keyboard.press('ArrowRight');
+    await np.keyboard.press('Control+k');
+    assert.equal(await linkInput.inputValue(), 'https://example.com/fees', 'Ctrl+K: the link the cursor is in');
+    await np.keyboard.press('Escape');
+    await until(async () => !(await linkInput.isVisible()), 'the address field closed');
+    assert.equal(await box.count(), 1, 'the box still open');
+    assert.equal(await inBox(), 'card-back');
+    // The front's words too: italic, and Clear formatting takes it off.
+    await front.click();
+    await np.keyboard.press('Control+a'); // it wraps: all of it, not one line of it
+    await tool('italic').click();
+    assert.equal(await front.locator('i, em').innerText(), `${first} today`, 'Italic in the front');
+    await tool('clear').click();
+    assert.equal(await front.locator('i, em').count(), 0, 'Clear formatting');
     await np.keyboard.press('Escape');
     await closed();
 
@@ -1560,7 +1593,8 @@ try {
     await np.keyboard.press('Control+s');
     await savedSoon();
     const html = await gm('messageHtml', await gm('findMessageBySubject', 'Week plan'));
-    assert.match(html, new RegExp(`${first} today<br>ask about fees<br>before noon`), 'every line saved, the front first');
+    assert.match(html, new RegExp(`${first} today<br>`), 'every line saved, the front first');
+    assert.match(html, /<a [^>]*href="https:\/\/example\.com\/fees"[^>]*>(<b>|<strong>)ask about fees(<\/b>|<\/strong>)<\/a><br>before noon/, 'the back as formatted');
     assert.match(html, /Quote for Ingrid<br>by Friday/);
     assert.doesNotMatch(html, /kb-folds|data-more|more line|--kb-rows|card-box/, 'none of the folding');
     // As it was, for the steps after this one.
