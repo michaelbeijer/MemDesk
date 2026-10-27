@@ -33,6 +33,15 @@
     return api.STATE_CODES.has(err.code) || err.code === 'extension_reloaded';
   }
 
+  // chrome.storage.sync or .local. A Gmail tab left over from before the
+  // extension was reloaded has neither, and then gets the error a message
+  // to the worker gets there. (The phone app's stand-ins never go.)
+  function storageArea(name) {
+    const area = chrome.storage && chrome.storage[name];
+    if (!area) throw new api.ApiError('extension_reloaded', 'The extension was updated. Reload this Gmail tab.');
+    return area;
+  }
+
   // ── Settings ─────────────────────────────────────────────────────────
   //
   // The column layout: Gmail's (logic.layoutReadFlow), one for every
@@ -81,7 +90,7 @@
   // calendar, which work without the board (or Gmail) at all.
   async function loadColumns(account, { firstWrite = true, fallback = null, shared: ask = true } = {}) {
     const key = KEYS.columns(account);
-    const own = (await chrome.storage.sync.get(key))[key];
+    const own = (await storageArea('sync').get(key))[key];
     const copy = own ? logic.normaliseColumns(own) : fallback ? await fallback() : logic.defaultColumns();
     if (!ask) return copy;
     let shared;
@@ -92,7 +101,7 @@
       return copy;
     }
     if (shared) {
-      if (!own || !logic.sameColumns(shared, copy)) await chrome.storage.sync.set({ [key]: shared });
+      if (!own || !logic.sameColumns(shared, copy)) await storageArea('sync').set({ [key]: shared });
       return shared;
     }
     if (own && firstWrite) await shareColumns(copy).catch(() => {});
@@ -104,24 +113,24 @@
   // `share: false` keeps a step to the copy alone.
   async function saveColumns(account, columns, { share = true } = {}) {
     if (share) await shareColumns(columns);
-    await chrome.storage.sync.set({ [KEYS.columns(account)]: columns });
+    await storageArea('sync').set({ [KEYS.columns(account)]: columns });
     emit('columns-changed', { columns });
   }
 
   async function loadOrder(account) {
     const key = KEYS.order(account);
-    const got = await chrome.storage.local.get(key);
+    const got = await storageArea('local').get(key);
     return got[key] || {};
   }
 
   async function saveOrder(account, lists, columns) {
-    await chrome.storage.local.set({ [KEYS.order(account)]: logic.pruneOrder(lists, columns) });
+    await storageArea('local').set({ [KEYS.order(account)]: logic.pruneOrder(lists, columns) });
   }
 
   // ── Card edits ───────────────────────────────────────────────────────
 
   async function loadCardEdits(account) {
-    const all = await chrome.storage.sync.get(null);
+    const all = await storageArea('sync').get(null);
     return logic.cardEditsFrom(all, KEYS.cardPrefix(account));
   }
 
@@ -130,8 +139,8 @@
   async function saveCardEdit(account, threadId, edit) {
     const key = KEYS.card(account, threadId);
     try {
-      if (edit) await chrome.storage.sync.set({ [key]: edit });
-      else await chrome.storage.sync.remove(key);
+      if (edit) await storageArea('sync').set({ [key]: edit });
+      else await storageArea('sync').remove(key);
     } catch (err) {
       if (/quota/i.test((err && err.message) || '')) {
         throw Object.assign(new Error(
@@ -144,7 +153,7 @@
 
   // Gmail's top bar unless a corner, or none, was chosen.
   async function loadDockPlace() {
-    const got = await chrome.storage.sync.get(KEYS.dockPlace);
+    const got = await storageArea('sync').get(KEYS.dockPlace);
     const v = got[KEYS.dockPlace];
     return v === 'left' || v === 'right' || v === 'hidden' ? v : 'top';
   }
@@ -370,7 +379,7 @@
   }
 
   ns.store = {
-    bus, loadColumns, saveColumns, loadOrder, saveOrder, loadCardEdits, saveCardEdit, loadDockPlace,
+    bus, storageArea, loadColumns, saveColumns, loadOrder, saveOrder, loadCardEdits, saveCardEdit, loadDockPlace,
     refreshLabels, ensureLabels, renameLabel, labelId, allLabels,
     thread, adopt, loadBoard, moveToColumn, removeFromBoard, search, threadColumn,
   };

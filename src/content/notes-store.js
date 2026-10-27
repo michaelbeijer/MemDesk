@@ -36,7 +36,7 @@
 
   async function resolveLabel(account) {
     const key = KEYS.notes(account);
-    const got = await chrome.storage.sync.get(key);
+    const got = await store.storageArea('sync').get(key);
     const saved = got[key] || {};
     await store.refreshLabels();
 
@@ -49,7 +49,7 @@
     [col] = ns.logic.resolveColumnLabels([col], store.allLabels()).columns;
 
     if (col.label !== saved.label || col.labelId !== saved.labelId) {
-      await chrome.storage.sync.set({ [key]: { label: col.label, labelId: col.labelId } });
+      await store.storageArea('sync').set({ [key]: { label: col.label, labelId: col.labelId } });
     }
     S.label = { name: col.label, id: col.labelId };
     return S.label;
