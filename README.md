@@ -383,7 +383,14 @@ computers. All of it is kept per Gmail account.
   after any of these, or after a drag, takes it back; **Esc** during a drag
   puts the card back at once. A board wider than the note scrolls sideways,
   and while you drag a card near its edge it scrolls for you. Cards hold text
-  with bold, italic, strike-through and links; a title is one line. A board
+  with bold, italic, strike-through and links; a title is one line. A card
+  of more than one line shows its **front**, its first line, with a line
+  under it saying how many more lines it has ("2 more lines"), so a board
+  of long cards still reads at a glance: put what the card is about on its
+  first line. Click the card, or go into it with **Tab** or the arrow keys,
+  and the whole card opens to read and edit; it folds again when you leave
+  it. A search shows a card whole when the match is on its back. Only the
+  view folds: every line is saved, and Gmail shows the whole card. A board
   holds up to 20 columns of up to 1,000 cards each; it stays quick into the
   thousands of cards, and slows down near that limit. In Gmail a board shows
   as columns of cards side by side; in plain text, each column's title with

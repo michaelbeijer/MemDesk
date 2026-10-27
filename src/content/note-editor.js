@@ -35,7 +35,10 @@
 // to the next column), a card's handle drags it anywhere on the board or
 // opens its menu, and the board bar - shown while the cursor is in it -
 // adds, moves and deletes cards and columns. It is saved as a table of
-// one row, so Gmail shows it as columns of cards.
+// one row, so Gmail shows it as columns of cards. A card shows its first
+// line - its front - and under it how many more lines it holds, until the
+// cursor goes into it: then the whole card is there to read and edit.
+// Only the view folds; every line is saved.
 //
 // A picture is an island too: picked with the toolbar's button, pasted
 // or dropped, it goes in between lines, made smaller and held in the
@@ -198,10 +201,32 @@
     text.dataset.gkbCard = '1';
     text.contentEditable = 'true';
     fillCell(text, runs);
-    return h('div', { class: 'kb-card' }, text, h('button', {
+    const card = h('div', { class: 'kb-card' }, text, h('button', {
       class: 'kb-grip kb-ui', type: 'button', tabindex: '-1', title: 'Drag to move the card, or click for its menu',
       'aria-label': 'Move or delete the card', 'aria-haspopup': 'menu', dataset: { key: 'board-grip' },
     }, icon('drag', 18)));
+    // Folded from the first time it is drawn, to its first line: one
+    // that wraps is measured once it is on the page (foldCards).
+    markBack(card, backLines((runs || []).map(r => r.text).join('')));
+    return card;
+  }
+
+  // How many lines with words a card has after its first: its back.
+  function backLines(text) {
+    const lines = text.split('\n');
+    const first = lines.findIndex(l => l.trim());
+    return first < 0 ? 0 : lines.slice(first + 1).filter(l => l.trim()).length;
+  }
+
+  // A card with a back folds (kb-folds, in the stylesheet) and says under
+  // its front how many more lines there are (data-more); one without does
+  // neither. Nothing is written that is so already: a board has thousands.
+  function markBack(card, more) {
+    if (card.classList.contains('kb-folds') !== !!more) card.classList.toggle('kb-folds', !!more);
+    const label = more ? `${more} more ${more === 1 ? 'line' : 'lines'}` : '';
+    if ((card.dataset.more || '') === label) return;
+    if (label) card.dataset.more = label;
+    else delete card.dataset.more;
   }
 
   function columnEl(c) {
@@ -611,6 +636,7 @@
       pasteUndo = [];
       tidy();
       watchPictures();
+      watchCards();
       onChange();
       refreshToolbar();
       scheduleOutline();
@@ -1273,6 +1299,174 @@
       if (!col) return;
       if (b.dataset.kb === 'add-card') addCard(col.querySelector('[data-gkb-title]'), 'foot');
       else if (b.dataset.kb === 'add-column') addBoardColumn(col.querySelector('[data-gkb-title]'), 'end');
+    }
+
+    // ── Card fronts ──────────────────────────────────────────────────────
+    //
+    // A card folds to its front - its first line - while the cursor is
+    // not in it, so a board of long cards still reads at a glance; the
+    // stylesheet does the folding (:focus-within), this only measures how
+    // tall the front is, since a long first line wraps. Measured when a
+    // card is first seen, when it is left (its text may have changed) and
+    // when its column's width changes. A card with a search match shows
+    // whole, and nothing folds in a note that cannot be edited, as it could
+    // not be opened there.
+    //
+    // The columns are watched, by their titles, rather than the cards: all
+    // columns are as wide as each other, a title keeps its size when the
+    // cards under it fold - so they can fold before the page is drawn,
+    // where a card watched would report its own folding back as a loop, an
+    // error on the page - and a board has 20 titles, not 20,000 cards.
+
+    const seen = new WeakSet(); // cards measured, or put off until their column shows
+    const widths = new WeakMap(); // each title watched, and its width
+    // One range, moved from card to card: the browser keeps every range up
+    // to date through every change to the page until it is collected, so a
+    // range for each card made every edit on a big board slower by as many.
+    const frontRange = document.createRange();
+    const sizer = typeof ResizeObserver === 'function' ? new ResizeObserver(entries => {
+      const cards = [];
+      for (const en of entries) {
+        const title = en.target;
+        if (!title.isConnected) {
+          // A column deleted is let go of, and watched again if Undo brings it back.
+          sizer.unobserve(title);
+          widths.delete(title);
+          continue;
+        }
+        const w = title.getBoundingClientRect().width;
+        if (!w || w === widths.get(title)) continue;
+        widths.set(title, w);
+        const col = title.closest('[data-gkb-column]');
+        if (col) cards.push(...col.querySelectorAll('[data-gkb-card]'));
+      }
+      foldSoon(cards);
+    }) : null;
+    const later = new Set(); // cards a screen or more away, measured once the page is drawn
+    let laterTimer = 0;
+
+    // A card's front: from its start to the first line break with words
+    // before it - a <br>, a block the browser put in, or a line break typed
+    // into the text itself (pre-wrap, see readCell) - set on frontRange if
+    // words come after it too. False: the card is all front.
+    function setFront(t) {
+      const walker = document.createTreeWalker(t, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+      let words = false;
+      let set = false;
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (n.nodeType === 1) {
+          if (!set && words && (n.tagName === 'BR' || NESTED_BLOCKS.has(n.tagName.toLowerCase()))) {
+            frontRange.setStart(t, 0);
+            frontRange.setEndBefore(n);
+            set = true;
+          }
+          continue;
+        }
+        if (set) {
+          if (/\S/.test(n.data)) return true;
+          continue;
+        }
+        const from = words ? 0 : n.data.search(/\S/);
+        if (from < 0) continue;
+        words = true;
+        const end = n.data.indexOf('\n', from);
+        if (end < 0) continue;
+        frontRange.setStart(t, 0);
+        frontRange.setEnd(n, end);
+        set = true;
+        if (/\S/.test(n.data.slice(end))) return true;
+      }
+      return false;
+    }
+
+    // Cards measured, then folded: every measurement first, then every
+    // change, so a board of a thousand cards is laid out once, not once
+    // a card. A front of one line needs nothing written (the stylesheet's
+    // own height); one that wraps gets its rows, on the text.
+    function foldCards(ts) {
+      const found = [];
+      let lh = 0; // a line, and the border and padding above the words: the same for every card
+      let inset = 0;
+      for (const t of ts) {
+        const card = t.closest('.kb-card');
+        const box = t.getBoundingClientRect();
+        if (!card || !box.width) continue; // not on show: measured once it is
+        const more = backLines(readCell(t).map(x => x.text).join(''));
+        let rows = 1;
+        if (more && setFront(t)) {
+          // Down to the line the front's last words are on, by the middle
+          // of their box: it is shorter than their line, and a blank line
+          // above them has no box at all.
+          if (!lh) {
+            const cs = getComputedStyle(t);
+            lh = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) || 14) * 1.5;
+            inset = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.paddingTop) || 0);
+          }
+          const top = box.top + inset - t.scrollTop;
+          let last = -Infinity;
+          for (const q of frontRange.getClientRects()) if (q.width) last = Math.max(last, q.top + q.height / 2);
+          if (last > top) rows = Math.floor((last - top) / lh) + 1;
+        }
+        found.push({ t, card, more, rows, scrolled: t.scrollTop > 0 });
+      }
+      for (const { t, card, more, rows, scrolled } of found) {
+        markBack(card, more);
+        const r = rows > 1 ? String(rows) : '';
+        if (t.style.getPropertyValue('--kb-rows') !== r) {
+          if (r) t.style.setProperty('--kb-rows', r);
+          else t.style.removeProperty('--kb-rows');
+        }
+        if (scrolled) t.scrollTop = 0;
+      }
+    }
+
+    // Cards measured: those on screen, or within a screen of it, at once -
+    // before the page is drawn - and the rest just after it is, all
+    // together: a big board then shows at once, and is laid out again only
+    // once more (in batches, every batch moved the cards below it, and the
+    // whole board was laid out and drawn again each time). One a long way
+    // off folds to one row until then, unseen.
+    function foldSoon(ts) {
+      const vh = innerHeight;
+      const vw = innerWidth;
+      const now = [];
+      for (const t of ts) {
+        const b = t.getBoundingClientRect();
+        if (b.bottom > -vh && b.top < 2 * vh && b.right > -vw && b.left < 2 * vw) now.push(t);
+        else later.add(t);
+      }
+      foldCards(now);
+      if (later.size && !laterTimer) laterTimer = setTimeout(foldLater);
+    }
+
+    function foldLater() {
+      laterTimer = 0;
+      const ts = [...later];
+      later.clear();
+      foldCards(ts);
+    }
+
+    // A new note, or the editor gone: nothing left over to measure.
+    function stopLater() {
+      clearTimeout(laterTimer);
+      laterTimer = 0;
+      later.clear();
+    }
+
+    // Cards not seen yet, measured now; a column not watched yet, watched
+    // from its width now. A note not on the page yet (opening it) has no
+    // width: its cards are measured as each column shows.
+    function watchCards() {
+      if (sizer) {
+        for (const title of els.editor.querySelectorAll('[data-gkb-title]')) {
+          if (widths.has(title)) continue;
+          widths.set(title, title.getBoundingClientRect().width);
+          sizer.observe(title);
+        }
+      }
+      const fresh = [...els.editor.querySelectorAll('[data-gkb-card]')].filter(t => !seen.has(t));
+      for (const t of fresh) seen.add(t);
+      if (fresh.length) foldSoon(fresh);
     }
 
     // Keys in a title or a card.
@@ -2300,6 +2494,11 @@
     // handle pressed may be the start of a drag.
     els.editor.addEventListener('mousedown', e => {
       if (e.target.closest && e.target.closest('.kb-ui')) e.preventDefault();
+      else if (e.target.classList && e.target.classList.contains('kb-card')) e.preventDefault(); // opened on the click
+    });
+    // A card left folds again, to its front as it now reads.
+    els.editor.addEventListener('focusout', e => {
+      if (e.target.dataset && e.target.dataset.gkbCard !== undefined) foldCards([e.target]);
     });
     // Where the last press was: a click that ends somewhere else was a
     // drag, selecting text, not a click on a link.
@@ -2314,6 +2513,12 @@
       const ui = e.target.closest && e.target.closest('.kb-ui');
       if (ui) {
         if (editable) boardButton(ui);
+        return;
+      }
+      // A click on a card but not its words - on "2 more lines" under a
+      // folded one - opens it.
+      if (e.target.classList && e.target.classList.contains('kb-card')) {
+        if (editable) focusText(e.target.querySelector('[data-gkb-card]'), true);
         return;
       }
       const pic = e.target.closest && e.target.closest('.blk[data-type="picture"]');
@@ -2407,6 +2612,11 @@
       const idx = textIndex();
       matchRanges = ns.searchLogic.findMatches(idx.text, terms).map(m => rangeFor(idx, m.start, m.end)).filter(Boolean);
       if (matchRanges.length) CSS.highlights.set('gkb-match', new Highlight(...matchRanges));
+      // A match on the back of a card is no use folded away.
+      for (const r of matchRanges) {
+        const card = r.startContainer.parentElement && r.startContainer.parentElement.closest('.kb-card');
+        if (card) card.classList.add('kb-hit');
+      }
       return matchRanges.length;
     }
 
@@ -2425,6 +2635,7 @@
 
     function clearHighlights() {
       matchRanges = [];
+      for (const card of els.editor.querySelectorAll('.kb-card.kb-hit')) card.classList.remove('kb-hit');
       if (!canHighlight()) return;
       CSS.highlights.delete('gkb-match');
       CSS.highlights.delete('gkb-match-current');
@@ -2547,10 +2758,13 @@
       lastText = null;
       if (drag) endDrag();
       deselectPicture();
+      if (sizer) sizer.disconnect(); // the columns going out are not watched any more
+      stopLater();
       els.editor.replaceChildren(...fmt.normaliseDoc(doc).map(blockEl));
       syncEditable();
       updateEmpty();
       watchPictures();
+      watchCards();
       drawOutline();
     }
 
@@ -2632,6 +2846,8 @@
       clearTimeout(outlineTimer);
       cancelAnimationFrame(outlineFrame);
       if (viewer) viewer.disconnect();
+      if (sizer) sizer.disconnect();
+      stopLater();
       document.removeEventListener('selectionchange', onSelection);
       clearHighlights();
       closeMenu(root);

@@ -1431,6 +1431,113 @@ try {
     await np.screenshot({ path: join(SCREENS, 'notes-board.png'), animations: 'disabled' });
   });
 
+  await r.step('a card shows its front, its first line however far it wraps, and under it how many more lines there are; a click there or the cursor in it shows it whole, leaving folds it again; a search match shows it whole; Gmail keeps every line', async () => {
+    const before = await boardGrid();
+    const text = cardText('Quote for Ingrid');
+    const box = cardBox('Quote for Ingrid');
+    const foldedNow = t => t.evaluate(x => x.scrollHeight > x.clientHeight + 1);
+    const folded = () => foldedNow(text);
+    // The line under a folded card's front, which the stylesheet draws:
+    // '' when there is none.
+    const hint = b => b.evaluate(c => {
+      const s = getComputedStyle(c, '::after');
+      return s.display === 'none' || /^(none|normal)$/.test(s.content) ? '' : c.dataset.more || '';
+    });
+    // A click on that line: under the front, at the card's left.
+    const clickHint = async b => {
+      const at = await b.boundingBox();
+      await np.mouse.click(at.x + 24, at.y + at.height - 8);
+    };
+    // How much of some words of a card it shows: 'whole', 'part' or 'no'.
+    const shown = (t, w) => t.evaluate((x, w) => {
+      const walker = document.createTreeWalker(x, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const i = n.data.indexOf(w);
+        if (i < 0) continue;
+        const r = document.createRange();
+        r.setStart(n, i);
+        r.setEnd(n, i + w.length);
+        const q = r.getBoundingClientRect();
+        const b = x.getBoundingClientRect();
+        if (q.top >= b.top - 0.5 && q.bottom <= b.bottom + 0.5) return 'whole';
+        return q.bottom > b.top + 0.5 && q.top < b.bottom - 0.5 ? 'part' : 'no';
+      }
+      return 'no';
+    }, w);
+    await until(folded, 'folded to its front');
+    assert.equal(await hint(box), '1 more line', 'under it, what is folded away');
+    assert.equal(await shown(text, 'Quote for Ingrid'), 'whole', 'its first line shows');
+    assert.equal(await shown(text, 'by Friday'), 'no', 'and not a sliver of the second');
+    assert.equal(await cardBox('Invoice sent').evaluate(c => c.classList.contains('kb-folds')), false, 'a card of one line has no back');
+    assert.equal(await hint(cardBox('Invoice sent')), '');
+
+    await clickHint(box);
+    assert.deepEqual(await inBoard(), ['card', 'Quote for Ingrid\nby Friday'], 'a click there opens it, the cursor in it');
+    assert.equal(await folded(), false, 'whole while the cursor is in it');
+    assert.equal(await hint(box), '', 'and nothing under it');
+    await np.keyboard.press('Tab');
+    assert.deepEqual(await inBoard(), ['card', 'Order business cards']);
+    await until(folded, 'left, it folds again');
+
+    // (The search reads saved notes: a word saved on the card's back.)
+    const search = np.locator('[data-key="notes-search"]');
+    await search.fill('Friday');
+    await until(async () => (await np.locator('.ne-find .find-pos').innerText()) === '1 of 1', 'found on its back');
+    assert.equal(await folded(), false, 'shown whole for the match');
+    await np.locator('[data-key="find-clear"]').click();
+    await until(folded, 'folded again once the search is cleared');
+
+    // A card of its own at the foot of Doing, its first line long enough
+    // to wrap: its back counted as it is left, and again once a line is
+    // added; its front as many rows as its first line takes.
+    const doing = np.locator('.ne-body .kb-col', { has: np.locator('[data-gkb-title]', { hasText: /^Doing$/ }) });
+    await doing.locator('[data-key="board-add-card"]').click();
+    const first = 'Call the bank about the fees on the business account';
+    await keys([first]);
+    await np.keyboard.press('Shift+Enter');
+    await keys(['ask about fees', 'Tab']);
+    // (Found by its words: a blank line will be typed above them.)
+    const bankText = np.locator('.ne-body [data-gkb-card]', { hasText: /^\s*Call the bank/ });
+    const bank = np.locator('.ne-body .kb-card', { has: np.locator('[data-gkb-card]', { hasText: /^\s*Call the bank/ }) });
+    await until(async () => (await hint(bank)) === '1 more line', 'left: one more line');
+    const rows = await bankText.evaluate(t => Number(t.style.getPropertyValue('--kb-rows')) || 1);
+    assert.ok(rows >= 2, `its first line wraps, and so does its front (${rows} rows)`);
+    assert.equal(await shown(bankText, 'business account'), 'whole', 'all of its first line shows');
+    assert.equal(await shown(bankText, 'ask about fees'), 'no', 'and none of the second');
+    await clickHint(bank);
+    assert.deepEqual(await inBoard(), ['card', `${first}\nask about fees`]);
+    await np.keyboard.press('Shift+Enter');
+    await keys(['before noon', 'Tab']);
+    await until(async () => (await hint(bank)) === '2 more lines', 'a line added, and left: two');
+    assert.equal(await foldedNow(bankText), true, 'and folded again');
+
+    // A blank line typed above the first: the front reaches down to its
+    // words, rather than showing only the blank line.
+    await bankText.click({ position: { x: 14, y: 12 } });
+    await np.keyboard.press('Home');
+    await np.keyboard.press('Shift+Enter');
+    assert.deepEqual(await inBoard(), ['card', `\n${first}\nask about fees\nbefore noon`]);
+    await np.keyboard.press('Tab');
+    await until(async () => (await shown(bankText, 'business account')) === 'whole', 'a blank line on top: all of the first line still shows');
+    assert.equal(await shown(bankText, 'ask about fees'), 'no', 'and the rest is folded away');
+    assert.equal(await hint(bank), '2 more lines');
+
+    await bankText.click();
+    await np.keyboard.press('Control+s');
+    await savedSoon();
+    const html = await gm('messageHtml', await gm('findMessageBySubject', 'Week plan'));
+    assert.match(html, new RegExp(`${first}<br>ask about fees<br>before noon`), 'every line saved');
+    assert.match(html, /Quote for Ingrid<br>by Friday/);
+    assert.doesNotMatch(html, /kb-folds|data-more|more line|--kb-rows/, 'none of the folding');
+    // As it was, for the steps after this one.
+    await bank.hover();
+    await bank.locator('.kb-grip').click();
+    await np.locator('.menu [data-key="card-delete"]').click();
+    assert.deepEqual(await boardGrid(), before, 'the board as it was');
+    await np.keyboard.press('Control+s');
+    await savedSoon();
+  });
+
   // ── Folders ──
 
   const folderId = name => np.locator('.folder-row:not(.fav-row)', { has: np.locator('.folder-title', { hasText: new RegExp(`^${name}$`) }) })
