@@ -150,6 +150,7 @@
         render();
       },
       closeBoard: close,
+      dialog: { show: showDialog, close: closeEditor },
       barChanged: updateBar,
       // Which folders are folded, on this computer, for this account.
       prefs,
@@ -416,7 +417,9 @@
   // A modal that lets Tab wander into the page behind it is not modal.
   function trapFocus(e) {
     const scope = S.editor ? els.editorLayer : S.drawer ? els.drawerLayer : els.overlay;
-    const focusable = [...scope.querySelectorAll('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href]')]
+    // A dialog's own fields count, a card's front and back among them.
+    const fields = S.editor ? ', [contenteditable="true"]' : '';
+    const focusable = [...scope.querySelectorAll(`button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href]${fields}`)]
       .filter(el => el.getClientRects().length);
     if (!focusable.length) return;
     const first = focusable[0];

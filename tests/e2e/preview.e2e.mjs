@@ -1264,6 +1264,19 @@ try {
   const cardText = text => np.locator('.ne-body [data-gkb-card]', { hasText: new RegExp(`^${text}`) });
   const cardBox = text => np.locator('.ne-body .kb-card', { has: np.locator('[data-gkb-card]', { hasText: new RegExp(`^${text}`) }) });
   const gripOf = text => cardBox(text).locator('.kb-grip');
+  // The cursor into a card on the board itself, the way the keyboard
+  // puts it there (a click on a card opens its box): a click on its
+  // column's title, then Tab until it is there.
+  async function intoCard(text) {
+    const col = np.locator('.ne-body .kb-col', { has: np.locator('[data-gkb-card]', { hasText: new RegExp(`^${text}`) }) });
+    await col.locator('[data-gkb-title]').click();
+    for (let i = 0; i < 50; i++) {
+      const at = await inBoard();
+      if (at && at[0] === 'card' && at[1].startsWith(text)) return;
+      await np.keyboard.press('Tab');
+    }
+    throw new Error(`could not get into the card "${text}"`);
+  }
   // A card dragged by its handle with the mouse to a point, by way of a
   // few moves.
   async function dragCard(text, to, { escape = false } = {}) {
@@ -1308,7 +1321,7 @@ try {
   });
 
   await r.step('cards move with Alt and the arrow keys, by their handle and from their menu; Ctrl+Z takes a move back, Escape a drag', async () => {
-    await cardText('Ring the printer').click();
+    await intoCard('Ring the printer');
     await np.keyboard.press('Alt+ArrowDown');
     assert.deepEqual((await boardGrid())[0], ['To do', 'Quote for Ingrid\nby Friday', 'Ring the printer']);
     await np.keyboard.press('Alt+ArrowRight');
@@ -1319,7 +1332,7 @@ try {
     assert.deepEqual((await boardGrid())[0], ['To do', 'Quote for Ingrid\nby Friday', 'Ring the printer'], 'Ctrl+Z: back');
     // Alt+Left in the first column: nothing - and not the browser's Back.
     const url = np.url();
-    await cardText('Ring the printer').click();
+    await intoCard('Ring the printer');
     await np.keyboard.press('Alt+ArrowLeft');
     await np.waitForTimeout(150);
     assert.equal(np.url(), url);
@@ -1372,7 +1385,7 @@ try {
     await np.keyboard.press('Backspace');
     assert.deepEqual((await boardGrid())[0], ['To do', 'Patent EP 3 456 789', 'Ring the printer']);
     assert.deepEqual(await inBoard(), ['card', 'Patent EP 3 456 789'], 'the cursor to the card above');
-    await cardText('Ring the printer').click();
+    await intoCard('Ring the printer');
     await keys(['Enter', 'Enter']);
     assert.equal(await inBoard(), null, 'out of the board');
     assert.deepEqual((await boardGrid())[0], ['To do', 'Patent EP 3 456 789', 'Ring the printer'], 'and no empty card left behind');
@@ -1404,7 +1417,7 @@ try {
     assert.deepEqual((await boardGrid())[2], ['Waiting', 'Reply from Sam'], 'back with its card');
 
     const grid = await boardGrid();
-    await cardText('Reply from Sam').click();
+    await intoCard('Reply from Sam');
     const bar = np.locator('[data-key="fmt-board-delete"]');
     assert.equal(await bar.innerText(), 'Delete board');
     await bar.click();
@@ -1429,6 +1442,168 @@ try {
     await until(async () => (await noteTitles()).length > 1, 'search cleared');
     await np.mouse.move(0, 0);
     await np.screenshot({ path: join(SCREENS, 'notes-board.png'), animations: 'disabled' });
+  });
+
+  await r.step('a card shows its front, its first line however far it wraps, and under it how many more lines there are; a click opens it in a box - its front and its back each a field, written into the card as typed - that Esc, ×, Done or a click beside it closes; the keyboard still edits it on the board; Gmail keeps every line', async () => {
+    const before = await boardGrid();
+    const text = cardText('Quote for Ingrid');
+    const card = cardBox('Quote for Ingrid');
+    const foldedNow = t => t.evaluate(x => x.scrollHeight > x.clientHeight + 1);
+    const folded = () => foldedNow(text);
+    // The line under a folded card's front, which the stylesheet draws:
+    // '' when there is none.
+    const hint = b => b.evaluate(c => {
+      const s = getComputedStyle(c, '::after');
+      return s.display === 'none' || /^(none|normal)$/.test(s.content) ? '' : c.dataset.more || '';
+    });
+    // How much of some words of a card it shows: 'whole', 'part' or 'no'.
+    const shown = (t, w) => t.evaluate((x, w) => {
+      const walker = document.createTreeWalker(x, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const i = n.data.indexOf(w);
+        if (i < 0) continue;
+        const r = document.createRange();
+        r.setStart(n, i);
+        r.setEnd(n, i + w.length);
+        const q = r.getBoundingClientRect();
+        const b = x.getBoundingClientRect();
+        if (q.top >= b.top - 0.5 && q.bottom <= b.bottom + 0.5) return 'whole';
+        return q.bottom > b.top + 0.5 && q.top < b.bottom - 0.5 ? 'part' : 'no';
+      }
+      return 'no';
+    }, w);
+    await until(folded, 'folded to its front');
+    assert.equal(await hint(card), '1 more line', 'under it, what is folded away');
+    assert.equal(await shown(text, 'Quote for Ingrid'), 'whole', 'its first line shows');
+    assert.equal(await shown(text, 'by Friday'), 'no', 'and not a sliver of the second');
+    assert.equal(await cardBox('Invoice sent').evaluate(c => c.classList.contains('kb-folds')), false, 'a card of one line has no back');
+    assert.equal(await hint(cardBox('Invoice sent')), '');
+
+    // A click opens the box: the column's name, the front, the back, the
+    // cursor at the end of the back.
+    const box = np.locator('.card-box');
+    const front = box.locator('[data-key="card-front"]');
+    const back = box.locator('[data-key="card-back"]');
+    const inBox = () => np.evaluate(() => {
+      const a = document.getElementById('gkb-board-host').shadowRoot.activeElement;
+      return a && a.dataset ? a.dataset.key || null : null;
+    });
+    const closed = () => until(async () => (await box.count()) === 0, 'the box closed');
+    await text.click();
+    await box.waitFor();
+    assert.equal(await box.locator('h2').innerText(), 'Done', 'the column it is in');
+    assert.equal(await front.innerText(), 'Quote for Ingrid');
+    assert.equal((await back.innerText()).replace(/\n$/, ''), 'by Friday');
+    assert.equal(await inBox(), 'card-back');
+    await np.keyboard.press('Escape');
+    await closed();
+    assert.equal(await folded(), true, 'Esc: closed, the card folded as before');
+    await card.click({ position: { x: 24, y: 6 } });
+    await box.locator('[data-key="card-box-close"]').click();
+    await closed();
+    await text.click();
+    await np.mouse.click(4, 400);
+    await closed();
+    assert.deepEqual(await boardGrid(), before, 'nothing changed by opening and closing');
+
+    // On the board the keyboard still edits a card where it is.
+    await intoCard('Quote for Ingrid');
+    assert.deepEqual(await inBoard(), ['card', 'Quote for Ingrid\nby Friday']);
+    assert.equal(await folded(), false, 'whole while the cursor is in it');
+    await np.keyboard.press('Tab');
+    assert.deepEqual(await inBoard(), ['card', 'Order business cards']);
+    await until(folded, 'left, it folds again');
+
+    // (The search reads saved notes: a word saved on the card's back.)
+    const search = np.locator('[data-key="notes-search"]');
+    await search.fill('Friday');
+    await until(async () => (await np.locator('.ne-find .find-pos').innerText()) === '1 of 1', 'found on its back');
+    assert.equal(await folded(), false, 'shown whole for the match');
+    await np.locator('[data-key="find-clear"]').click();
+    await until(folded, 'folded again once the search is cleared');
+
+    // A card of its own at the foot of Doing, typed on the board, its
+    // front long enough to wrap; its back written in the box.
+    const doing = np.locator('.ne-body .kb-col', { has: np.locator('[data-gkb-title]', { hasText: /^Doing$/ }) });
+    await doing.locator('[data-key="board-add-card"]').click();
+    const first = 'Call the bank about the fees on the business account';
+    await keys([first, 'Tab']);
+    const bankText = cardText('Call the bank');
+    const bank = cardBox('Call the bank');
+    assert.equal(await hint(bank), '', 'no back yet');
+    await bankText.click();
+    await box.waitFor();
+    assert.equal(await box.locator('h2').innerText(), 'Doing');
+    assert.equal(await front.innerText(), first);
+    await keys(['ask about fees', 'Enter', 'before noon']);
+    assert.deepEqual((await boardGrid())[1].slice(-1), [`${first}\nask about fees\nbefore noon`], 'written into the card as it is typed');
+    await box.locator('[data-key="card-box-done"]').click();
+    await closed();
+    await until(async () => (await hint(bank)) === '2 more lines', 'Done: folded, two more lines');
+    const rows = await bankText.evaluate(t => Number(t.style.getPropertyValue('--kb-rows')) || 1);
+    assert.ok(rows >= 2, `its first line wraps, and so does its front (${rows} rows)`);
+    assert.equal(await shown(bankText, 'business account'), 'whole', 'all of its first line shows');
+    assert.equal(await shown(bankText, 'ask about fees'), 'no', 'and none of the back');
+
+    // The front is one line: Enter there goes on to the back.
+    await bankText.click();
+    await box.waitFor();
+    await front.click();
+    await np.keyboard.press('End');
+    await keys([' today', 'Enter']);
+    assert.equal(await inBox(), 'card-back', 'Enter in the front: to the back');
+    assert.deepEqual((await boardGrid())[1].slice(-1), [`${first} today\nask about fees\nbefore noon`]);
+
+    // The box's toolbar: what a card can hold, in the field the cursor is in.
+    const tool = k => box.locator(`[data-key="card-fmt-${k}"]`);
+    await np.keyboard.press('Shift+End');
+    await tool('bold').click();
+    assert.equal(await back.locator('b, strong').innerText(), 'ask about fees', 'Bold: the words selected');
+    await until(async () => (await tool('bold').getAttribute('aria-pressed')) === 'true', 'Bold shown pressed');
+    assert.equal(await inBox(), 'card-back', 'the cursor stays in the back');
+    await tool('link').click();
+    const linkInput = box.locator('[data-key="card-link-input"]');
+    assert.equal(await inBox(), 'card-link-input', 'Link: its address field');
+    await linkInput.fill('https://example.com/fees');
+    await linkInput.press('Enter');
+    await until(async () => (await back.locator('a[href="https://example.com/fees"]').count()) === 1, 'a link on the words');
+    assert.equal(await inBox(), 'card-back', 'and the cursor back in the back');
+    assert.equal(await cardBox('Call the bank').locator('a[href="https://example.com/fees"]').count(), 1, 'on the card too');
+    // Esc in its address field closes the field, not the box.
+    await np.keyboard.press('Home');
+    await np.keyboard.press('ArrowRight');
+    await np.keyboard.press('ArrowRight');
+    await np.keyboard.press('Control+k');
+    assert.equal(await linkInput.inputValue(), 'https://example.com/fees', 'Ctrl+K: the link the cursor is in');
+    await np.keyboard.press('Escape');
+    await until(async () => !(await linkInput.isVisible()), 'the address field closed');
+    assert.equal(await box.count(), 1, 'the box still open');
+    assert.equal(await inBox(), 'card-back');
+    // The front's words too: italic, and Clear formatting takes it off.
+    await front.click();
+    await np.keyboard.press('Control+a'); // it wraps: all of it, not one line of it
+    await tool('italic').click();
+    assert.equal(await front.locator('i, em').innerText(), `${first} today`, 'Italic in the front');
+    await tool('clear').click();
+    assert.equal(await front.locator('i, em').count(), 0, 'Clear formatting');
+    await np.keyboard.press('Escape');
+    await closed();
+
+    await np.locator('[data-key="note-title"]').click();
+    await np.keyboard.press('Control+s');
+    await savedSoon();
+    const html = await gm('messageHtml', await gm('findMessageBySubject', 'Week plan'));
+    assert.match(html, new RegExp(`${first} today<br>`), 'every line saved, the front first');
+    assert.match(html, /<a [^>]*href="https:\/\/example\.com\/fees"[^>]*>(<b>|<strong>)ask about fees(<\/b>|<\/strong>)<\/a><br>before noon/, 'the back as formatted');
+    assert.match(html, /Quote for Ingrid<br>by Friday/);
+    assert.doesNotMatch(html, /kb-folds|data-more|more line|--kb-rows|card-box/, 'none of the folding');
+    // As it was, for the steps after this one.
+    await bank.hover();
+    await bank.locator('.kb-grip').click();
+    await np.locator('.menu [data-key="card-delete"]').click();
+    assert.deepEqual(await boardGrid(), before, 'the board as it was');
+    await np.keyboard.press('Control+s');
+    await savedSoon();
   });
 
   // ── Folders ──
@@ -2432,10 +2607,14 @@ try {
     await p.keyboard.press('t');
     await until(async () => (await calTitle(p)) === thisWeek, 'back to today');
 
-    // A day in the small month goes to its week.
-    const next = await p.evaluate(() => window.__fakeCalendar.day(8));
-    await p.locator(`[data-key="cal-mini:${next}"]`).first().click();
-    await until(async () => (await weekText(p)).includes('MedTech translators’ conference'), 'that week');
+    // A day in the small month goes to its week: next week's Tuesday, or
+    // last week's in the last week of a month, when the small month ends
+    // with this week (it always holds four weeks or more).
+    const [next, last] = await p.evaluate(() => [window.__fakeCalendar.day(8), window.__fakeCalendar.day(-6)]);
+    const mini = d => p.locator(`[data-key="cal-mini:${d}"]`);
+    const [target, event] = (await mini(next).count()) ? [next, 'MedTech translators’ conference'] : [last, 'Dentist'];
+    await mini(target).first().click();
+    await until(async () => (await weekText(p)).includes(event), 'that week');
     const pref = await p.evaluate(async () => (await chrome.storage.local.get('pref:test@example.com:calendarView'))['pref:test@example.com:calendarView']);
     assert.equal(pref, 'week', 'the view is remembered');
     await p.context().close();

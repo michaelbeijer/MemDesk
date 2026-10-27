@@ -35,7 +35,10 @@
 // to the next column), a card's handle drags it anywhere on the board or
 // opens its menu, and the board bar - shown while the cursor is in it -
 // adds, moves and deletes cards and columns. It is saved as a table of
-// one row, so Gmail shows it as columns of cards.
+// one row, so Gmail shows it as columns of cards. A card shows its first
+// line - its front - and under it how many more lines it holds, until the
+// cursor goes into it: then the whole card is there to read and edit.
+// Only the view folds; every line is saved.
 //
 // A picture is an island too: picked with the toolbar's button, pasted
 // or dropped, it goes in between lines, made smaller and held in the
@@ -198,10 +201,32 @@
     text.dataset.gkbCard = '1';
     text.contentEditable = 'true';
     fillCell(text, runs);
-    return h('div', { class: 'kb-card' }, text, h('button', {
+    const card = h('div', { class: 'kb-card' }, text, h('button', {
       class: 'kb-grip kb-ui', type: 'button', tabindex: '-1', title: 'Drag to move the card, or click for its menu',
       'aria-label': 'Move or delete the card', 'aria-haspopup': 'menu', dataset: { key: 'board-grip' },
     }, icon('drag', 18)));
+    // Folded from the first time it is drawn, to its first line: one
+    // that wraps is measured once it is on the page (foldCards).
+    markBack(card, backLines((runs || []).map(r => r.text).join('')));
+    return card;
+  }
+
+  // How many lines with words a card has after its first: its back.
+  function backLines(text) {
+    const lines = text.split('\n');
+    const first = lines.findIndex(l => l.trim());
+    return first < 0 ? 0 : lines.slice(first + 1).filter(l => l.trim()).length;
+  }
+
+  // A card with a back folds (kb-folds, in the stylesheet) and says under
+  // its front how many more lines there are (data-more); one without does
+  // neither. Nothing is written that is so already: a board has thousands.
+  function markBack(card, more) {
+    if (card.classList.contains('kb-folds') !== !!more) card.classList.toggle('kb-folds', !!more);
+    const label = more ? `${more} more ${more === 1 ? 'line' : 'lines'}` : '';
+    if ((card.dataset.more || '') === label) return;
+    if (label) card.dataset.more = label;
+    else delete card.dataset.more;
   }
 
   function columnEl(c) {
@@ -373,7 +398,7 @@
   // the note's headings beside it (the notes view, not the calendar's
   // tile): a button for them on the toolbar, and `outline` to place.
   // `onPicture(src, { trashed })`: a picture has been read, to show.
-  function create({ root, onChange, contents = null, onPicture = null }) {
+  function create({ root, onChange, contents = null, onPicture = null, dialog = null }) {
     const els = {};
     let saved = null;     // the last selection inside the editor
     let editable = false;
@@ -611,6 +636,7 @@
       pasteUndo = [];
       tidy();
       watchPictures();
+      watchCards();
       onChange();
       refreshToolbar();
       scheduleOutline();
@@ -671,82 +697,129 @@
       changed();
     }
 
-    function anchorAt(r) {
-      let n = r && r.startContainer;
-      while (n && n !== els.editor) {
-        if (n.nodeType === 1 && n.tagName === 'A') return n;
-        n = n.parentNode;
-      }
-      return null;
-    }
-
     // ── Links ────────────────────────────────────────────────────────────
+    //
+    // A link bar: the address of the link at the cursor - or of a new one,
+    // for the words selected or, with none, the address itself - typed in
+    // a field of its own. The field takes the focus from the text, so the
+    // selection is put back before the link is made. The note has one
+    // under its toolbar, the card box one of its own. `live`: the
+    // selection in its text, while it is there; `last`: the one before the
+    // focus left; `host`: what a range's text is typed in, which takes the
+    // focus back; `after`: what follows a change.
+    function linkBar({ key, live, last, host, after }) {
+      let at = null; // the selection it was opened on
 
-    function openLink() {
-      if (!editable) return;
-      const r = range() || saved;
-      if (!r) return;
-      saved = r.cloneRange();
-      const a = anchorAt(r);
-      els.linkInput.value = a ? a.getAttribute('href') : '';
-      els.linkError.textContent = '';
-      els.linkRemove.hidden = !a;
-      els.linkbar.hidden = false;
-      els.linkInput.focus();
-      els.linkInput.select();
-    }
-
-    function closeLink({ refocus = true } = {}) {
-      if (els.linkbar.hidden) return;
-      els.linkbar.hidden = true;
-      if (refocus) restore();
-    }
-
-    function applyLink() {
-      const href = fmt.safeHref(els.linkInput.value);
-      if (!href) {
-        els.linkError.textContent = 'That is not a web or email address.';
-        return;
-      }
-      closeLink();
-      const r = range();
-      if (!r) return;
-      const a = anchorAt(r);
-      if (r.collapsed && a) {
-        a.setAttribute('href', href);
-        a.title = linkTitle(href);
-      } else if (r.collapsed) {
-        // Nothing selected: the address itself becomes the link text.
-        const text = href.replace(/^mailto:/, '');
-        document.execCommand('insertText', false, text);
-        const after = range();
-        if (after) {
-          const sel = document.createRange();
-          sel.setStart(after.startContainer, Math.max(0, after.startOffset - text.length));
-          sel.setEnd(after.startContainer, after.startOffset);
-          select(sel);
-          document.execCommand('createLink', false, href);
-          const end = range();
-          if (end) { end.collapse(false); select(end); }
+      const anchor = r => {
+        const stop = r && host(r);
+        for (let n = r && r.startContainer; n && n !== stop; n = n.parentNode) {
+          if (n.nodeType === 1 && n.tagName === 'A') return n;
         }
-      } else {
-        document.execCommand('createLink', false, href);
+        return null;
+      };
+
+      function back() {
+        const r = live() || at;
+        const el = r && host(r);
+        if (!el) return;
+        if (root.activeElement !== el) el.focus({ preventScroll: true });
+        if (el.contains(r.startContainer)) {
+          try { select(r.cloneRange()); } catch { /* the text changed underneath */ }
+        }
       }
-      changed();
+
+      function open() {
+        if (!editable) return;
+        const r = live() || last();
+        if (!r) return;
+        at = r.cloneRange();
+        const a = anchor(r);
+        input.value = a ? a.getAttribute('href') : '';
+        error.textContent = '';
+        remove.hidden = !a;
+        el.hidden = false;
+        input.focus();
+        input.select();
+      }
+
+      function close() {
+        if (el.hidden) return;
+        el.hidden = true;
+        back();
+      }
+
+      function apply() {
+        const href = fmt.safeHref(input.value);
+        if (!href) {
+          error.textContent = 'That is not a web or email address.';
+          return;
+        }
+        close();
+        const r = live();
+        if (!r) return;
+        const a = anchor(r);
+        if (r.collapsed && a) {
+          a.setAttribute('href', href);
+          a.title = linkTitle(href);
+        } else if (r.collapsed) {
+          // Nothing selected: the address itself becomes the link text.
+          const text = href.replace(/^mailto:/, '');
+          document.execCommand('insertText', false, text);
+          const typed = live();
+          if (typed) {
+            const sel = document.createRange();
+            sel.setStart(typed.startContainer, Math.max(0, typed.startOffset - text.length));
+            sel.setEnd(typed.startContainer, typed.startOffset);
+            select(sel);
+            document.execCommand('createLink', false, href);
+            const end = live();
+            if (end) { end.collapse(false); select(end); }
+          }
+        } else {
+          document.execCommand('createLink', false, href);
+        }
+        after();
+      }
+
+      function unlink() {
+        close();
+        const a = anchor(live());
+        if (a) {
+          const sel = document.createRange();
+          sel.selectNodeContents(a);
+          select(sel);
+        }
+        document.execCommand('unlink');
+        after();
+      }
+
+      const input = h('input', {
+        class: 'text-input', type: 'text', placeholder: 'Web address or email', 'aria-label': 'Link address',
+        spellcheck: 'false', dataset: { key: `${key}-input` },
+        onkeydown: e => {
+          if (e.key === 'Enter') { e.preventDefault(); apply(); }
+          if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+        },
+      });
+      const error = h('span', { class: 'link-error', role: 'alert' });
+      const remove = h('button', { class: 'btn btn-text', type: 'button', text: 'Remove link', dataset: { key: `${key}-remove` }, onclick: unlink });
+      const el = h('div', { class: 'ne-linkbar', hidden: true },
+        icon('link', 18), input,
+        h('button', { class: 'btn btn-tonal', type: 'button', text: 'Apply', dataset: { key: `${key}-apply` }, onclick: apply }),
+        remove,
+        h('button', { class: 'btn btn-text', type: 'button', text: 'Cancel', onclick: () => close() }),
+        error);
+      return { el, open, anchor };
     }
 
-    function removeLink() {
-      closeLink();
-      const r = range();
-      const a = anchorAt(r);
-      if (a) {
-        const sel = document.createRange();
-        sel.selectNodeContents(a);
-        select(sel);
-      }
-      document.execCommand('unlink');
-      changed();
-    }
+    const noteLink = linkBar({
+      key: 'fmt-link',
+      live: range,
+      last: () => (saved && els.editor.contains(saved.startContainer) ? saved : null),
+      host: r => hostOf(r.startContainer) || els.editor,
+      after: changed,
+    });
+    els.linkbar = noteLink.el;
 
     // ── Tables ───────────────────────────────────────────────────────────
 
@@ -1275,6 +1348,363 @@
       else if (b.dataset.kb === 'add-column') addBoardColumn(col.querySelector('[data-gkb-title]'), 'end');
     }
 
+    // ── Card fronts ──────────────────────────────────────────────────────
+    //
+    // A card folds to its front - its first line - while the cursor is
+    // not in it, so a board of long cards still reads at a glance; the
+    // stylesheet does the folding (:focus-within), this only measures how
+    // tall the front is, since a long first line wraps. Measured when a
+    // card is first seen, when it is left (its text may have changed) and
+    // when its column's width changes. A card with a search match shows
+    // whole, and nothing folds in a note that cannot be edited, as it could
+    // not be opened there.
+    //
+    // The columns are watched, by their titles, rather than the cards: all
+    // columns are as wide as each other, a title keeps its size when the
+    // cards under it fold - so they can fold before the page is drawn,
+    // where a card watched would report its own folding back as a loop, an
+    // error on the page - and a board has 20 titles, not 20,000 cards.
+
+    const seen = new WeakSet(); // cards measured, or put off until their column shows
+    const widths = new WeakMap(); // each title watched, and its width
+    // One range, moved from card to card: the browser keeps every range up
+    // to date through every change to the page until it is collected, so a
+    // range for each card made every edit on a big board slower by as many.
+    const frontRange = document.createRange();
+    const sizer = typeof ResizeObserver === 'function' ? new ResizeObserver(entries => {
+      const cards = [];
+      for (const en of entries) {
+        const title = en.target;
+        if (!title.isConnected) {
+          // A column deleted is let go of, and watched again if Undo brings it back.
+          sizer.unobserve(title);
+          widths.delete(title);
+          continue;
+        }
+        const w = title.getBoundingClientRect().width;
+        if (!w || w === widths.get(title)) continue;
+        widths.set(title, w);
+        const col = title.closest('[data-gkb-column]');
+        if (col) cards.push(...col.querySelectorAll('[data-gkb-card]'));
+      }
+      foldSoon(cards);
+    }) : null;
+    const later = new Set(); // cards a screen or more away, measured once the page is drawn
+    let laterTimer = 0;
+
+    // A card's front: from its start to the first line break with words
+    // before it - a <br>, a block the browser put in, or a line break typed
+    // into the text itself (pre-wrap, see readCell) - set on frontRange if
+    // words come after it too. False: the card is all front.
+    function setFront(t) {
+      const walker = document.createTreeWalker(t, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+      let words = false;
+      let set = false;
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (n.nodeType === 1) {
+          if (!set && words && (n.tagName === 'BR' || NESTED_BLOCKS.has(n.tagName.toLowerCase()))) {
+            frontRange.setStart(t, 0);
+            frontRange.setEndBefore(n);
+            set = true;
+          }
+          continue;
+        }
+        if (set) {
+          if (/\S/.test(n.data)) return true;
+          continue;
+        }
+        const from = words ? 0 : n.data.search(/\S/);
+        if (from < 0) continue;
+        words = true;
+        const end = n.data.indexOf('\n', from);
+        if (end < 0) continue;
+        frontRange.setStart(t, 0);
+        frontRange.setEnd(n, end);
+        set = true;
+        if (/\S/.test(n.data.slice(end))) return true;
+      }
+      return false;
+    }
+
+    // Cards measured, then folded: every measurement first, then every
+    // change, so a board of a thousand cards is laid out once, not once
+    // a card. A front of one line needs nothing written (the stylesheet's
+    // own height); one that wraps gets its rows, on the text.
+    function foldCards(ts) {
+      const found = [];
+      let lh = 0; // a line, and the border and padding above the words: the same for every card
+      let inset = 0;
+      for (const t of ts) {
+        const card = t.closest('.kb-card');
+        const box = t.getBoundingClientRect();
+        if (!card || !box.width) continue; // not on show: measured once it is
+        const more = backLines(readCell(t).map(x => x.text).join(''));
+        let rows = 1;
+        if (more && setFront(t)) {
+          // Down to the line the front's last words are on, by the middle
+          // of their box: it is shorter than their line, and a blank line
+          // above them has no box at all.
+          if (!lh) {
+            const cs = getComputedStyle(t);
+            lh = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) || 14) * 1.5;
+            inset = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.paddingTop) || 0);
+          }
+          const top = box.top + inset - t.scrollTop;
+          let last = -Infinity;
+          for (const q of frontRange.getClientRects()) if (q.width) last = Math.max(last, q.top + q.height / 2);
+          if (last > top) rows = Math.floor((last - top) / lh) + 1;
+        }
+        found.push({ t, card, more, rows, scrolled: t.scrollTop > 0 });
+      }
+      for (const { t, card, more, rows, scrolled } of found) {
+        markBack(card, more);
+        const r = rows > 1 ? String(rows) : '';
+        if (t.style.getPropertyValue('--kb-rows') !== r) {
+          if (r) t.style.setProperty('--kb-rows', r);
+          else t.style.removeProperty('--kb-rows');
+        }
+        if (scrolled) t.scrollTop = 0;
+      }
+    }
+
+    // Cards measured: those on screen, or within a screen of it, at once -
+    // before the page is drawn - and the rest just after it is, all
+    // together: a big board then shows at once, and is laid out again only
+    // once more (in batches, every batch moved the cards below it, and the
+    // whole board was laid out and drawn again each time). One a long way
+    // off folds to one row until then, unseen.
+    function foldSoon(ts) {
+      const vh = innerHeight;
+      const vw = innerWidth;
+      const now = [];
+      for (const t of ts) {
+        const b = t.getBoundingClientRect();
+        if (b.bottom > -vh && b.top < 2 * vh && b.right > -vw && b.left < 2 * vw) now.push(t);
+        else later.add(t);
+      }
+      foldCards(now);
+      if (later.size && !laterTimer) laterTimer = setTimeout(foldLater);
+    }
+
+    function foldLater() {
+      laterTimer = 0;
+      const ts = [...later];
+      later.clear();
+      foldCards(ts);
+    }
+
+    // A new note, or the editor gone: nothing left over to measure.
+    function stopLater() {
+      clearTimeout(laterTimer);
+      laterTimer = 0;
+      later.clear();
+    }
+
+    // Cards not seen yet, measured now; a column not watched yet, watched
+    // from its width now. A note not on the page yet (opening it) has no
+    // width: its cards are measured as each column shows.
+    function watchCards() {
+      if (sizer) {
+        for (const title of els.editor.querySelectorAll('[data-gkb-title]')) {
+          if (widths.has(title)) continue;
+          widths.set(title, title.getBoundingClientRect().width);
+          sizer.observe(title);
+        }
+      }
+      const fresh = [...els.editor.querySelectorAll('[data-gkb-card]')].filter(t => !seen.has(t));
+      for (const t of fresh) seen.add(t);
+      if (fresh.length) foldSoon(fresh);
+    }
+
+    // ── The card box ─────────────────────────────────────────────────────
+    //
+    // A click on a card opens it in a box over the board: its front - the
+    // line the board shows - and its back, every line after it, each in a
+    // field of its own and written into the card as they are typed, under
+    // a toolbar for what a card can hold: bold, italic, strike-through and
+    // links - not lists or headings, which a card has no place for. The
+    // card is saved as it always was, its front its first line, so Gmail,
+    // the phone app and every card made before have a front and a back
+    // already. The board's own dialog holds it: its scrim, Esc and Tab.
+    // Without one, a click on a card edits it on the board.
+
+    let box = null; // the card open in the box
+
+    // A card's runs as its front - its first line with words - and its
+    // back, every line after it.
+    function splitCard(runs) {
+      const lines = [[]];
+      for (const r of runs) {
+        r.text.split('\n').forEach((part, k) => {
+          if (k) lines.push([]);
+          if (part) lines[lines.length - 1].push({ ...r, text: part });
+        });
+      }
+      const first = lines.findIndex(l => l.some(r => r.text.trim()));
+      if (first < 0) return { front: [], back: [] };
+      return { front: lines[first], back: lines.slice(first + 1).flatMap((l, k) => (k ? [{ text: '\n' }, ...l] : l)) };
+    }
+
+    function openCard(t) {
+      if (box) dialog.close();
+      const { front, back } = splitCard(readCell(t));
+      const col = columnOfText(t);
+      const field = (key, runs) => {
+        const el = h('div', {
+          class: `kb-box-field kb-box-${key}`, role: 'textbox', 'aria-multiline': String(key === 'back'),
+          'aria-labelledby': `gkb-card-${key}-label`, dataset: { key: `card-${key}` },
+        });
+        el.contentEditable = 'true';
+        fillCell(el, runs);
+        return el;
+      };
+      const frontEl = field('front', front);
+      const backEl = field('back', back);
+      // Into the card as it is typed: the note saves as it always does.
+      const write = () => {
+        if (!t.isConnected) return;
+        const f = readCell(frontEl).map(r => ({ ...r, text: r.text.replace(/\n/g, ' ') }));
+        const b = readCell(backEl);
+        fillCell(t, b.length ? [...f, { text: '\n' }, ...b] : f);
+        changed();
+      };
+
+      // Its toolbar: what a card can hold - bold, italic, strike-through
+      // and links - in the field the cursor is in, or was in last.
+      const fieldOf = n => (frontEl.contains(n) ? frontEl : backEl.contains(n) ? backEl : null);
+      const live = () => {
+        const sel = selection();
+        const r = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+        return r && fieldOf(r.startContainer) && fieldOf(r.startContainer) === fieldOf(r.endContainer) ? r : null;
+      };
+      let at = null; // the selection in a field, kept while the focus is elsewhere
+      const link = linkBar({ key: 'card-link', live, last: () => at, host: r => fieldOf(r.startContainer), after: write });
+      const tools = {};
+      const tool = (key, label, iconName, run, toggle = true) => (tools[key] = h('button', {
+        class: 'tb-btn', type: 'button', title: label, 'aria-label': label, 'aria-pressed': toggle ? 'false' : null,
+        dataset: { key: `card-fmt-${key}` },
+        onmousedown: e => e.preventDefault(), // the focus stays in the field
+        onclick: () => { into(); run(); refresh(); },
+      }, icon(iconName, 20)));
+      const toolbar = h('div', { class: 'ne-toolbar', role: 'toolbar', 'aria-label': 'Formatting' },
+        tool('bold', 'Bold (Ctrl+B)', 'bold', () => document.execCommand('bold')),
+        tool('italic', 'Italic (Ctrl+I)', 'italic', () => document.execCommand('italic')),
+        tool('strike', 'Strike-through', 'strike', () => document.execCommand('strikeThrough')),
+        sep(),
+        tool('link', 'Link (Ctrl+K)', 'link', () => link.open()),
+        tool('clear', 'Clear formatting', 'clear', () => { document.execCommand('removeFormat'); document.execCommand('unlink'); }, false));
+      // A button pressed with the focus on another (Tab to Close, say):
+      // the cursor back where it was first.
+      const into = () => {
+        const r = live() || (at && fieldOf(at.startContainer) ? at : null);
+        const el = r ? fieldOf(r.startContainer) : backEl;
+        if (root.activeElement !== el) el.focus({ preventScroll: true });
+        if (r) {
+          try { select(r.cloneRange()); } catch { /* the text changed underneath */ }
+        } else caretInto(el, true);
+      };
+      const refresh = () => {
+        const r = live();
+        if (!r) return;
+        at = r.cloneRange();
+        for (const [key, cmd] of [['bold', 'bold'], ['italic', 'italic'], ['strike', 'strikeThrough']]) {
+          let on = false;
+          try { on = document.queryCommandState(cmd); } catch { /* not supported */ }
+          tools[key].setAttribute('aria-pressed', String(on));
+        }
+        tools.link.setAttribute('aria-pressed', String(!!link.anchor(r)));
+      };
+      const onSelection = () => {
+        if (!boxEl.isConnected) gone(); // closed some other way than its own
+        else refresh();
+      };
+
+      const onKey = e => {
+        const mod = e.ctrlKey || e.metaKey;
+        if (e.key === 'Enter' && !mod && !e.altKey && !e.isComposing) {
+          // The front is one line: Enter there goes on to the back.
+          e.preventDefault();
+          if (e.currentTarget === frontEl) {
+            backEl.focus();
+            caretInto(backEl, false);
+          } else document.execCommand('insertLineBreak');
+        } else if (mod && !e.altKey && e.key.toLowerCase() === 's') {
+          e.preventDefault(); // saved as it is typed; not the browser's Save page
+        } else if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
+          e.preventDefault();
+          link.open();
+        } else if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'u') {
+          e.preventDefault(); // no underline in the model
+        }
+      };
+      const onPaste = e => {
+        e.preventDefault();
+        const text = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
+        document.execCommand('insertText', false, e.currentTarget === frontEl ? text.replace(/\s*\n\s*/g, ' ') : text.replace(/\r\n?/g, '\n'));
+      };
+      // A link opens in a new tab, as in the note - not on a drag over its
+      // words, nor with Shift, which select them to edit.
+      const onLink = e => {
+        const a = e.target.closest && e.target.closest('a[href]');
+        if (!a || e.shiftKey || e.altKey || e.detail > 1 || String(selection())) return;
+        e.preventDefault();
+        window.open(a.href, '_blank', 'noopener');
+      };
+      for (const el of [frontEl, backEl]) {
+        el.addEventListener('input', write);
+        el.addEventListener('keydown', onKey);
+        el.addEventListener('paste', onPaste);
+        el.addEventListener('click', onLink);
+      }
+      const it = { t };
+      box = it;
+      const gone = () => {
+        document.removeEventListener('selectionchange', onSelection);
+        if (box === it) box = null;
+      };
+      const name = col ? columnName(col, columnsOf(boardElOf(t)).indexOf(col)) : 'Card';
+      const boxEl = h('div', { class: 'dialog card-box', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'gkb-card-box-heading' },
+        h('div', { class: 'dialog-head' },
+          h('h2', { id: 'gkb-card-box-heading', text: name }),
+          h('button', {
+            class: 'icon-btn', type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', dataset: { key: 'card-box-close' },
+            onclick: () => dialog.close(),
+          }, icon('close'))),
+        h('div', { class: 'dialog-body' },
+          toolbar, link.el,
+          h('div', { class: 'kb-box-label', id: 'gkb-card-front-label', text: 'Front' }), frontEl,
+          h('div', { class: 'kb-box-label', id: 'gkb-card-back-label', text: 'Back' }), backEl),
+        h('div', { class: 'dialog-foot' },
+          h('span', { class: 'note', text: 'The board shows the front. Saved as you type.' }),
+          h('button', { class: 'btn btn-text', type: 'button', text: 'Done', dataset: { key: 'card-box-done' }, onclick: () => dialog.close() })));
+      dialog.show(boxEl, {
+        // However it closes: the card folds to its front as it now reads.
+        onClose: () => {
+          if (box !== it) return;
+          gone();
+          if (t.isConnected) foldCards([t]);
+        },
+      });
+      document.addEventListener('selectionchange', onSelection);
+      backEl.focus();
+      caretInto(backEl, true);
+    }
+
+    // A new note, or the editor gone: the box goes with the card in it.
+    function closeCard() {
+      if (box) dialog.close();
+    }
+
+    // The card a click on the board opens: not one being typed in there
+    // already (by the keyboard, or just added), nor a click on a link.
+    function cardToOpen(e) {
+      const card = e.target.closest && e.target.closest('.kb-card');
+      if (!card || !editable || e.target.closest('a[href], .kb-ui') || card.contains(root.activeElement)) return null;
+      // Without a box, only a click beside the words: one on them edits there.
+      if (!dialog && !e.target.classList.contains('kb-card')) return null;
+      return card.querySelector('[data-gkb-card]');
+    }
+
     // Keys in a title or a card.
     function boardKey(e, t, r, mod) {
       const el = boardElOf(t);
@@ -1794,29 +2224,12 @@
       tbButton('picture', 'Picture (or paste or drop one)', 'picture', () => pickPicture(), false),
       els.filePick,
       sep(),
-      tbButton('link', 'Link (Ctrl+K)', 'link', () => openLink()),
+      tbButton('link', 'Link (Ctrl+K)', 'link', () => noteLink.open()),
       tbButton('clear', 'Clear formatting', 'clear', () => clearFormatting(), false));
     if (contents) {
       els.toolbar.append(h('span', { class: 'tb-sep tb-contents-sep', 'aria-hidden': 'true' }),
         tbButton('contents', 'Contents: the note’s headings, beside it', 'contents', () => toggleContents()));
     }
-
-    els.linkInput = h('input', {
-      class: 'text-input', type: 'text', placeholder: 'Web address or email', 'aria-label': 'Link address',
-      spellcheck: 'false', dataset: { key: 'fmt-link-input' },
-      onkeydown: e => {
-        if (e.key === 'Enter') { e.preventDefault(); applyLink(); }
-        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeLink(); }
-      },
-    });
-    els.linkError = h('span', { class: 'link-error', role: 'alert' });
-    els.linkRemove = h('button', { class: 'btn btn-text', type: 'button', text: 'Remove link', dataset: { key: 'fmt-link-remove' }, onclick: removeLink });
-    els.linkbar = h('div', { class: 'ne-linkbar', hidden: true },
-      icon('link', 18), els.linkInput,
-      h('button', { class: 'btn btn-tonal', type: 'button', text: 'Apply', dataset: { key: 'fmt-link-apply' }, onclick: applyLink }),
-      els.linkRemove,
-      h('button', { class: 'btn btn-text', type: 'button', text: 'Cancel', onclick: () => closeLink() }),
-      els.linkError);
 
     // The table bar: under the toolbar while the cursor is in a cell.
     const keepFocus = e => e.preventDefault();
@@ -1910,7 +2323,7 @@
         buttons[key].setAttribute('aria-pressed', String(on));
       }
       for (const t of ['ul', 'ol', 'check']) buttons[t].setAttribute('aria-pressed', String(type === t));
-      buttons.link.setAttribute('aria-pressed', String(!!anchorAt(r)));
+      buttons.link.setAttribute('aria-pressed', String(!!noteLink.anchor(r)));
       // In a cell: the table bar, and nothing that makes lists or headings;
       // in a board, the board bar. Neither holds a table or a board.
       const td = cellOf(r.startContainer);
@@ -1982,7 +2395,7 @@
       }
       if (mod && !e.shiftKey && !e.altKey) {
         const k = e.key.toLowerCase();
-        if (k === 'k') { e.preventDefault(); openLink(); return; }
+        if (k === 'k') { e.preventDefault(); noteLink.open(); return; }
         if (k === 'u') { e.preventDefault(); return; } // no underline in the model
         if (e.key === 'Enter' && blk && blk.dataset.type === 'check') { e.preventDefault(); toggleCheck(blk); return; }
       }
@@ -2300,6 +2713,11 @@
     // handle pressed may be the start of a drag.
     els.editor.addEventListener('mousedown', e => {
       if (e.target.closest && e.target.closest('.kb-ui')) e.preventDefault();
+      else if (cardToOpen(e)) e.preventDefault(); // opened on the click, not typed in on the board
+    });
+    // A card left folds again, to its front as it now reads.
+    els.editor.addEventListener('focusout', e => {
+      if (e.target.dataset && e.target.dataset.gkbCard !== undefined) foldCards([e.target]);
     });
     // Where the last press was: a click that ends somewhere else was a
     // drag, selecting text, not a click on a link.
@@ -2308,12 +2726,43 @@
       pressedAt = [e.clientX, e.clientY];
       const grip = e.target.closest && e.target.closest('.kb-grip');
       if (grip) dragStart(e, grip);
+      else panStart(e);
     });
+
+    // A board wider than the note slides sideways when its background -
+    // not a card, a title or a button - is dragged with the mouse, as on
+    // Trello: its scroll bar is under its longest column, often below the
+    // screen. A finger scrolls it already.
+    function panStart(e) {
+      if (e.pointerType !== 'mouse' || e.button !== 0 || !e.target.matches || !e.target.matches('.kb-cols, .kb-col, .kb-list')) return;
+      const cols = e.target.closest('.kb-cols');
+      if (!cols || cols.scrollWidth <= cols.clientWidth) return;
+      e.preventDefault();
+      const x0 = e.clientX;
+      const left0 = cols.scrollLeft;
+      const move = ev => { cols.scrollLeft = left0 - (ev.clientX - x0); };
+      // Let go however it ends: the button up, or the capture lost.
+      const end = () => {
+        cols.classList.remove('kb-panning');
+        cols.removeEventListener('pointermove', move);
+        cols.removeEventListener('lostpointercapture', end);
+      };
+      cols.addEventListener('pointermove', move);
+      cols.addEventListener('lostpointercapture', end);
+      cols.classList.add('kb-panning');
+      cols.setPointerCapture(e.pointerId);
+    }
 
     els.editor.addEventListener('click', e => {
       const ui = e.target.closest && e.target.closest('.kb-ui');
       if (ui) {
         if (editable) boardButton(ui);
+        return;
+      }
+      const card = cardToOpen(e);
+      if (card) {
+        if (dialog) openCard(card);
+        else focusText(card, true);
         return;
       }
       const pic = e.target.closest && e.target.closest('.blk[data-type="picture"]');
@@ -2407,6 +2856,11 @@
       const idx = textIndex();
       matchRanges = ns.searchLogic.findMatches(idx.text, terms).map(m => rangeFor(idx, m.start, m.end)).filter(Boolean);
       if (matchRanges.length) CSS.highlights.set('gkb-match', new Highlight(...matchRanges));
+      // A match on the back of a card is no use folded away.
+      for (const r of matchRanges) {
+        const card = r.startContainer.parentElement && r.startContainer.parentElement.closest('.kb-card');
+        if (card) card.classList.add('kb-hit');
+      }
       return matchRanges.length;
     }
 
@@ -2425,6 +2879,7 @@
 
     function clearHighlights() {
       matchRanges = [];
+      for (const card of els.editor.querySelectorAll('.kb-card.kb-hit')) card.classList.remove('kb-hit');
       if (!canHighlight()) return;
       CSS.highlights.delete('gkb-match');
       CSS.highlights.delete('gkb-match-current');
@@ -2547,10 +3002,14 @@
       lastText = null;
       if (drag) endDrag();
       deselectPicture();
+      if (sizer) sizer.disconnect(); // the columns going out are not watched any more
+      stopLater();
+      closeCard();
       els.editor.replaceChildren(...fmt.normaliseDoc(doc).map(blockEl));
       syncEditable();
       updateEmpty();
       watchPictures();
+      watchCards();
       drawOutline();
     }
 
@@ -2632,6 +3091,9 @@
       clearTimeout(outlineTimer);
       cancelAnimationFrame(outlineFrame);
       if (viewer) viewer.disconnect();
+      if (sizer) sizer.disconnect();
+      stopLater();
+      closeCard();
       document.removeEventListener('selectionchange', onSelection);
       clearHighlights();
       closeMenu(root);

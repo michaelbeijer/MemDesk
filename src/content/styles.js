@@ -1199,7 +1199,7 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .kb-cols { display: flex; align-items: flex-start; gap: 10px; overflow-x: auto; padding: 2px 2px 8px; }
 .kb-col {
   flex: 1 1 0;
-  min-width: 170px;
+  min-width: 272px; /* a card wide enough to read: more columns slide sideways */
   max-width: 320px;
   display: flex;
   flex-direction: column;
@@ -1231,6 +1231,53 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
   outline: none;
   cursor: text;
 }
+/* A card folds to its front - its first line, as many rows as it wraps to
+   (--kb-rows, counted by the editor where it is more than one) - while the
+   cursor is not in it, and says under it how many more lines there are
+   (data-more), where a click opens it. A search match shows the card
+   whole, and nothing folds in a note that cannot be edited. It ends where
+   the front's last row does - 7px is the text's padding above it - since
+   what overflows shows through the padding below; 1.6em is a note's line,
+   for a browser without the lh unit. */
+.kb-card.kb-folds:not(:focus-within):not(.kb-hit) > .kb-text[contenteditable="true"] {
+  max-height: calc(var(--kb-rows, 1) * 1.6em + 7px);
+  max-height: calc(var(--kb-rows, 1) * 1lh + 7px);
+  overflow: hidden;
+}
+.kb-card.kb-folds:not(:focus-within):not(.kb-hit):has(> .kb-text[contenteditable="true"])::after {
+  content: attr(data-more);
+  display: block;
+  padding: 0 10px 6px;
+  color: var(--fg-3);
+  font-size: 12px;
+  line-height: 16px;
+  cursor: pointer;
+}
+.kb-card.kb-folds:hover::after { color: var(--fg); }
+/* A card on the board opens in its box at a click: the pointer says so. */
+.kb-card:not(:focus-within) > .kb-text[contenteditable="true"] { cursor: pointer; }
+.kb-cols.kb-panning, .kb-cols.kb-panning * { cursor: grabbing; user-select: none; }
+/* The card box: its front, the line the board shows, and its back. */
+.card-box { width: min(640px, calc(100vw - 32px)); }
+.card-box .dialog-body { gap: 6px; }
+.card-box .ne-toolbar, .card-box .ne-linkbar { margin: 0; }
+.card-box .ne-linkbar .text-input { min-width: 0; }
+.kb-box-label { margin-top: 6px; font-size: 12px; font-weight: 500; color: var(--fg-3); }
+.kb-box-field {
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  font-size: 15px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  outline: none;
+  cursor: text;
+}
+.kb-box-field:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.kb-box-front { font-size: 17px; font-weight: 500; }
+.kb-box-back { min-height: 180px; }
+.kb-box-field a { color: var(--accent); text-decoration: underline; cursor: pointer; }
 .kb-grip {
   position: absolute;
   top: 4px;

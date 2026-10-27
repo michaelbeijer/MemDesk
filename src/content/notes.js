@@ -1399,6 +1399,7 @@
     if (els.ed) els.ed.destroy();
     const ed = ns.noteEditor.create({
       root: N.ctx.root,
+      dialog: N.ctx.dialog, // a card opens in a box over the board
       onChange: () => {
         edited(c, { doc: ed.getDoc() });
         if (c === N.scratch) T.stale = true;
@@ -1698,6 +1699,7 @@
     if (T.ed) T.ed.destroy();
     const ed = ns.noteEditor.create({
       root: N.ctx.root,
+      dialog: N.ctx.dialog, // a card opens in a box over the board
       onChange: () => {
         edited(s, { doc: ed.getDoc() });
         if (s === N.current) els.edStale = true;

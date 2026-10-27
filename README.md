@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.38.0" src="https://img.shields.io/badge/version-0.38.0-6D28D9">
+  <img alt="Version 0.39.0" src="https://img.shields.io/badge/version-0.39.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -144,7 +144,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.38.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.39.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -381,9 +381,24 @@ computers. All of it is kept per Gmail account.
   same card menu, a **Column** menu (insert a column left or right, move it,
   delete it, delete the board) and **Delete board**. **Ctrl+Z** straight
   after any of these, or after a drag, takes it back; **Esc** during a drag
-  puts the card back at once. A board wider than the note scrolls sideways,
-  and while you drag a card near its edge it scrolls for you. Cards hold text
-  with bold, italic, strike-through and links; a title is one line. A board
+  puts the card back at once. Columns are at least 272 pixels wide; a board
+  wider than the note slides sideways - drag its background with the mouse,
+  or use the scroll bar, a trackpad or **Shift** with the mouse wheel - and
+  while you drag a card near its edge it scrolls for you. Cards hold text
+  with bold, italic, strike-through and links; a title is one line. A card
+  has a **front** and a **back**: the board shows only the front, with a
+  line under it saying how many lines the back holds ("2 more lines"), so a
+  board of long cards still reads at a glance. Click a card and it opens in
+  a box over the board, its front and its back each in a field of its own
+  (**Enter** in the front goes on to the back), written into the card as
+  you type, under a toolbar of its own for what a card can hold: bold,
+  italic, strike-through, links (**Ctrl+K**) and clear formatting. ×,
+  **Done**, **Esc** or a click beside the box closes it. From
+  the keyboard (**Tab** from a column's title, or the arrow keys) a card is
+  edited on the board itself, shown whole. A search shows a card whole when
+  the match is on its back. A card is saved as it always was, the front its
+  first line, so every card made before has both, and Gmail shows the whole
+  card. A board
   holds up to 20 columns of up to 1,000 cards each; it stays quick into the
   thousands of cards, and slows down near that limit. In Gmail a board shows
   as columns of cards side by side; in plain text, each column's title with
