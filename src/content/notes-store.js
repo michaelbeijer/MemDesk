@@ -132,11 +132,50 @@
 
   // ── Writing ──────────────────────────────────────────────────────────
 
+  const META = ['Subject', 'Date', notesLogic.NOTE_HEADER];
+
+  // A newer version of the note a save starts from, saved on another
+  // computer or phone since this page read it - or, for the scratchpad or
+  // the favourites when this page knew of none, the one there already.
+  // Without asking, the save would leave two versions, and the next list's
+  // tidy-up would put the other device's in Trash. The phone app's script
+  // asks the same (addon/src/store.js newerVersion). Gmail lists newest
+  // first, so for a note still listed only the messages above it are read,
+  // and those mostly from the cache: usually one list and nothing more.
+  async function newerVersion(label, previous, noteId) {
+    if (previous ? !previous.own : !notesLogic.FIXED_IDS.has(noteId)) return null;
+    const id = previous ? previous.noteId : noteId;
+    const r = await api.gmail('GET', 'messages', { labelIds: label.id, maxResults: 100 });
+    const refs = r.messages || [];
+    const at = previous ? refs.findIndex(m => m.id === previous.messageId) : -1;
+    const above = (at >= 0 ? refs.slice(0, at) : refs).filter(m => !previous || m.id !== previous.messageId);
+    const need = above.filter(m => !S.meta.has(m.id));
+    const got = await api.gmailMany(need.map(m => ['GET', `messages/${m.id}`, { format: 'metadata', metadataHeaders: META }]));
+    got.forEach((msg, i) => {
+      if (msg && msg.error) {
+        if (api.STATE_CODES.has(msg.error.code) || msg.error.code === 'extension_reloaded') throw msg.error;
+        return; // one that cannot be read now is passed over, as in the list
+      }
+      if (msg) S.meta.set(need[i].id, notesLogic.noteFromMessage(msg));
+    });
+    const found = above.map(m => S.meta.get(m.id))
+      .filter(n => n && n.own && n.noteId === id && (!previous || n.updated > previous.updated))
+      .sort((a, b) => b.updated - a.updated)[0];
+    if (!found) return null;
+    found.folderId = notesLogic.folderOf(found.labelIds, S.folders);
+    return found;
+  }
+
   // Inserts the new version, then retires the old one. If retiring fails
   // the note briefly has two versions; the next full list keeps the newer
-  // and tidies the older away, so nothing is lost either way.
+  // and tidies the older away, so nothing is lost either way. If another
+  // device saved a newer version first, nothing is written: the error
+  // (code "conflict", with that version) has the view merge the two and
+  // save again.
   async function save(account, previous, { title, doc, folderId = '', noteId: wanted = '' }) {
     const label = S.label || await resolveLabel(account);
+    const newer = await newerVersion(label, previous, wanted);
+    if (newer) throw Object.assign(new Error('Saved on another device in the meantime.'), { code: 'conflict', newer });
     const folder = folderId && S.folders.some(f => f.id === folderId) ? folderId : '';
     const noteId = notesLogic.noteIdFor(previous, wanted);
     const clean = fmt.normaliseDoc(doc);

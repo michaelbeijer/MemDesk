@@ -899,13 +899,15 @@
     S.lists[toCol] = logic.placeId(S.lists[toCol], id, index);
     persistOrder();
     render();
-    announce(`Moved to ${target.title}${target.archiveOnDrop ? ' and archived' : ''}.`);
+    announce(`Moved to ${target.title}.`);
     // With the card's move, not Gmail's answer, so the two go together. If
     // Gmail refuses, the card going back and the toast say so.
     if (target.chime) chime();
 
     try {
-      await store.moveToColumn(id, S.columns, toCol, 'board');
+      const done = await store.moveToColumn(id, S.columns, toCol, 'board');
+      if (done.keptInInbox) keptToast(id, target);
+      else if (target.archiveOnDrop) announce(`Moved to ${target.title} and archived.`);
     } catch (err) {
       S.lists[toCol] = (S.lists[toCol] || []).filter(x => x !== id);
       if (S.lists[fromCol]) S.lists[fromCol] = logic.placeId(S.lists[fromCol], id, Math.max(0, originalIndex));
@@ -932,6 +934,16 @@
       render();
       failToast('remove', id, err);
     }
+  }
+
+  // Moved to a column that archives, but left in the Inbox: the
+  // conversation has mail not read yet (store.moveToColumn). Archiving it
+  // is one click away, for when that is what was meant.
+  function keptToast(id, col) {
+    toast(root, `Moved to ${col.title}, but kept in the Inbox: it has mail you haven’t read.`, {
+      timeout: 9000,
+      action: { label: 'Archive anyway', onClick: () => store.archive(id, 'board').catch(err => failToast('archive', id, err)) },
+    });
   }
 
   function failToast(verb, id, err) {
@@ -1159,7 +1171,8 @@
     announce(`Added to ${target.title}.`);
     if (target.chime) chime();
     try {
-      await store.moveToColumn(id, S.columns, colId, 'board');
+      const done = await store.moveToColumn(id, S.columns, colId, 'board');
+      if (done.keptInInbox) keptToast(id, target);
     } catch (err) {
       S.lists[colId] = (S.lists[colId] || []).filter(x => x !== id);
       persistOrder();
@@ -1206,7 +1219,8 @@
         }, icon('close'))),
       h('p', {
         class: 'drawer-intro',
-        text: 'Each column is a Gmail label. Renaming a label here renames it in Gmail, so the mail filed under it stays put.',
+        text: `Each column is a Gmail label of its own, under “${logic.labelRoot(S.columns)}”. ` +
+          'Renaming a label here renames it in Gmail, so the mail filed under it stays put.',
       }),
       h('div', { class: 'drawer-body' },
         d.draft.map((c, i) => renderDraftRow(c, i)),
@@ -1350,7 +1364,9 @@
       chime: !!c.chime,
     }));
 
-    const problem = logic.validateColumns(cols);
+    // Under the board's parent as it is now: the drawer cannot move the
+    // board onto labels of the user's own by changing every column at once.
+    const problem = logic.validateColumns(cols, logic.labelRoot(S.columns));
     if (problem) {
       d.error = problem;
       renderDrawer();

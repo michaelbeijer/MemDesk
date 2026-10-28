@@ -53,6 +53,13 @@ When someone replies to a conversation you archived, Gmail brings it back to
 your Inbox. The card stays where it was on the board, so you can see the
 reply and decide where it goes next.
 
+## I moved a card to Done, but the email is still in my Inbox
+
+The conversation had mail you haven't read yet, so it was kept in your
+Inbox rather than archived unseen: a reply may have come after the board
+last loaded. Read it, or use **Archive anyway** in the message the board
+showed.
+
 ## I removed a column. Is my mail gone?
 
 No. Removing a column only takes it off the board. Its Gmail label, and the

@@ -96,6 +96,48 @@ test('removing from the board strips every column label and nothing else', () =>
   assert.deepEqual(diff.removeLabelIds.sort(), ['Label_1', 'Label_2', 'Label_3', 'Label_4']);
 });
 
+// A board from before columns had to be its own labels: one column on a
+// client's label, left-most.
+const MIXED = [{ id: 'client', title: 'Client', label: 'Clients/Acme' }, ...logic.defaultColumns()];
+const MIXED_IDS = { ...IDS, 'Clients/Acme': 'Label_9' };
+
+test('a label is the board’s own only under its parent', () => {
+  assert.equal(logic.isBoardLabel('_Board/Done', '_Board'), true);
+  assert.equal(logic.isBoardLabel('_board/Waiting on others', '_Board'), true, 'case as Gmail ignores it');
+  assert.equal(logic.isBoardLabel('_Board/Work/Doing', '_Board'), true);
+  assert.equal(logic.isBoardLabel('Clients/Acme', '_Board'), false);
+  assert.equal(logic.isBoardLabel('_Board', '_Board'), false, 'the parent itself is no column');
+  assert.equal(logic.isBoardLabel('_BoardX/Done', '_Board'), false);
+  assert.equal(logic.isBoardLabel('_Board/Done', ''), false);
+});
+
+test('a move never takes a label of the user’s own off a thread', () => {
+  for (const target of ['doing', 'done']) {
+    const diff = logic.moveLabelDiff(MIXED, target, MIXED_IDS);
+    assert.equal(diff.removeLabelIds.includes('Label_9'), false, target);
+  }
+  assert.deepEqual(logic.moveLabelDiff(MIXED, 'client', MIXED_IDS).addLabelIds, ['Label_9'], 'moving onto it still files it there');
+  assert.equal(logic.removeLabelDiff(MIXED, MIXED_IDS).removeLabelIds.includes('Label_9'), false);
+  assert.deepEqual(logic.removeLabelDiff(MIXED, MIXED_IDS).removeLabelIds.sort(), ['Label_1', 'Label_2', 'Label_3', 'Label_4']);
+});
+
+test('a thread a move put on the board shows there, not back in a column on the user’s own label', () => {
+  const out = logic.assignColumns(MIXED, { client: ['a', 'b'], doing: ['b'], todo: [], waiting: [], done: [] });
+  assert.deepEqual(out.client, ['a']);
+  assert.deepEqual(out.doing, ['b']);
+  assert.equal(logic.columnForLabels(MIXED, ['Label_9', 'Label_2'], MIXED_IDS).id, 'doing');
+  assert.equal(logic.columnForLabels(MIXED, ['Label_9'], MIXED_IDS).id, 'client');
+});
+
+test('archiving would hide only mail in the Inbox not read yet', () => {
+  const thread = (...labels) => ({ messages: labels.map(l => ({ labelIds: l })) });
+  assert.equal(logic.archiveHidesUnread(thread(['INBOX'], ['INBOX', 'UNREAD'])), true, 'a reply not read yet');
+  assert.equal(logic.archiveHidesUnread(thread(['INBOX'], ['INBOX'])), false);
+  assert.equal(logic.archiveHidesUnread(thread(['SENT'], ['UNREAD'])), false, 'unread, but not in the Inbox');
+  assert.equal(logic.archiveHidesUnread({}), false);
+  assert.equal(logic.archiveHidesUnread(null), false);
+});
+
 test('columnForLabels picks the left-most matching column', () => {
   assert.equal(logic.columnForLabels(COLUMNS, ['INBOX', 'Label_3', 'Label_2'], IDS).id, 'doing');
   assert.equal(logic.columnForLabels(COLUMNS, ['INBOX'], IDS), null);
@@ -158,6 +200,14 @@ test('column validation catches what Gmail would reject', () => {
     { title: 'A', label: 'Board/Same' },
     { title: 'B', label: 'board/same' },
   ]), /Two columns/);
+});
+
+test('every column’s label must be under the board’s parent', () => {
+  assert.equal(logic.validateColumns(logic.defaultColumns(), '_Board'), '');
+  assert.equal(logic.validateColumns([{ title: 'Later', label: '_board/Later' }], '_Board'), '');
+  assert.match(logic.validateColumns([...logic.defaultColumns(), { title: 'Acme', label: 'Clients/Acme' }], '_Board'),
+    /“Clients\/Acme” is not under “_Board”.*own labels off an email/);
+  assert.match(logic.validateColumns([{ title: 'Board', label: '_Board' }], '_Board'), /not under/);
 });
 
 test('new column ids are unique', () => {

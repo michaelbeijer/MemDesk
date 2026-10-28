@@ -346,9 +346,28 @@
     emit('thread-changed', { threadId, source });
   }
 
+  // To a column that archives, the conversation is read afresh first (one
+  // cheap call): a card shows it as the board last read it, and a reply
+  // that came since would otherwise leave the Inbox unseen. With mail in
+  // the Inbox not read yet, the card moves but the mail stays in the
+  // Inbox ({ keptInInbox }), and archive() is there for "archive anyway".
   async function moveToColumn(threadId, columns, columnId, source) {
     await ensureLabels(columns.map(c => c.label));
-    await modify(threadId, logic.moveLabelDiff(columns, columnId, labelId), source);
+    const diff = logic.moveLabelDiff(columns, columnId, labelId);
+    let keptInInbox = false;
+    if (diff.removeLabelIds.includes('INBOX')) {
+      const t = await api.gmail('GET', `threads/${threadId}`, { format: 'minimal' });
+      if (logic.archiveHidesUnread(t)) {
+        diff.removeLabelIds = diff.removeLabelIds.filter(id => id !== 'INBOX');
+        keptInInbox = true;
+      }
+    }
+    await modify(threadId, diff, source);
+    return { keptInInbox };
+  }
+
+  async function archive(threadId, source) {
+    await modify(threadId, { addLabelIds: [], removeLabelIds: ['INBOX'] }, source);
   }
 
   // Taking a card off the board also forgets its title, note and colour.
@@ -381,6 +400,6 @@
   ns.store = {
     bus, storageArea, loadColumns, saveColumns, loadOrder, saveOrder, loadCardEdits, saveCardEdit, loadDockPlace,
     refreshLabels, ensureLabels, renameLabel, labelId, allLabels,
-    thread, adopt, loadBoard, moveToColumn, removeFromBoard, search, threadColumn,
+    thread, adopt, loadBoard, moveToColumn, archive, removeFromBoard, search, threadColumn,
   };
 })();

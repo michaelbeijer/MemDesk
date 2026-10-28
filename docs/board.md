@@ -101,6 +101,11 @@ whichever column has "wait" in its name). Nothing moves by itself.
 Moving a card to **Done** also archives the email: it leaves your Inbox,
 but keeps its label, so you can still find it.
 
+Not if the conversation has mail you haven't read yet, though: a reply
+may have come after the board last loaded. Then the card moves to Done,
+the email stays in your Inbox, and a message says so, with an **Archive
+anyway** button for when archiving it is what you meant.
+
 Done also plays a short, soft chime of two notes when a card lands there:
 whether you drag it, use the card menu, add it from a search or use the
 button in Gmail's top bar. Changing the order of the cards within Done is
@@ -117,7 +122,10 @@ The **column settings** button at the top right of the board opens the
 - add a column with **+ Add column**. Its label is made in Gmail when you
   save;
 - change a column's title, and its Gmail label. Changing the label here
-  renames it in Gmail itself, so the mail filed under it stays put;
+  renames it in Gmail itself, so the mail filed under it stays put. The
+  label is always one of the board's own, under `_Board`: moving a card
+  takes the board's labels on and off, so a label of yours (a client's,
+  say) is never one a move could take off an email;
 - change the order with the arrows: up is further left on the board;
 - remove a column with its ✕. That only takes it off the board: the Gmail
   label, and the mail in it, are left untouched;

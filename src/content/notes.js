@@ -1114,7 +1114,6 @@
     favouritesChanged();
     N.favChain = N.favChain.then(async () => {
       try {
-        if (!notesStore.checksConflicts) await load({ force: true });
         await N.favRead;
         if (!N.favs.known) throw new Error('they could not be read from Gmail');
         for (let tries = 0; ; tries++) {
@@ -1591,11 +1590,10 @@
       // An untouched new note is not worth a message.
       if (!c.note && (c.scratch || !c.title.trim()) && fmt.isEmpty(c.doc)) { c.dirty = false; return; }
       const snap = { title: c.title, doc: c.doc, folderId: c.folderId, noteId: c.scratch ? notesLogic.SCRATCHPAD_ID : '' };
-      // A scratchpad started here while another computer started one too.
-      // Where the store checks for newer versions (the phone app), it says
-      // so and the two are merged; otherwise the other's version is
-      // retired, as any older version is.
-      const before = c.note || (c.scratch && !notesStore.checksConflicts ? N.scratchNote : null);
+      // A scratchpad started here while another computer started one too:
+      // the store says so (a conflict, as for any newer version saved
+      // elsewhere), and the two are merged below.
+      const before = c.note || null;
       c.dirty = false;
       c.saving = true;
       drawStatus();

@@ -60,6 +60,12 @@ when it changes) into their Apps Script project.
   `logic.layoutReadFlow`/`layoutWriteFlow`), one for every device: only its
   older versions go to Trash, and the phone app's own copy is never the
   first one put there.
+- A move only ever takes the board's own labels off a thread (under its
+  parent, `logic.isBoardLabel`), and a column's label must be one of them
+  (`logic.validateColumns(cols, root)`): a label of the user's own taken off
+  by a move leaves the email in neither place they look. A move to a column
+  that archives reads the conversation first and keeps mail not read yet in
+  the Inbox (`logic.archiveHidesUnread`, `store.moveToColumn`).
 - The calendar writes only one event or one task at a time, with only the
   fields the editor edits (`calendarLogic.isAllowedRequest`, the same rules in
   the worker and the app's script): never guests, a calendar, a task list or
@@ -91,9 +97,12 @@ when it changes) into their Apps Script project.
 - The Gmail panel opens on every email, so it reads only the labels and the
   open conversation, in one round trip (`store.openEmail`); a test counts
   the requests. Notes and the calendar on a phone belong to the phone app.
-- A save in the phone app is refused by the script if another device saved a
-  newer version (`{ conflict }`); the view merges (`noteFormat.mergeDocs`) and
-  saves again. Keep that path intact.
+- A save is refused if another device saved a newer version: by the
+  script in the phone app (`{ conflict }`), by `notesStore.save` in Chrome
+  (error code `conflict`), each with the newer version; the view merges
+  (`noteFormat.mergeDocs`) and saves again. Without it, the next list's
+  tidy-up puts the other device's version in Trash. Keep that path intact
+  (`tests/content-stores.test.js`).
 
 ## Tests
 

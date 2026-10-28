@@ -221,7 +221,10 @@ extension. It only matters if you ever pack a `.crx`.
   (`from:anna is:unread`). Leave it empty to list your Inbox. Click a result to
   add it to that column.
 - **Done** archives on drop: moving a thread there also takes it out of the
-  Inbox. You can switch this on or off for any column.
+  Inbox. You can switch this on or off for any column. A conversation with
+  mail you haven't read yet (a reply that came after the board last
+  loaded, say) moves to Done but stays in the Inbox, and the message that
+  says so offers **Archive anyway**.
 - **Done** chimes, too: a short, soft two-note sound when a card lands there,
   by drag, menu, search or the button in Gmail's top bar (not when you only
   reorder it). The column settings switch it on or off for any column;
@@ -229,7 +232,9 @@ extension. It only matters if you ever pack a `.crx`.
 - The **columns button** in the header adds, renames, reorders and removes
   columns. Renaming a label there renames the Gmail label itself, so the mail
   filed under it stays put. Removing a column only takes it off the board. The
-  Gmail label and its mail are left untouched.
+  Gmail label and its mail are left untouched. Every column's label is one
+  of the board's own, under `_Board`: moving a card takes the board's labels
+  on and off, and never one of yours.
 - While you are reading a thread, a second button appears next to **Board**:
   **Add to board ▾**, or **On board: Doing ▾** if the thread is already on the
   board. Its menu files the thread without opening the board.
@@ -457,9 +462,9 @@ history: open an old version there to copy text back. If two versions are ever
 both live (a save cut short, or two computers saving at once), the newest wins
 and the other is moved to Trash the next time the list loads. A note saved on
 another computer or phone while you were editing it is merged rather than
-overwritten, as soon as this one hears of it (the phone app checks before every
-save): the newer version comes in with your edits on top, and a paragraph
-changed on both sides is kept in both versions.
+overwritten, as soon as this one hears of it (Chrome and the phone app both
+check before every save): the newer version comes in with your edits on top,
+and a paragraph changed on both sides is kept in both versions.
 
 A picture in a note is a message of its own, written once and never changed,
 and the note's HTML names it by its message id. So saving a note sends only
