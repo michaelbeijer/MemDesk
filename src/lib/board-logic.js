@@ -78,6 +78,18 @@
     return DEFAULT_ROOT;
   }
 
+  // Whether a label is one of the board's own: under its parent label
+  // ("_Board/…"). Only those does a move ever take off a thread. A label
+  // of the user's own - "Clients/Acme" - files mail for its own sake;
+  // taking it off because a card moved would leave the email in neither
+  // place they look for it, and out of the Inbox too if the card went to
+  // Done.
+  function isBoardLabel(name, root) {
+    const r = `${String(root || '')}/`.toLowerCase();
+    const n = String(name || '').toLowerCase();
+    return r.length > 1 && n.startsWith(r) && n.length > r.length;
+  }
+
   // Columns remember their label's id as well as its name, because Gmail
   // lets a label be renamed - and renaming "Board" to "_Board" renames
   // every column label under it. Following the id keeps a column on the
@@ -132,7 +144,9 @@
     'unread', 'chat', 'snoozed', 'scheduled', 'all mail', 'outbox',
   ]);
 
-  function validateColumns(cols) {
+  // `root`: the board's parent label, which every column's label must be
+  // under (isBoardLabel).
+  function validateColumns(cols, root) {
     if (!cols.length) return 'Keep at least one column.';
     const labels = new Set();
     for (const c of cols) {
@@ -144,6 +158,10 @@
         return `“${label}” has an empty part between slashes.`;
       }
       if (RESERVED.has(label.toLowerCase())) return `“${label}” is a Gmail system label and cannot be used.`;
+      if (root && !isBoardLabel(label, root)) {
+        return `“${label}” is not under “${root}”. Each column has a label of its own there, so that moving a card ` +
+          'never takes one of your own labels off an email.';
+      }
       const key = label.toLowerCase();
       if (labels.has(key)) return `Two columns use the label “${label}”.`;
       labels.add(key);
@@ -162,14 +180,23 @@
 
   // ── Placement ────────────────────────────────────────────────────────
 
+  // The columns on the board's own labels first, each lot in board order.
+  // A column on a label of the user's own (allowed before columns had to
+  // be the board's) keeps its label on a thread a move put elsewhere, so
+  // it must not claim that thread back.
+  function boardFirst(columns, root) {
+    const own = columns.filter(c => isBoardLabel(c.label, root));
+    return own.concat(columns.filter(c => !own.includes(c)));
+  }
+
   // A thread carrying two column labels (moved on the phone, say) is shown
   // once, in the left-most of its columns. Showing it twice would make a
   // drag ambiguous about which label it is leaving.
-  function assignColumns(columns, listsByColumn) {
+  function assignColumns(columns, listsByColumn, root = labelRoot(columns)) {
     const seen = new Set();
     const out = {};
-    for (const col of columns) {
-      out[col.id] = [];
+    for (const col of columns) out[col.id] = [];
+    for (const col of boardFirst(columns, root)) {
       for (const id of (listsByColumn[col.id] || [])) {
         if (seen.has(id)) continue;
         seen.add(id);
@@ -223,9 +250,10 @@
   }
 
   // Moving a card is one threads.modify: add the target's label, strip
-  // every other column label (so a thread is only ever in one column, even
-  // if it had drifted into two), and drop INBOX when the target archives.
-  function moveLabelDiff(columns, targetColumnId, labelIdOf) {
+  // every other column label of the board's own (so a thread is only ever
+  // in one column, even if it had drifted into two), and drop INBOX when
+  // the target archives. A label of the user's own stays on (isBoardLabel).
+  function moveLabelDiff(columns, targetColumnId, labelIdOf, root = labelRoot(columns)) {
     const lookup = asLookup(labelIdOf);
     const target = columns.find(c => c.id === targetColumnId);
     if (!target) throw new Error(`Unknown column ${targetColumnId}`);
@@ -234,7 +262,7 @@
 
     const remove = new Set();
     for (const c of columns) {
-      if (c.id === targetColumnId) continue;
+      if (c.id === targetColumnId || !isBoardLabel(c.label, root)) continue;
       const id = lookup(c.label);
       if (id && id !== addId) remove.add(id);
     }
@@ -242,27 +270,40 @@
     return { addLabelIds: [addId], removeLabelIds: [...remove] };
   }
 
-  // Taking a card off the board strips every column label and nothing
-  // else: the thread stays exactly where it was in Gmail.
-  function removeLabelDiff(columns, labelIdOf) {
+  // Taking a card off the board strips every column label of the board's
+  // own and nothing else: the thread stays exactly where it was in Gmail.
+  function removeLabelDiff(columns, labelIdOf, root = labelRoot(columns)) {
     const lookup = asLookup(labelIdOf);
     const remove = new Set();
     for (const c of columns) {
+      if (!isBoardLabel(c.label, root)) continue;
       const id = lookup(c.label);
       if (id) remove.add(id);
     }
     return { addLabelIds: [], removeLabelIds: [...remove] };
   }
 
-  // Which column a thread belongs in, given the union of its label ids.
-  function columnForLabels(columns, labelIds, labelIdOf) {
+  // Which column a thread belongs in, given the union of its label ids:
+  // the one assignColumns would show it in.
+  function columnForLabels(columns, labelIds, labelIdOf, root = labelRoot(columns)) {
     const lookup = asLookup(labelIdOf);
     const have = new Set(labelIds || []);
-    for (const c of columns) {
+    for (const c of boardFirst(columns, root)) {
       const id = lookup(c.label);
       if (id && have.has(id)) return c;
     }
     return null;
+  }
+
+  // Whether archiving a conversation (threads.get, any format) would take
+  // mail not read yet out of the Inbox. A card shows the conversation as
+  // the board last read it; a reply may have come since, and a move to a
+  // column that archives must not send it out of sight unseen.
+  function archiveHidesUnread(thread) {
+    return ((thread && thread.messages) || []).some(m => {
+      const labels = m.labelIds || [];
+      return labels.includes('UNREAD') && labels.includes('INBOX');
+    });
   }
 
   // ── Threads ──────────────────────────────────────────────────────────
@@ -498,9 +539,9 @@
   const api = {
     DEFAULT_ROOT, DEFAULT_COLUMNS, defaultColumns, normaliseColumns, labelRoot, resolveColumnLabels,
     LAYOUT_ID, LAYOUT_TITLE, layoutText, layoutFromText, sameColumns, layoutReadFlow, layoutWriteFlow,
-    newColumnId, validateColumns,
+    newColumnId, validateColumns, isBoardLabel,
     labelAncestors, assignColumns, mergeOrder, placeId, pruneOrder,
-    moveLabelDiff, removeLabelDiff, columnForLabels, summariseThread, searchQuery,
+    moveLabelDiff, removeLabelDiff, columnForLabels, archiveHidesUnread, summariseThread, searchQuery,
     CARD_COLOURS, MAX_TITLE, MAX_NOTE, normaliseCardEdit, displayTitle, cardEditsFrom, MAX_TAGS, labelTags,
   };
 

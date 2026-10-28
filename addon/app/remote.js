@@ -96,9 +96,6 @@
   ns.notesStore = {
     labelName: () => S.label,
     folders: () => S.folders,
-    // A save tells of a newer version saved elsewhere (error code
-    // "conflict"), so the view merges rather than overwrites.
-    checksConflicts: true,
 
     // What to show before Gmail answers (notes.js fromCopy), or null.
     cached() {

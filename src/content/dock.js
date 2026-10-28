@@ -273,8 +273,14 @@
     renderPill();
     if (col.chime) chime();
     try {
-      await store.moveToColumn(id, await columns(), col.id, 'dock');
-      toast(root, `${was ? 'Moved' : 'Added'} to ${col.title}${col.archiveOnDrop ? ' and archived' : ''}.`);
+      const done = await store.moveToColumn(id, await columns(), col.id, 'dock');
+      const what = `${was ? 'Moved' : 'Added'} to ${col.title}`;
+      if (done.keptInInbox) {
+        toast(root, `${what}, but kept in the Inbox: it has mail you haven’t read.`, {
+          timeout: 9000,
+          action: { label: 'Archive anyway', onClick: () => store.archive(id, 'dock').catch(fail) },
+        });
+      } else toast(root, `${what}${col.archiveOnDrop ? ' and archived' : ''}.`);
     } catch (err) {
       if (S.threadId === id) {
         S.column = was;

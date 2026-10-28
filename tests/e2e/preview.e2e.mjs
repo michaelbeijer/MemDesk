@@ -180,11 +180,21 @@ try {
     assert.equal(await modifyCalls(page), calls);
   });
 
-  await r.step('moving to Done archives (removes INBOX)', async () => {
-    const id = await findThread(page, 'Office action');
-    await drag(page, id, page.locator('section[data-col="done"] .list'));
-    await page.locator(`section[data-col="done"] .card[data-id="${id}"]`).waitFor();
-    await waitForLabels(page, id, { has: ['_Board/Done'], lacks: ['INBOX', '_Board/Doing'] }, 'archived on drop');
+  await r.step('moving to Done archives (removes INBOX) - but not mail not read yet, until “Archive anyway”', async () => {
+    const read = await findThread(page, 'Availability for October');
+    await drag(page, read, page.locator('section[data-col="done"] .list'));
+    await page.locator(`section[data-col="done"] .card[data-id="${read}"]`).waitFor();
+    await waitForLabels(page, read, { has: ['_Board/Done'], lacks: ['INBOX', '_Board/To do'] }, 'archived on drop');
+
+    // The examiner's report has not been read.
+    const unread = await findThread(page, 'Office action');
+    await drag(page, unread, page.locator('section[data-col="done"] .list'));
+    await page.locator(`section[data-col="done"] .card[data-id="${unread}"]`).waitFor();
+    const kept = page.locator('.toast', { hasText: 'kept in the Inbox' });
+    await kept.waitFor();
+    await waitForLabels(page, unread, { has: ['_Board/Done', 'INBOX'], lacks: ['_Board/Doing'] }, 'in Done, and still in the Inbox');
+    await kept.locator('.toast-action', { hasText: 'Archive anyway' }).click();
+    await waitForLabels(page, unread, { has: ['_Board/Done'], lacks: ['INBOX'] }, 'archived anyway');
   });
 
   await r.step('column “+” searches Gmail and adds a result', async () => {
@@ -2406,7 +2416,10 @@ try {
     const before = (await chimes()).length;
     await pill.click();
     await p.locator('.menu [data-key="col:done"]').click();
-    await waitForLabels(p, termbase, { has: ['_Board/Done'], lacks: ['INBOX'] }, 'filed in Done from the top bar');
+    // Hendrik's last reply is not read yet, so it stays in the Inbox, and
+    // the top bar says so.
+    await waitForLabels(p, termbase, { has: ['_Board/Done', 'INBOX'] }, 'filed in Done from the top bar');
+    await p.locator('.toast', { hasText: 'Moved to Done, but kept in the Inbox' }).waitFor();
     assert.equal((await chimes()).length, before + 1, 'a chime from the top bar');
     await p.locator('#dev-toggle-thread').click();
 
@@ -2416,7 +2429,7 @@ try {
     await openBoard(p);
     const last = (await ids(p, 'todo'))[0];
     await drag(p, last, p.locator('section[data-col="done"] .list'));
-    await waitForLabels(p, last, { has: ['_Board/Done'], lacks: ['INBOX'] }, 'moved with no sound to be had');
+    await waitForLabels(p, last, { has: ['_Board/Done'] }, 'moved with no sound to be had');
     assert.equal(await p.locator('.toast-error').count(), 0, 'no error shown');
     await p.context().close();
   });
