@@ -73,6 +73,24 @@ test('board columns come from the labels under _Board: the usual four in order, 
   assert.deepEqual(panel.boardColumns([]), []);
 });
 
+test('board columns from the layout: its titles and order, labels as Gmail has them now, a column without one left out', () => {
+  const labels = [{ id: 'L1', name: '_Board/To do' }, { id: 'L2', name: '_Board/Later' }, { id: 'L4', name: '_Board/Done' }];
+  const layout = [
+    { id: 'doing', title: 'Doing', label: '_Board/Doing', archiveOnDrop: false, chime: false },
+    { id: 'waiting', title: 'Waiting', label: '_Board/Waiting', labelId: 'L2', archiveOnDrop: false, chime: false },
+    { id: 'todo', title: 'Next', label: '_Board/to do', archiveOnDrop: true, chime: true },
+  ];
+  const cols = panel.columnsFor(layout, labels);
+  assert.deepEqual(cols.map(c => [c.id, c.title, c.label, c.labelId, c.archiveOnDrop]), [
+    ['waiting', 'Waiting', '_Board/Later', 'L2', false],
+    ['todo', 'Next', '_Board/To do', 'L1', true],
+  ], 'Doing has no label in Gmail; Waiting’s was renamed there; To do is spelt as Gmail spells it');
+  assert.equal(panel.currentColumn(cols, ['INBOX', 'L2']).id, 'waiting');
+  assert.equal(panel.currentColumn(cols, ['L4']), null, 'Done is only a label now, not a column');
+  assert.deepEqual(panel.boardDiff(cols, 'todo'), { addLabelIds: ['L1'], removeLabelIds: ['L2', 'INBOX'] });
+  assert.deepEqual(panel.columnsFor(null, labels).map(c => c.title), ['To do', 'Done', 'Later'], 'no layout: the labels');
+});
+
 test('moves: one column only, Done out of the Inbox, off the board touches nothing else', () => {
   const cols = panel.boardColumns([{ id: 'L1', name: '_Board/To do' }, { id: 'L2', name: '_Board/Doing' }, { id: 'L4', name: '_Board/Done' }]);
   assert.equal(panel.currentColumn(cols, ['INBOX', 'L2', 'L1']).title, 'To do', 'the first, in board order');

@@ -119,12 +119,73 @@
 
   // ── The board, for the phone panel ───────────────────────────────────
   //
-  // The panel opens on every email, so it reads as little as it can: the
-  // labels, for the columns, and the open conversation, side by side in
-  // one round trip. Nothing of the notes: no notes label is looked for,
-  // and none is made.
+  // The panel opens on every email, so it reads as little as it can, side
+  // by side in one round trip: the labels; the open conversation; and
+  // what is under the board's own label, which says whether the board's
+  // layout is still the one the panel read last. Messages never change,
+  // so the same message is the same layout; only one saved since is read,
+  // once. Nothing of the notes: no notes label is looked for, and none is
+  // made.
 
-  const columnsOf = labels => panel.boardColumns(labels, boardName());
+  // The layout the panel read last, in the user's properties (not under
+  // the phone app's settings, "gkb.", which are the app's to show):
+  // { rootId, id, columns }, id '' when Gmail had none and columns null
+  // when it could not be read.
+  const KEPT = 'panel.layout';
+  const layoutIo = { read: req => gmail.call(...req), readMany: list => gmail.callAll(list) };
+
+  function keptLayout() {
+    try {
+      const kept = JSON.parse(PropertiesService.getUserProperties().getProperty(KEPT) || 'null');
+      return kept && typeof kept.rootId === 'string' && typeof kept.id === 'string' ? kept : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  // Written only when it changed. One that will not go in (a property
+  // holds 9 KB) is read again next time instead: slower, never wrong.
+  function keepLayout(kept, next) {
+    const text = JSON.stringify(next);
+    if (kept && JSON.stringify(kept) === text) return;
+    try {
+      PropertiesService.getUserProperties().setProperty(KEPT, text);
+    } catch (err) {
+      console.warn(`The board's layout was not kept for next time: ${err.message}`);
+    }
+  }
+
+  // The columns as they are now. `listed`: what is under the label the
+  // kept layout was found under, read with the labels. Should the layout
+  // not be read, the one kept stands in, or else the labels: a column
+  // list a moment old is better than no panel at all.
+  function boardNow(labels, kept, listed) {
+    const name = boardName().toLowerCase();
+    const root = labels.find(l => String(l.name).toLowerCase() === name);
+    if (!root) return panel.columnsFor(null, labels, boardName());
+    const known = kept && kept.rootId === root.id ? kept : null;
+    const early = known && listed && !listed.error ? listed : null;
+    let found;
+    try {
+      found = ns.util.runSync(ns.logic.layoutReadFlow(root.id, known ? known.id : '', early), layoutIo);
+    } catch (err) {
+      console.warn(`The board's layout could not be read: ${err.message}`);
+      return panel.columnsFor(known && known.columns, labels, boardName());
+    }
+    const columns = !found ? null : found.same ? known.columns : found.columns;
+    keepLayout(kept, { rootId: root.id, id: found ? found.id : '', columns });
+    return panel.columnsFor(columns, labels, boardName());
+  }
+
+  // The board's columns, and the answers to `also`, further reads made
+  // side by side with the labels.
+  function boardWith(also) {
+    const kept = keptLayout();
+    const got = gmail.callAll([['GET', 'labels']].concat(also, kept ? [ns.logic.layoutList(kept.rootId)] : []));
+    if (got[0].error) throw got[0].error;
+    return { columns: boardNow(got[0].labels || [], kept, kept ? got[got.length - 1] : null), answers: got.slice(1, 1 + also.length) };
+  }
+
   const threadRead = id => ['GET', `threads/${encodeURIComponent(id)}`, { format: 'minimal' }];
   const messageRead = id => ['GET', `messages/${encodeURIComponent(id)}`, { format: 'minimal' }];
 
@@ -143,9 +204,7 @@
   // or say it in a form its API does not take, the message says which
   // conversation it is in, at the cost of a second round trip.
   function openEmail(messageId, threadId) {
-    const [labels, got] = gmail.callAll([['GET', 'labels'], threadId ? threadRead(threadId) : messageRead(messageId)]);
-    if (labels.error) throw labels.error;
-    const columns = columnsOf(labels.labels || []);
+    const { columns, answers: [got] } = boardWith([threadId ? threadRead(threadId) : messageRead(messageId)]);
     if (threadId && !got.error) return { columns, thread: threadOf(got) };
     if (got.error && !(threadId && messageId)) throw got.error;
     if (threadId) console.warn(`The open conversation ${threadId} could not be read, so its message was: ${got.error.message}`);
@@ -157,7 +216,7 @@
   // now. A column that has gone since the card was drawn changes nothing,
   // rather than taking the email off the board.
   function moveThread(threadId, columnId) {
-    const columns = columnsOf(gmail.call('GET', 'labels').labels || []);
+    const { columns } = boardWith([]);
     const target = columnId ? columns.find(c => c.id === columnId) : null;
     if (columnId && !target) throw new Error('That column is not on the board any more.');
     gmail.modifyThread(threadId, panel.boardDiff(columns, target ? target.id : ''));

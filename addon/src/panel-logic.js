@@ -3,10 +3,10 @@
 //
 // What the Gmail add-on needs to put the open email on the board, without
 // any of Apps Script's services - so it is tested in Node like the rest
-// of the shared code: the columns, read from the labels; the column a
-// conversation is in; the labels a move changes; and Gmail's ids in the
-// form its API takes. The phone app's server side reads its first
-// columns with boardColumns too.
+// of the shared code: the columns, from the board's layout or else its
+// labels; the column a conversation is in; the labels a move changes;
+// and Gmail's ids in the form its API takes. The phone app's server side
+// reads its first columns with boardColumns too.
 // ─────────────────────────────────────────────────────────────────────
 
 (function () {
@@ -20,12 +20,22 @@
 
   // ── The board ────────────────────────────────────────────────────────
   //
-  // The extension keeps its column list in Chrome's synced storage, out of
-  // reach here, so the panel reads the columns from the labels themselves:
-  // every label directly under the board's parent ("_Board/Doing") is a
-  // column. The usual four come first in their usual order, any others
-  // after them alphabetically, and Done archives, as it does by default.
-  // The moves themselves are the extension's own label arithmetic.
+  // The columns are the board's layout in Gmail (logic.layoutReadFlow),
+  // as every computer and phone shows them. A board that has never saved
+  // one has only its labels to go on: every label directly under the
+  // board's parent ("_Board/Doing") is a column. The usual four come
+  // first in their usual order, any others after them alphabetically, and
+  // Done archives, as it does by default. The moves themselves are the
+  // extension's own label arithmetic.
+
+  // The layout's columns with their labels as Gmail has them now: one
+  // renamed there is followed by its id. A column whose label is not in
+  // Gmail (yet) is left out, as there is nothing to file an email under;
+  // the board makes it when it next opens. With no layout, the labels.
+  function columnsFor(layout, labels, root = board.DEFAULT_ROOT) {
+    if (!layout) return boardColumns(labels, root);
+    return board.resolveColumnLabels(layout, labels || []).columns.filter(c => c.labelId);
+  }
 
   function boardColumns(labels, root = board.DEFAULT_ROOT) {
     const prefix = `${root}/`.toLowerCase();
@@ -88,7 +98,7 @@
     return hex || '0';
   }
 
-  const api = { esc, boardColumns, currentColumn, boardDiff, apiId };
+  const api = { esc, columnsFor, boardColumns, currentColumn, boardDiff, apiId };
 
   ns.panelLogic = api;
   if (node) module.exports = api;

@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.39.1" src="https://img.shields.io/badge/version-0.39.1-6D28D9">
+  <img alt="Version 0.39.2" src="https://img.shields.io/badge/version-0.39.2-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -144,7 +144,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.39.1 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.39.2 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -656,16 +656,22 @@ editor, and the calendar are in the [phone app](#the-phone-app).)
 - **Take off the board** takes the column label off and leaves the email
   where it is.
 - With no email open, the panel just says to open one.
-- **It reads as little as it can**: the list of your labels and the labels of
-  the open conversation, side by side in one round trip to Gmail. No
-  subjects, no message text, nothing of the notes.
-- The panel does not read the board's layout (one more read on every email
-  opened), so it takes the columns from your labels: every label directly under
-  `_Board` is a column, To do, Doing, Waiting and Done first in that order,
-  any others after them alphabetically, and only Done archives. If you change
-  which column archives in the extension, the panel will not know. With no
-  board labels at all yet, it says so rather than making them: open the board
-  once in Chrome or in the phone app.
+- **Its columns are the board's**, as Chrome and the phone app show them: the
+  same names, in the same order, archiving where they archive. A label left
+  under `_Board` by a column you have taken off the board is not a column.
+  A new column shows once the board has made its label (the next time it
+  opens in Chrome or the phone app).
+- **It reads as little as it can**: the list of your labels, the labels of
+  the open conversation, and the list of what is under `_Board` (which says
+  whether the board's layout has changed), side by side in one round trip
+  to Gmail. The layout itself is read only when it has changed since the
+  panel last read it; the panel keeps a copy in the script's settings for
+  your account. No subjects, no message text, nothing of the notes.
+- A board that has no layout in Gmail yet has only its labels to go on:
+  every label directly under `_Board` is a column, To do, Doing, Waiting and
+  Done first in that order, any others after them alphabetically, and only
+  Done archives. With no board labels at all yet, the panel says so rather
+  than making them: open the board once in Chrome or in the phone app.
 
 **Setting it up** takes about five minutes: a new Apps Script project with
 two files pasted in, then **Deploy → Test deployments → Install**. The steps
@@ -1084,7 +1090,7 @@ addon/                     the phone panel and phone app (Apps Script)
   appsscript.json          its manifest
   Code.gs                  generated: shared note code + addon/src + the app's page
   src/shims.js             btoa, TextEncoder, URL and friends for Apps Script
-  src/panel-logic.js       pure: board columns from labels, moves, Gmail's ids
+  src/panel-logic.js       pure: board columns (layout or labels), moves, Gmail's ids
   src/gmail.js, store.js   Gmail over UrlFetchApp, and the notes and board on it
   src/cards.js             the panel's cards and what their buttons do
   src/app-server.js        the phone app's server side: notes, folders, board,

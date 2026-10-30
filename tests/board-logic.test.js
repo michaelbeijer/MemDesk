@@ -506,6 +506,20 @@ test('the layout read back: the newest of its versions, mail under the label ign
   assert.equal(util.runSync(logic.layoutReadFlow('Label_0', ''), layoutBox([{ id: 'mail', at: 1, text: '{}' }]).io), null, 'only mail: none');
 });
 
+test('the layout already known, alone under the label: nothing more read; a listing in hand is not read again', () => {
+  const text = logic.layoutText(LAYOUT);
+  const box = layoutBox([{ id: 'm2', at: 200, noteId: logic.LAYOUT_ID, text }]);
+  assert.deepEqual(util.runSync(logic.layoutReadFlow('Label_0', 'm2'), box.io), { id: 'm2', same: true, columns: null, older: [] });
+  assert.deepEqual(box.reads, ['GET messages'], 'the listing only: messages never change');
+
+  const listed = box.io.read(logic.layoutList('Label_0'));
+  box.reads.length = 0;
+  assert.deepEqual(util.runSync(logic.layoutReadFlow('Label_0', 'm2', listed), box.io).same, true);
+  assert.deepEqual(box.reads, [], 'read side by side with something else: nothing left to read');
+  assert.deepEqual(util.runSync(logic.layoutReadFlow('Label_0', 'gone', listed), box.io), { id: 'm2', same: false, columns: LAYOUT, older: [] });
+  assert.deepEqual(box.reads, ['GET messages/m2 metadata', 'GET messages/m2 full'], 'a new version: read, but not listed again');
+});
+
 test('a layout that cannot be read is no layout - never the default columns in its place', () => {
   for (const junk of ['', 'no braces', '{ not json', '{"columns":[]}', '{"columns":[{"title":"No id or label"}]}', '{"v":1}']) {
     assert.equal(logic.layoutFromText(junk), null, junk);

@@ -19,6 +19,10 @@ const mailAbout = (p, part) => {
   return { threadId, messageId: p.fake.box.thread(threadId).messages[0].id };
 };
 const threadLabels = (p, threadId) => plain(p.fake.box.threadLabelNames(threadId));
+const labelId = (p, name) => plain(p.fake.box.labelByName(name)).id;
+// The board's layout saved in Gmail, as Chrome or the app saves it.
+const saveLayout = (p, columns, replaces = []) => p.server('appSaveLayout', labelId(p, '_Board'), columns, replaces);
+const column = (id, title, label, archiveOnDrop = false) => ({ id, title, label: `_Board/${label}`, archiveOnDrop, chime: archiveOnDrop });
 
 // ── The bundle ───────────────────────────────────────────────────────
 
@@ -77,16 +81,21 @@ test('with no email open, the panel says to open one, and reads nothing', () => 
   assert.deepEqual(p.requests(), [], 'not even the labels');
 });
 
-test('an email on the board: its column, a button for each, and only the labels and its conversation read, in one round trip', () => {
+test('an email on the board: its column, a button for each, and only the labels, its conversation and the board’s label read, in one round trip', () => {
   const p = new Phone();
   const { threadId, messageId } = mailAbout(p, 'Quote request');
   p.openMessage(messageId);
   assert.equal(p.card.header.title, 'On the board: To do');
   assert.deepEqual(p.buttons(), ['[To do]', 'Doing', 'Waiting', 'Done', 'Take off the board']);
   assert.deepEqual(p.lines(), ['Done also archives it: out of the Inbox.']);
-  assert.deepEqual(p.requests(), ['GET labels', `GET threads/${threadId}`]);
+  assert.deepEqual(p.requests(), ['GET labels', `GET threads/${threadId}`, 'GET messages']);
   assert.equal(p.log[1].query.format, 'minimal', 'labels only: no headers, no bodies');
-  assert.equal(p.roundTrips(), 1, 'side by side');
+  assert.equal(p.roundTrips(), 2, 'the first time, the labels say where the layout would be');
+
+  p.log.length = 0;
+  p.openMessage(messageId);
+  assert.deepEqual(p.requests(), ['GET labels', `GET threads/${threadId}`, 'GET messages']);
+  assert.equal(p.roundTrips(), 1, 'from then on, side by side');
 });
 
 test('one tap moves it: into that column only, out of the Inbox for Done, or off the board', () => {
@@ -98,7 +107,7 @@ test('one tap moves it: into that column only, out of the Inbox for Done, or off
   assert.equal(p.toast, 'Moved to Doing.');
   assert.deepEqual(threadLabels(p, threadId).filter(n => n.startsWith('_Board')), ['_Board/Doing']);
   assert.ok(threadLabels(p, threadId).includes('INBOX'));
-  assert.deepEqual(p.requests().slice(before), ['GET labels', `POST threads/${threadId}/modify`], 'one change, on the whole conversation');
+  assert.deepEqual(p.requests().slice(before), ['GET labels', 'GET messages', `POST threads/${threadId}/modify`], 'one change, on the whole conversation');
   assert.equal(p.card.header.title, 'On the board: Doing', 'the card says so at once');
   assert.deepEqual(p.buttons(), ['To do', '[Doing]', 'Waiting', 'Done', 'Take off the board']);
 
@@ -149,7 +158,7 @@ test('a note is an email like any other: the board, and nothing of the note read
   const p = new Phone();
   p.openMessage(idOf(p, 'launchchecklist0004'));
   assert.equal(p.card.header.title, 'Not on the board');
-  assert.deepEqual(p.requests().map(r => r.split('/')[0]), ['GET labels', 'GET threads']);
+  assert.deepEqual(p.requests().map(r => r.split('/')[0]), ['GET labels', 'GET threads', 'GET messages']);
 });
 
 test("Gmail's ids in decimal, or no conversation id: the same email, the same card", () => {
@@ -159,18 +168,107 @@ test("Gmail's ids in decimal, or no conversation id: the same email, the same ca
   const p = new Phone();
   p.openMessage(`msg-f:${decimal(messageId)}`, { threadId: `thread-f:${decimal(threadId)}` });
   assert.equal(p.card.header.title, 'On the board: To do');
-  assert.deepEqual(p.requests(), ['GET labels', `GET threads/${threadId}`]);
+  assert.deepEqual(p.requests(), ['GET labels', `GET threads/${threadId}`, 'GET messages']);
 
-  const q = new Phone();
+  const q = new Phone({ fake: p.fake });
   q.openMessage(messageId, { threadId: '' });
   assert.equal(q.card.header.title, 'On the board: To do');
-  assert.deepEqual(q.requests(), ['GET labels', `GET messages/${messageId}`, `GET threads/${threadId}`], 'the message says which conversation');
+  assert.deepEqual(q.requests(), ['GET labels', `GET messages/${messageId}`, 'GET messages', `GET threads/${threadId}`], 'the message says which conversation');
   assert.equal(q.roundTrips(), 2);
 
   const r = new Phone();
   r.openMessage(messageId, { threadId: 'thread-a:r-123' });
   assert.equal(r.card.header.title, 'On the board: To do', 'a conversation id the API does not take: the message says which');
   assert.match(r.logged.map(l => l[1]).join('\n'), /thread-a:r-123 could not be read/, 'and the log says so');
+});
+
+test('the columns are the board’s layout, as on every computer and phone: its titles, its order, what archives; a column taken off leaves only a label', () => {
+  const p = new Phone();
+  const { threadId, messageId } = mailAbout(p, 'Quote request');
+  saveLayout(p, [column('doing', 'Doing', 'Doing'), column('later', 'Later', 'Waiting'), column('todo', 'Next', 'To do', true), column('travel', 'Travel', 'Travel')]);
+  p.log.length = 0;
+  p.openMessage(messageId);
+  assert.equal(p.card.header.title, 'On the board: Next');
+  assert.deepEqual(p.buttons(), ['Doing', 'Later', '[Next]', 'Take off the board'], 'not Done, which is only a label now; not Travel, which has none yet');
+  assert.deepEqual(p.lines(), ['Next also archives it: out of the Inbox.']);
+
+  p.log.length = 0;
+  p.openMessage(messageId);
+  assert.deepEqual(p.requests(), ['GET labels', `GET threads/${threadId}`, 'GET messages'], 'the layout known: not read again');
+  assert.equal(p.roundTrips(), 1);
+
+  p.press('Later');
+  assert.equal(p.toast, 'Moved to Later.');
+  assert.deepEqual(threadLabels(p, threadId).filter(n => n.startsWith('_Board')), ['_Board/Waiting']);
+  assert.deepEqual(p.buttons(), ['Doing', '[Later]', 'Next', 'Take off the board']);
+  assert.deepEqual(p.writes().map(w => `${w.method} ${w.path}`), [`POST threads/${threadId}/modify`], 'the move, and nothing else');
+
+  p.fake.box.modify(threadId, { addLabelIds: [labelId(p, '_Board/Done')], removeLabelIds: [labelId(p, '_Board/Waiting')] });
+  p.openMessage(messageId);
+  assert.equal(p.card.header.title, 'Not on the board', 'in a column no longer on the board');
+});
+
+test('a layout saved on another computer or phone: read once, at the next email', () => {
+  const p = new Phone();
+  const { threadId, messageId } = mailAbout(p, 'Quote request');
+  const first = saveLayout(p, [column('todo', 'To do', 'To do'), column('done', 'Done', 'Done', true)]);
+  p.openMessage(messageId);
+  assert.deepEqual(p.buttons(), ['[To do]', 'Done', 'Take off the board']);
+
+  const second = saveLayout(new Phone({ fake: p.fake }), [column('waiting', 'Waiting', 'Waiting'), column('todo', 'Soon', 'To do')], [first.id]);
+  p.log.length = 0;
+  p.openMessage(messageId);
+  assert.deepEqual(p.buttons(), ['Waiting', '[Soon]', 'Take off the board']);
+  assert.deepEqual(p.requests(), ['GET labels', `GET threads/${threadId}`, 'GET messages', `GET messages/${second.id}`, `GET messages/${second.id}`]);
+  assert.equal(p.roundTrips(), 3, 'which version, then its text');
+
+  p.log.length = 0;
+  p.openMessage(messageId);
+  assert.equal(p.roundTrips(), 1, 'then known');
+  assert.deepEqual(p.buttons(), ['Waiting', '[Soon]', 'Take off the board']);
+});
+
+test('a layout that cannot be read: the one read last, or else the labels; never no panel', () => {
+  const p = new Phone();
+  const { messageId } = mailAbout(p, 'Quote request');
+  const first = saveLayout(p, [column('todo', 'Next', 'To do')]);
+  p.openMessage(messageId);
+  const second = saveLayout(new Phone({ fake: p.fake }), [column('todo', 'Soon', 'To do')], [first.id]);
+  const route = p.fake.route;
+  p.fake.route = (method, path, query, body) => {
+    if (path === `messages/${second.id}` && query.format === 'full') throw Object.assign(new Error('Backend Error'), { code: 'http_500' });
+    return route(method, path, query, body);
+  };
+  p.openMessage(messageId);
+  assert.deepEqual(p.buttons(), ['[Next]', 'Take off the board'], 'the one read last');
+  assert.match(p.logged.map(l => l[1]).join('\n'), /layout could not be read/);
+
+  const fresh = new Phone({ fake: p.fake });
+  p.fake.userProperties.clear();
+  fresh.openMessage(messageId);
+  assert.deepEqual(fresh.buttons(), ['[To do]', 'Doing', 'Waiting', 'Done', 'Take off the board'], 'none read yet: the labels');
+
+  p.fake.route = route;
+  p.openMessage(messageId);
+  assert.deepEqual(p.buttons(), ['[Soon]', 'Take off the board'], 'read once it can be');
+});
+
+test('a layout the panel cannot keep (spoilt, or too big for a property) is read each time: slower, never wrong', () => {
+  const p = new Phone();
+  const { messageId } = mailAbout(p, 'Quote request');
+  saveLayout(p, [column('todo', 'Next', 'To do')]);
+  p.fake.userProperties.set('panel.layout', '{ not json');
+  p.openMessage(messageId);
+  assert.deepEqual(p.buttons(), ['[Next]', 'Take off the board']);
+
+  p.fake.userProperties.delete('panel.layout');
+  p.fake.userProperties.set = () => { throw new Error('Argument too large: value'); };
+  p.openMessage(messageId);
+  p.log.length = 0;
+  p.openMessage(messageId);
+  assert.deepEqual(p.buttons(), ['[Next]', 'Take off the board']);
+  assert.ok(p.roundTrips() > 1, 'read again');
+  assert.match(p.logged.map(l => l[1]).join('\n'), /not kept for next time/);
 });
 
 test('no board columns yet: the panel says how they are made, and makes nothing itself', () => {
