@@ -499,16 +499,24 @@
     return JSON.stringify(layoutColumns(a)) === JSON.stringify(layoutColumns(b));
   }
 
+  // What is under the board's label: the read that starts layoutReadFlow.
+  const layoutList = rootLabelId => ['GET', 'messages', { labelIds: rootLabelId, maxResults: LAYOUT_LIST_MAX }];
+
   // Reading, as a flow (util.runAsync / runSync): the layout's versions
   // under the board's label, newest first. io.read answers one Gmail read,
   // io.readMany several (each the answer, or { error }). Answers null when
   // Gmail holds no layout, or { id, same, columns, older }: `same` when the
   // newest is the version `knownId` names (its text is not read again);
   // columns null when it cannot be read; `older`, the versions it replaced.
-  function* layoutReadFlow(rootLabelId, knownId) {
-    const list = yield ['read', ['GET', 'messages', { labelIds: rootLabelId, maxResults: LAYOUT_LIST_MAX }]];
+  // `listed`: the answer to layoutList, when it was read already, side by
+  // side with something else.
+  function* layoutReadFlow(rootLabelId, knownId, listed) {
+    const list = listed || (yield ['read', layoutList(rootLabelId)]);
     const refs = (list && list.messages) || [];
     if (!refs.length) return null;
+    // The version already known, alone under the label, as each save
+    // leaves it: messages never change, so nothing more need be read.
+    if (knownId && refs.length === 1 && refs[0].id === knownId) return { id: knownId, same: true, columns: null, older: [] };
     const notes = notesLogic();
     const metas = yield ['readMany', refs.map(r => ['GET', `messages/${r.id}`, { format: 'metadata', metadataHeaders: [notes.NOTE_HEADER] }])];
     const versions = (metas || [])
@@ -538,7 +546,7 @@
 
   const api = {
     DEFAULT_ROOT, DEFAULT_COLUMNS, defaultColumns, normaliseColumns, labelRoot, resolveColumnLabels,
-    LAYOUT_ID, LAYOUT_TITLE, layoutText, layoutFromText, sameColumns, layoutReadFlow, layoutWriteFlow,
+    LAYOUT_ID, LAYOUT_TITLE, layoutText, layoutFromText, sameColumns, layoutList, layoutReadFlow, layoutWriteFlow,
     newColumnId, validateColumns, isBoardLabel,
     labelAncestors, assignColumns, mergeOrder, placeId, pruneOrder,
     moveLabelDiff, removeLabelDiff, columnForLabels, archiveHidesUnread, summariseThread, searchQuery,

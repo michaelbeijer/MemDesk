@@ -94,9 +94,12 @@ when it changes) into their Apps Script project.
   README's *Renaming* section; elsewhere use `APP_NAME`.
 - Internal identifiers stay brand-free (`gkb` namespace, storage keys). The
   phone app's `supermail.` localStorage prefix stays (saved settings).
-- The Gmail panel opens on every email, so it reads only the labels and the
-  open conversation, in one round trip (`store.openEmail`); a test counts
-  the requests. Notes and the calendar on a phone belong to the phone app.
+- The Gmail panel opens on every email, so it reads only the labels, the
+  open conversation and the list under the board's label, in one round
+  trip (`store.openEmail`); a test counts the requests. Its columns are the
+  board's layout in Gmail, read again only when that list shows a newer
+  one (its copy: user property `panel.layout`); the labels only when there
+  is no layout. Notes and the calendar on a phone belong to the phone app.
 - A save is refused if another device saved a newer version: by the
   script in the phone app (`{ conflict }`), by `notesStore.save` in Chrome
   (error code `conflict`), each with the newer version; the view merges
