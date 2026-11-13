@@ -136,12 +136,13 @@
       return doc;
     },
 
-    // Several notes' content, those not read yet fifty to a call: a Map
+    // Several notes' content, those not read yet twenty to a call (each
+    // call is a burst of reads, and Gmail limits them per minute): a Map
     // of message id → doc, leaving out any the script could not read.
     async bodies(notes) {
       const ids = [...new Set(notes.map(n => n.messageId).filter(id => !S.docs.has(id)))];
-      for (let i = 0; i < ids.length; i += 50) {
-        const got = await call('appBodies', ids.slice(i, i + 50));
+      for (let i = 0; i < ids.length; i += 20) {
+        const got = await call('appBodies', ids.slice(i, i + 20));
         Object.keys(got || {}).forEach(id => S.docs.set(id, got[id]));
       }
       const out = new Map();

@@ -691,6 +691,7 @@
         const want = [].concat(query.labelIds);
         list = list.filter(x => want.every(id => x.labelIds.includes(id)));
       }
+      if (query.q && box.failing.has('search')) throw new HttpError(403, 'Quota exceeded for quota metric \'Queries\'');
       if (query.q) {
         // Words only, near enough: quotes dropped, operators (from:, is:) skipped.
         // Like Gmail, a word is found at the start of a word, never inside
@@ -1190,7 +1191,7 @@
   async function handle(msg) {
     log.push({
       type: msg.type, method: msg.method, service: msg.service, path: msg.path, at: Date.now(),
-      query: msg.type === 'google' ? msg.query : undefined,
+      query: msg.query,
       body: msg.type === 'google' ? msg.body : undefined, etag: msg.type === 'google' ? msg.etag : undefined,
       // How much a request to Gmail sends: a note's save, without its pictures.
       size: msg.type === 'gmail' && msg.body ? JSON.stringify(msg.body).length : undefined,

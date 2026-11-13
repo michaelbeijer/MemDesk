@@ -135,7 +135,7 @@
   // trouble with the account itself stops the lot.
   async function bodies(notes) {
     const out = new Map();
-    await util.mapPool(notes, 6, async n => {
+    await util.mapPool(notes, 4, async n => {
       try {
         out.set(n.messageId, await body(n));
       } catch (err) {
