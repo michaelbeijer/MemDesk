@@ -44,6 +44,9 @@
   // a trashed old one), short enough that little is at risk.
   const AUTOSAVE_MS = 2500;
   const STALE_MS = 60 * 1000;
+  // How old the list a search looks through may be before it is asked
+  // for again (searchInside).
+  const EVERY_NOTE_MS = 5 * 60 * 1000;
 
   const SCRATCH_KEY = `n:${notesLogic.SCRATCHPAD_ID}`;
   const FAVOURITES_KEY = `n:${notesLogic.FAVOURITES_ID}`;
@@ -75,6 +78,7 @@
     terms: [],          // searchLogic.queryTerms() of the search that is showing
     hits: new Map(),    // `${messageId}|${terms}` → { count, excerpts }
     inside: false,      // still looking through the notes' text for the search showing
+    everyNote: null,    // { notes, at }: the last list without a search, which the search inside the text goes through
     findIndex: 0,       // which match in the open note is the current one
     favs: { note: null, items: [], known: false }, // the favourites' message, and what it holds, once read
     favPending: new Map(), // favourite key → { item, on }: changes made here, not saved yet
@@ -273,6 +277,7 @@
           favouritesListed(favs);
         }
         N.notes = r.notes.filter(n => n.key !== FAVOURITES_KEY);
+        if (!query) N.everyNote = { notes: N.notes, at: Date.now() };
         N.truncated = r.truncated;
         N.folders = r.folders || [];
         const terms = searchLogic.queryTerms(query);
@@ -300,6 +305,13 @@
           N.status = 'idle';
           stateError(err);
           return;
+        }
+        // A search that failed has no results to show: the notes still
+        // listed are the last list's, and calling them matches would mislead.
+        if (query) {
+          N.notes = [];
+          insideRun++;
+          N.inside = false;
         }
         N.status = N.notes.length ? 'ready' : 'error';
         N.error = err.message;
@@ -540,10 +552,17 @@
     if (!terms) return;
     const current = () => run === insideRun && query === N.query;
     try {
-      const all = await notesStore.list(hooks.getAccount(), '');
-      if (!current()) return;
+      // The notes as last listed without a search, asked for again only
+      // when that list is older than a few minutes: each listing is a
+      // request per folder, and doing it on every search, on top of the
+      // search itself, ran into Gmail's per-minute limit.
+      if (!N.everyNote || Date.now() - N.everyNote.at > EVERY_NOTE_MS) {
+        const r = await notesStore.list(hooks.getAccount(), '');
+        N.everyNote = { notes: r.notes.filter(n => n.key !== FAVOURITES_KEY), at: Date.now() };
+        if (!current()) return;
+      }
       const have = new Set(N.notes.map(n => n.key));
-      const unfound = all.notes.filter(n => n.key !== FAVOURITES_KEY && !have.has(n.key));
+      const unfound = N.everyNote.notes.filter(n => n.key !== FAVOURITES_KEY && !have.has(n.key));
       const byTitle = unfound.filter(n => searchLogic.hasAll(n.title, terms));
       const titled = new Set(byTitle);
       const rest = unfound.filter(n => !titled.has(n));

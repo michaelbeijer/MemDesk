@@ -743,6 +743,22 @@ try {
     await until(async () => !/looking inside/.test(await np.locator('.notes-scope').innerText()), 'done looking');
     await search.fill('wafels nothing-matches-this');
     await until(async () => (await np.locator('.notes-empty').innerText().catch(() => '')) === 'No notes match.', 'every word must be there');
+    // Another search lists nothing without a search again, and reads no
+    // note's text twice: only Gmail's own search, once per folder.
+    const before = await np.evaluate(() => window.__mockChrome.log.length);
+    await search.fill('stroopw');
+    await until(async () => JSON.stringify(await noteTitles()) === JSON.stringify(['Shopping list']), 'found again');
+    await until(async () => !/looking inside/.test(await np.locator('.notes-scope').innerText()), 'done looking');
+    const calls = await np.evaluate(n => window.__mockChrome.log.slice(n).filter(l => l.type === 'gmail' && l.method === 'GET'), before);
+    assert.equal(calls.filter(l => l.path === 'messages' && !(l.query && l.query.q)).length, 0, 'no second full listing');
+    assert.equal(calls.filter(l => /^messages\/[^/]+$/.test(l.path) && l.query && l.query.format === 'full').length, 0, 'no text read again');
+    // A search Gmail refuses (its per-minute limit) says so, rather than
+    // calling the notes already listed its matches.
+    await np.evaluate(() => window.__fakeGmail.failing.add('search'));
+    await search.fill('stroop');
+    await until(async () => /^Couldn’t load notes: .*Quota/.test(await np.locator('.notes-empty').innerText().catch(() => '')), 'the error, not old notes');
+    assert.deepEqual(await noteTitles(), []);
+    await np.evaluate(() => window.__fakeGmail.failing.delete('search'));
     await search.fill('-wafels');
     await until(async () => !(await noteTitles()).includes('Shopping list'), 'an operator is left to Gmail');
     await search.fill('');
