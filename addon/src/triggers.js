@@ -17,6 +17,7 @@ function doGet(e) { return gkb.app.page(e); }
 function appStart(hint) { return gkb.app.start(hint); }
 function appList(query) { return gkb.app.list(query); }
 function appBody(messageId) { return gkb.app.body(messageId); }
+function appBodies(messageIds) { return gkb.app.bodies(messageIds); }
 function appSave(previousId, snap) { return gkb.app.save(previousId, snap); }
 function appRetire(messageId) { return gkb.app.retire(messageId); }
 function appRestore(messageId, folderId) { return gkb.app.restore(messageId, folderId); }

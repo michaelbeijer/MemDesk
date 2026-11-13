@@ -567,6 +567,19 @@ test('appSave: a note saved on another device meanwhile is not overwritten - not
   assert.deepEqual(live(phone, 'launchchecklist0004').map(n => n.text), ['from the laptop']);
 });
 
+test('appBodies: several notes\' text in one call, fifty at most, nothing written, a missing one left out', () => {
+  const p = new Phone();
+  const launch = idOf(p, 'launchchecklist0004');
+  const got = p.server('appBodies', [launch, 'no-such-message']);
+  assert.deepEqual(Object.keys(got), [launch]);
+  assert.deepEqual(got[launch], p.server('appBody', launch));
+  assert.equal(p.writes().length, 0, 'only reads');
+  const many = Array.from({ length: 80 }, () => launch);
+  assert.deepEqual(Object.keys(p.server('appBodies', many)), [launch]);
+  assert.deepEqual(p.server('appBodies', null), {});
+  assert.deepEqual(p.server('appBodies', 'not a list'), {});
+});
+
 test('appBody, and appSave: a new note, a new version, an email turned into a note', () => {
   const p = new Phone();
   const launch = idOf(p, 'launchchecklist0004');

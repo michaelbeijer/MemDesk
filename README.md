@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.39.2" src="https://img.shields.io/badge/version-0.39.2-6D28D9">
+  <img alt="Version 0.40.0" src="https://img.shields.io/badge/version-0.40.0-6D28D9">
   <img alt="Chrome, Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-7C3AED">
   <img alt="Android: Gmail panel and home-screen app" src="https://img.shields.io/badge/Android-panel%20%2B%20app-8B5CF6">
   <img alt="No server" src="https://img.shields.io/badge/server-none-9F67FA">
@@ -144,7 +144,7 @@ The **Calendar** tab reads and changes Google Calendar and Google Tasks with
 a sign-in of its own, asked for the first time you open it, so the board and
 the notes never depend on it.
 
-Version 0.39.2 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
+Version 0.40.0 (called Supermail until 0.17.1). Plain JavaScript, Manifest V3, no build step and no runtime
 dependencies for the extension; the phone panel is one generated Apps Script
 file.
 
@@ -312,10 +312,14 @@ computers. All of it is kept per Gmail account.
 - **Search** shows where the words are. While a search is on, each result shows
   short excerpts around its matches with the words highlighted, and how many
   matches it has; words in titles are highlighted too. Case and accents do not
-  matter ("cafe" finds "Café"), a word matches at the start of a word ("gloss"
-  finds "glossary"), and "a phrase in quotes" matches as a phrase. Gmail still
-  does the finding - operators like `from:` or `before:` work, they are just
-  not highlighted. Open a result and every match in the note is highlighted,
+  matter ("cafe" finds "Café"), a word matches anywhere, inside a longer word
+  or number too ("0796" finds "65060796"), and "a phrase in quotes" matches as
+  a phrase. Gmail only finds whole words, so MemDesk also looks through the
+  notes' text itself: Gmail's results show at once, and notes with the words
+  inside other words follow ("looking inside the text…" while it looks). The
+  first search reads each note once; later ones only what is new. A search
+  with Gmail operators (`from:`, `before:`, `-word`, `OR`) is left to Gmail
+  alone; they work, they are just not highlighted. Open a result and every match in the note is highlighted,
   without touching its text: a bar above the title says "2 of 5", and its
   arrows, F3 and Shift+F3 step through them. The ✕ on that bar clears the
   search.

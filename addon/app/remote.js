@@ -136,6 +136,19 @@
       return doc;
     },
 
+    // Several notes' content, those not read yet fifty to a call: a Map
+    // of message id → doc, leaving out any the script could not read.
+    async bodies(notes) {
+      const ids = [...new Set(notes.map(n => n.messageId).filter(id => !S.docs.has(id)))];
+      for (let i = 0; i < ids.length; i += 50) {
+        const got = await call('appBodies', ids.slice(i, i + 50));
+        Object.keys(got || {}).forEach(id => S.docs.set(id, got[id]));
+      }
+      const out = new Map();
+      notes.forEach(n => { if (S.docs.has(n.messageId)) out.set(n.messageId, S.docs.get(n.messageId)); });
+      return out;
+    },
+
     async save(account, previous, snap) {
       const doc = fmt.normaliseDoc(snap.doc);
       const r = await call('appSave', previous ? previous.messageId : '', {

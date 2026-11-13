@@ -734,6 +734,21 @@ try {
     await until(async () => (await noteTitles()).length === 6, 'all six back');
   });
 
+  await r.step('search finds text inside a word, which Gmail alone does not', async () => {
+    const search = np.locator('[data-key="notes-search"]');
+    await search.fill('wafels');
+    await until(async () => JSON.stringify(await noteTitles()) === JSON.stringify(['Shopping list']), 'found inside “stroopwafels”');
+    await until(async () => (await np.locator('.note-item .ni-excerpt mark').count()) > 0, 'excerpt in');
+    assert.deepEqual(await np.locator('.note-item .ni-excerpt mark').allInnerTexts(), ['wafels']);
+    await until(async () => !/looking inside/.test(await np.locator('.notes-scope').innerText()), 'done looking');
+    await search.fill('wafels nothing-matches-this');
+    await until(async () => (await np.locator('.notes-empty').innerText().catch(() => '')) === 'No notes match.', 'every word must be there');
+    await search.fill('-wafels');
+    await until(async () => !(await noteTitles()).includes('Shopping list'), 'an operator is left to Gmail');
+    await search.fill('');
+    await until(async () => (await noteTitles()).length === 6, 'all six back');
+  });
+
   await r.step('a search typed while another is still loading is not lost', async () => {
     // Slow enough that the first search is still out when the second starts.
     const p = await openPage('latency=500');

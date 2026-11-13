@@ -130,6 +130,21 @@
     return doc;
   }
 
+  // Several notes' content, for a search that looks inside the text: a
+  // Map of message id → doc. A note that cannot be read is left out;
+  // trouble with the account itself stops the lot.
+  async function bodies(notes) {
+    const out = new Map();
+    await util.mapPool(notes, 6, async n => {
+      try {
+        out.set(n.messageId, await body(n));
+      } catch (err) {
+        if (api.STATE_CODES.has(err.code) || err.code === 'extension_reloaded') throw err;
+      }
+    });
+    return out;
+  }
+
   // ── Writing ──────────────────────────────────────────────────────────
 
   const META = ['Subject', 'Date', notesLogic.NOTE_HEADER];
@@ -298,7 +313,7 @@
   }
 
   ns.notesStore = {
-    resolveLabel, labelName, folders, list, body, save, retire, restore,
+    resolveLabel, labelName, folders, list, body, bodies, save, retire, restore,
     move, createFolder, renameFolder, deleteFolder,
     picture, addPicture, retirePictures, restorePictures,
   };

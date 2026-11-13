@@ -693,11 +693,14 @@
       }
       if (query.q) {
         // Words only, near enough: quotes dropped, operators (from:, is:) skipped.
+        // Like Gmail, a word is found at the start of a word, never inside
+        // one: "wafels" does not find "stroopwafels".
         const words = (String(query.q).replace(/"/g, ' ').match(/\S+/g) || []).filter(w => !/^-?[a-z]+:/i.test(w));
+        const starts = words.map(w => new RegExp(`(?<![\\p{L}\\p{N}])${fold(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'u'));
         list = list.filter(x => {
           // Like Gmail: every part counts, the HTML one included.
           const hay = fold(`${header(x, 'Subject')} ${x.snippet} ${messagePart(x, '').replace(/<[^>]+>/g, ' ')}`);
-          return words.every(w => hay.includes(fold(w)));
+          return starts.every(re => re.test(hay));
         });
       }
       list.sort((a, b) => Number(b.internalDate) - Number(a.internalDate));

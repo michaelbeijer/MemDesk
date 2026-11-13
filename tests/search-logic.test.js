@@ -29,10 +29,33 @@ test('case and accents are ignored, either way round', () => {
   assert.deepEqual(spans('Übersetzung und uber', 'uber'), ['Über', 'uber']);
 });
 
-test('a term matches at the start of a word, not inside one', () => {
+test('a term matches anywhere, inside a word or a number too', () => {
   assert.deepEqual(spans('glossary, glossaries and the Kestrel gloss', 'gloss'), ['gloss', 'gloss', 'gloss']);
-  assert.deepEqual(spans('termbase hygiene', 'base'), []);
-  assert.deepEqual(spans('e-mail and email', 'mail'), ['mail'], 'after a hyphen counts as a word start');
+  assert.deepEqual(spans('termbase hygiene', 'base'), ['base']);
+  assert.deepEqual(spans('e-mail and email', 'mail'), ['mail', 'mail']);
+  assert.deepEqual(spans('Account number: 65060796', '0796'), ['0796']);
+});
+
+// ── Searching the text itself ────────────────────────────────────────
+
+test('plainTerms: only a query of words and phrases is answered from the text', () => {
+  const plain = q => { const t = search.plainTerms(q); return t && t.map(x => x.words.join(' ')); };
+  assert.deepEqual(plain('0796'), ['0796']);
+  assert.deepEqual(plain('stent "rate schedule"'), ['stent', 'rate schedule']);
+  assert.deepEqual(plain('café 日本'), ['café', '日本']);
+  for (const q of ['from:priya stent', '-draft stent', 'coffee OR tea', 'tea AND cake', '(coffee tea)', '{a b}', '+exact',
+    'subject:invoice', 'is:starred', '"unclosed', '', '   ', 'a']) {
+    assert.equal(search.plainTerms(q), null, q);
+  }
+});
+
+test('hasAll: every word somewhere, in any order, inside words too', () => {
+  const t = search.plainTerms('0796 starling');
+  assert.equal(search.hasAll('Starling Bank\nAccount number: 65060796', t), true);
+  assert.equal(search.hasAll('Account number: 65060796', t), false, 'one word missing');
+  assert.equal(search.hasAll('', t), false);
+  assert.equal(search.hasAll('anything', null), false);
+  assert.equal(search.hasAll('anything', []), false);
 });
 
 test('phrases match across any run of spaces, line breaks included', () => {
