@@ -81,6 +81,19 @@
     return store.open(store.context(), messageId).doc;
   }
 
+  // Several notes' content at once, for a search that looks inside the
+  // text: { messageId: doc }, leaving out any Gmail would not give.
+  const BODIES_MAX = 50;
+  function bodies(messageIds) {
+    const ids = (Array.isArray(messageIds) ? messageIds : []).slice(0, BODIES_MAX).map(String);
+    const msgs = gmail.callAll(ids.map(id => ['GET', `messages/${encodeURIComponent(id)}`, { format: 'full' }]));
+    const out = {};
+    msgs.forEach((m, i) => {
+      if (m && !m.error) out[ids[i]] = fmt.docFromParts(notesLogic.noteFromMessage(m).parts || {});
+    });
+    return out;
+  }
+
   // ── Opening the app ──────────────────────────────────────────────────
   //
   // The page's first call: whose mailbox, the app's settings, the board's
@@ -562,7 +575,7 @@
   }
 
   ns.app = {
-    page, start, list, body, save, retire, restore, move, createFolder, renameFolder, deleteFolder,
+    page, start, list, body, bodies, save, retire, restore, move, createFolder, renameFolder, deleteFolder,
     picture, addPicture, retirePictures, restorePictures,
     account, boardGmail, boardGmailMany, boardColumns, layout, saveLayout, googleMany, googleWrite, allowCalendar,
     prefsGet, prefsSet, prefsRemove, licence,

@@ -74,6 +74,7 @@
     dragKey: '',        // the note being dragged onto a folder
     terms: [],          // searchLogic.queryTerms() of the search that is showing
     hits: new Map(),    // `${messageId}|${terms}` → { count, excerpts }
+    inside: false,      // still looking through the notes' text for the search showing
     findIndex: 0,       // which match in the open note is the current one
     favs: { note: null, items: [], known: false }, // the favourites' message, and what it holds, once read
     favPending: new Map(), // favourite key → { item, on }: changes made here, not saved yet
@@ -285,6 +286,7 @@
         catchUpCurrent();
         readyScratch();
         N.ctx.onLoaded();
+        searchInside(query);
       } catch (err) {
         const s = N.scratch;
         // The scratchpad was waiting for this list to say whether it exists.
@@ -438,7 +440,7 @@
     if (els.scope) {
       const where = N.folder ? folderLabel(N.folder) : 'All notes';
       els.scope.textContent = N.status === 'ready'
-        ? `${where} \u00b7 ${shown.length} ${searching ? (shown.length === 1 ? 'match' : 'matches') : (shown.length === 1 ? 'note' : 'notes')}`
+        ? `${where} \u00b7 ${shown.length} ${searching ? (shown.length === 1 ? 'match' : 'matches') : (shown.length === 1 ? 'note' : 'notes')}${searching && N.inside ? ' · looking inside the text…' : ''}`
         : where;
       // Folded, the list's rail still says where you are.
       if (els.listLabel) els.listLabel.textContent = els.scope.textContent;
@@ -517,6 +519,53 @@
         n ? h('span', { class: 'date', text: util.relativeDate(n.updated), title: util.fullDate(n.updated) }) : null),
       n ? itemPreview(n) : h('span', { class: 'ni-snippet', text: 'Empty – write something down' }),
       n ? h('span', { class: 'ni-meta' }, hitCount(n)) : null);
+  }
+
+  // ── Searching inside the text ────────────────────────────────────────
+  //
+  // Gmail finds whole words only: "0796" never finds "65060796". So for a
+  // query of plain words (searchLogic.plainTerms) the notes Gmail did not
+  // find are looked through here, title and text, and those holding every
+  // word join the results. A note's text is read once and kept (a saved
+  // note is a new message, so a kept one never goes out of date): the
+  // first search reads every listed note - at most the hundred newest in
+  // each folder - and later ones only what is new. Gmail's results show
+  // at once; these follow. If anything goes wrong, Gmail's stand.
+
+  let insideRun = 0;
+  async function searchInside(query) {
+    const run = ++insideRun;
+    const terms = searchLogic.plainTerms(query);
+    N.inside = !!terms;
+    if (!terms) return;
+    const current = () => run === insideRun && query === N.query;
+    try {
+      const all = await notesStore.list(hooks.getAccount(), '');
+      if (!current()) return;
+      const have = new Set(N.notes.map(n => n.key));
+      const unfound = all.notes.filter(n => n.key !== FAVOURITES_KEY && !have.has(n.key));
+      const byTitle = unfound.filter(n => searchLogic.hasAll(n.title, terms));
+      const titled = new Set(byTitle);
+      const rest = unfound.filter(n => !titled.has(n));
+      const docs = await notesStore.bodies(rest);
+      if (!current()) return;
+      const found = byTitle.concat(rest.filter(n => docs.has(n.messageId) &&
+        searchLogic.hasAll(`${n.title}\n${fmt.docText(docs.get(n.messageId))}`, terms)));
+      const known = new Set(N.notes.map(n => n.key));
+      const added = found.filter(n => !known.has(n.key));
+      if (added.length) {
+        N.notes = N.notes.concat(added).sort((a, b) => b.updated - a.updated);
+        fetchHits();
+      }
+    } catch (err) {
+      console.warn(`Searching inside the notes' text: ${err.message}`);
+    } finally {
+      if (run === insideRun) {
+        N.inside = false;
+        drawFolders();
+        drawList();
+      }
+    }
   }
 
   // ── Search results ───────────────────────────────────────────────────

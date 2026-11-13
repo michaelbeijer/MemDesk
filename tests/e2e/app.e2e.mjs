@@ -313,6 +313,15 @@ await r.step('search marks the words in the results, and in the note with a find
   await until(async () => (await titles(page)).length === 5, 'all notes again');
 });
 
+await r.step('search finds text inside a word', async () => {
+  await q(page, '[data-key="notes-search"]').fill('estrel');
+  await until(async () => (await titles(page)).length === 2, 'both found inside “Kestrel”');
+  await until(async () => (await q(page, '.ni-excerpt mark').count()) > 0, 'excerpts marked');
+  assert.deepEqual([...new Set(await q(page, '.ni-excerpt mark').allInnerTexts())], ['estrel']);
+  await q(page, '[data-key="notes-search"]').fill('');
+  await until(async () => (await titles(page)).length === 5, 'all notes again');
+});
+
 await r.step('a new note in the folder being looked at', async () => {
   await pickFolder(page, 'Work');
   assert.deepEqual(await titles(page), ['Ideas for the October newsletter']);

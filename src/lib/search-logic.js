@@ -1,12 +1,15 @@
 // ─────────────────────────────────────────────────────────────────────
-// Search highlighting (pure)
+// Search: matching and highlighting (pure)
 //
-// Gmail does the searching; this only shows where the words are. It takes
-// the words out of a Gmail query - leaving out operators such as from: or
-// before:, and anything excluded with a minus - and finds them in a
-// note's text the way a person would read a match: ignoring case and
-// accents ("cafe" finds "Café"), at the start of a word ("gloss" finds
-// "glossary", not "xgloss"), and phrases in quotes as phrases.
+// Gmail does most of the searching; this shows where the words are. It
+// takes the words out of a Gmail query - leaving out operators such as
+// from: or before:, and anything excluded with a minus - and finds them
+// in a note's text: ignoring case and accents ("cafe" finds "Café"),
+// anywhere, inside a word too ("0796" finds "65060796"), and phrases in
+// quotes as phrases.
+//
+// Gmail only finds whole words, so for a query of plain words the notes
+// view also looks through the notes' own text (plainTerms, hasAll).
 //
 // From those matches come the excerpts shown in the results list, with
 // their offsets, so the list can mark them without parsing any HTML.
@@ -89,7 +92,7 @@
     for (const t of terms) {
       const pattern = t.words.map(w => escapeRe(fold(w).folded)).join('[\\s\\u00a0]+');
       if (!pattern) continue;
-      const re = new RegExp(`(?<![\\p{L}\\p{N}])${pattern}`, 'gu');
+      const re = new RegExp(pattern, 'gu');
       let m;
       while ((m = re.exec(folded))) {
         found.push([map[m.index], map[m.index + m[0].length]]);
@@ -144,7 +147,26 @@
     return out;
   }
 
-  const api = { queryTerms, fold, findMatches, excerpts };
+  // The terms of a query made only of words and phrases in quotes, which
+  // a note's text can answer by itself; null when Gmail's operators
+  // decide (from:, before:, -word, OR, braces …) and only Gmail is right.
+  function plainTerms(query) {
+    const q = String(query || '').trim();
+    if (!q) return null;
+    for (const t of q.match(/"[^"]*"|\S+/g) || []) {
+      if (/^"[^"]*"$/.test(t)) continue;
+      if (/^[-+]|[{}()"]|^[\p{L}\p{N}_]+:/u.test(t) || KEYWORDS.has(t.toLowerCase())) return null;
+    }
+    const terms = queryTerms(q);
+    return terms.length ? terms : null;
+  }
+
+  // Every term somewhere in the text, as Gmail wants every word.
+  function hasAll(text, terms) {
+    return !!terms && terms.length > 0 && terms.every(t => findMatches(text, [t]).length > 0);
+  }
+
+  const api = { queryTerms, plainTerms, fold, findMatches, hasAll, excerpts };
 
   ns.searchLogic = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
